@@ -30,7 +30,7 @@ _M.windows = {
     -- 等比例放大窗口
     zoom = {prefix = {"Ctrl", "Option"}, key = "=", message = "Zoom Window"},
     -- 等比例缩小窗口
-    narrow = {prefix = {"Ctrl", "Option"}, key = "-", message = "Narrow Window"},
+    shrink = {prefix = {"Ctrl", "Option"}, key = "-", message = "Shrink Window"},
     -- **************************************
     -- 居中
     center = {prefix = {"Ctrl", "Option"}, key = "C", message = "Window Center"},
@@ -46,36 +46,42 @@ _M.windows = {
     -- 下半屏
     down = {prefix = {"Ctrl", "Option"}, key = "J", message = "Down Half"},
     -- **************************************
-    -- 同一工作空间下的所有窗口自动网格式布局
-    same_space_auto_layout_grid = {prefix = {"Ctrl", "Option"}, key = "X", message = "Same space layout grid"},
-    -- 同一工作空间下的所有窗口自动水平均分或垂直均分
-    same_space_auto_layout_horizontal_or_vertical = {
-        prefix = {"Ctrl", "Option"},
-        key = "S",
-        message = "Same space layout horizontal or vertical"
-    },
-    -- **************************************
-    -- 同一应用的所有窗口自动网格式布局
-    same_application_auto_layout_grid = {
-        prefix = {"Ctrl", "Option"},
-        key = "Z",
-        message = "Same application layout grid"
-    },
-    -- 同一应用的所有窗口自动水平均分或垂直均分
-    same_application_auto_layout_horizontal_or_vertical = {
-        prefix = {"Ctrl", "Option"},
-        key = "A",
-        message = "Same application layout horizontal or vertical"
-    },
-    -- **************************************
     -- 左上角
     top_left = {prefix = {"Ctrl", "Option"}, key = "U", message = "Top Left"},
     -- 右上角
     top_right = {prefix = {"Ctrl", "Option"}, key = "I", message = "Top Right"},
     -- 左下角
-    left_bottom = {prefix = {"Ctrl", "Option"}, key = "o", message = "Left Bottom"},
+    left_bottom = {prefix = {"Ctrl", "Option"}, key = "O", message = "Left Bottom"},
     -- 右下角
-    right_bottom = {prefix = {"Ctrl", "Option"}, key = "p", message = "Right Bottom"},
+    right_bottom = {prefix = {"Ctrl", "Option"}, key = "P", message = "Right Bottom"},
+    -- **********************************
+    -- 左 1/3（横屏）或上 1/3（竖屏）
+    left_1_3 = {
+        prefix = {"Ctrl", "Option"},
+        key = "D",
+        message = "Left 1/3 or Top 1/3"
+    },
+    -- 中 1/3
+    middle = {prefix = {"Ctrl", "Option"}, key = "F", message = "Middle 1/3"},
+    -- 右 1/3（横屏）或下 1/3（竖屏）
+    right_1_3 = {
+        prefix = {"Ctrl", "Option"},
+        key = "G",
+        message = "Right 1/3 or Bottom 1/3"
+    },
+    -- 左 2/3（横屏）或上 2/3（竖屏）
+    left_2_3 = {
+        prefix = {"Ctrl", "Option"},
+        key = "E",
+        message = "Left 2/3 or Top 2/3"
+    },
+    -- 右 2/3（横屏）或下 2/3（竖屏）
+    right_2_3 = {
+        prefix = {"Ctrl", "Option"},
+        key = "T",
+        message = "Right 2/3 or Bottom 2/3"
+    },
+    -- **************************************
     -- 1/9
     one = {prefix = {"Ctrl", "Option"}, key = "1", message = "1/9"},
     -- 2/9
@@ -94,41 +100,37 @@ _M.windows = {
     eight = {prefix = {"Ctrl", "Option"}, key = "8", message = "8/9"},
     -- 9/9
     nine = {prefix = {"Ctrl", "Option"}, key = "9", message = "9/9"},
-    -- 左 1/3（横屏）或上 1/3（竖屏）
-    left_1_3 = {
+    -- **************************************
+    -- 同一工作空间下的所有窗口自动网格式布局
+    same_space_auto_layout_grid = {prefix = {"Ctrl", "Option"}, key = "X", message = "Same space layout grid"},
+    -- 同一工作空间下的所有窗口自动水平均分或垂直均分
+    same_space_auto_layout_horizontal_or_vertical = {
         prefix = {"Ctrl", "Option"},
-        key = "D",
-        message = "Left 1/3(Horizontal screen) Or Top 1/3(Vertical screen)"
+        key = "S",
+        message = "Same space layout Horz/Vert"
     },
-    -- 中 1/3
-    middle = {prefix = {"Ctrl", "Option"}, key = "F", message = "Middle 1/3"},
-    -- 右 1/3（横屏）或下 1/3（竖屏）
-    right_1_3 = {
+    -- **************************************
+    -- 同一应用的所有窗口自动网格式布局
+    same_application_auto_layout_grid = {
         prefix = {"Ctrl", "Option"},
-        key = "G",
-        message = "Right 1/3(Horizontal screen)Or Bottom 1/3(Vertical screen)"
+        key = "Z",
+        message = "Same app layout grid"
     },
-    -- 左 2/3（横屏）或上 2/3（竖屏）
-    left_2_3 = {
+    -- 同一应用的所有窗口自动水平均分或垂直均分
+    same_application_auto_layout_horizontal_or_vertical = {
         prefix = {"Ctrl", "Option"},
-        key = "E",
-        message = "Left 2/3(Horizontal screen) Or Top 2/3(Vertical screen)"
-    },
-    -- 右 2/3（横屏）或下 2/3（竖屏）
-    right_2_3 = {
-        prefix = {"Ctrl", "Option"},
-        key = "T",
-        message = "Right 2/3(Horizontal screen)Or Bottom 2/3(Vertical screen)"
+        key = "A",
+        message = "Same app layout Horz/Vert"
     },
     -- **********************************
     -- 将窗口移动到上方屏幕
-    to_up = {prefix = {"Ctrl", "Option", "Command"}, key = "Up", message = "Move To Up Screen"},
+    to_up = {prefix = {"Ctrl", "Option", "Command"}, key = "K", message = "Move To Up Screen"},
     -- 将窗口移动到下方屏幕
-    to_down = {prefix = {"Ctrl", "Option", "Command"}, key = "Down", message = "Move To Down Screen"},
+    to_down = {prefix = {"Ctrl", "Option", "Command"}, key = "J", message = "Move To Down Screen"},
     -- 将窗口移动到左侧屏幕
-    to_left = {prefix = {"Ctrl", "Option", "Command"}, key = "Left", message = "Move To Left Screen"},
+    to_left = {prefix = {"Ctrl", "Option", "Command"}, key = "H", message = "Move To Left Screen"},
     -- 将窗口移动到右侧屏幕
-    to_right = {prefix = {"Ctrl", "Option", "Command"}, key = "Right", message = "Move To Right Screen"}
+    to_right = {prefix = {"Ctrl", "Option", "Command"}, key = "L", message = "Move To Right Screen"}
 }
 
 return _M
