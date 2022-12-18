@@ -568,9 +568,9 @@ hs.hotkey.bind(
 
 -- 等比例缩小窗口
 hs.hotkey.bind(
-    windows.narrow.prefix,
-    windows.narrow.key,
-    windows.narrow.message,
+    windows.shrink.prefix,
+    windows.shrink.key,
+    windows.shrink.message,
     function()
         local win = hs.window.focusedWindow()
         local f = win:frame()

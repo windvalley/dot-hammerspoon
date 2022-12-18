@@ -52,7 +52,6 @@ end
 local function formatText()
     -- 加载所有绑定的快捷键
     local hotkeys = hs.hotkey.getHotkeys()
-    print("hotkeys: ", hotkeys)
     local renderText = {}
 
     -- 快捷键分类
@@ -71,7 +70,6 @@ local function formatText()
     for _, v in ipairs(hotkeys) do
         -- 以 ⌥ 开头，表示为应用切换快捷键
         if string.find(v.idx, "^⌥") ~= nil then
-            print("hotkey: ", v.idx, " ", v.msg)
             table.insert(applicationSwitchText, {msg = v.msg})
         end
 
@@ -113,8 +111,6 @@ local function formatText()
 
         table.insert(renderText, {line = msg})
     end
-
-    print("renderText: ", renderText)
 
     return renderText
 end
@@ -166,7 +162,6 @@ local function drawText(renderText)
                 {
                     type = "segments",
                     closed = false,
-                    -- strokeColor = { blue = 1 },
                     strokeColor = {hex = "#0096FA"},
                     action = "stroke",
                     strokeWidth = 2,
@@ -205,37 +200,25 @@ local function drawText(renderText)
 
     -- 居中显示
     canvas:frame({x = COORIDNATE_X - w / 2, y = COORIDNATE_Y - h / 2, w = w, h = h})
-
-    print("canvas ", canvas)
 end
 
 -- 默认不显示
 local show = false
-
--- toggle show/hide
 local function toggleHotkeysShow()
     if show then
         -- 0.3s 过渡
         canvas:hide(.3)
     else
-        -- 0.3s 过渡
         canvas:show(.3)
     end
 
     show = not show
 end
 
--- local function closeHotKeyShow()
---     canvas:hide(.3)
---     show = false
--- end
-
+-- 执行绘制
 drawText(formatText())
 
--- ⌥/ 显示/隐藏快捷键列表
+-- 绑定显示/隐藏快捷键列表功能的快捷键
 hs.hotkey.bind(hotkeys_show.prefix, hotkeys_show.key, toggleHotkeysShow)
-
--- Esc 关闭快捷键列表（仅在快捷键列表已显示情况下生效）
--- hs.hotkey.bind({"zero"}, "escape", closeHotKeyShow)
 
 return _M
