@@ -28,7 +28,7 @@ canvas:appendElements(
     {
         id = "pannel",
         action = "fill",
-        fillColor = {alpha = 0.9, red = 0, green = 0, blue = 0},
+        fillColor = {alpha = 0.8, red = 0, green = 0, blue = 0},
         type = "rectangle"
     }
 )
@@ -39,9 +39,9 @@ local function styleText(text)
         {
             font = {
                 name = "Monaco",
-                size = 16
+                size = 15
             },
-            color = {hex = "#0096FA"},
+            color = {hex = "#c6c6c6"},
             paragraphStyle = {
                 lineSpacing = 5
             }
@@ -64,7 +64,7 @@ local function formatText()
     table.insert(windowManagement, {msg = "[Windows Manage]"})
 
     -- 每行最多 40 个字符
-    local MAX_LEN = 40
+    local MAX_LEN = 36
 
     -- 快捷键分类
     for _, v in ipairs(hotkeys) do
@@ -162,9 +162,11 @@ local function drawText(renderText)
                 {
                     type = "segments",
                     closed = false,
-                    strokeColor = {hex = "#0096FA"},
+                    -- 分割线的颜色
+                    strokeColor = {hex = "#585858"},
                     action = "stroke",
-                    strokeWidth = 2,
+                    -- 分隔线的宽度
+                    strokeWidth = 1,
                     coordinates = {
                         {x = (k / MAX_LINE_NUM) * size.w - SEPRATOR_W, y = 0},
                         {x = (k / MAX_LINE_NUM) * size.w - SEPRATOR_W, y = h}
