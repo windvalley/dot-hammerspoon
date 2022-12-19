@@ -20,7 +20,10 @@ _M.input_methods = {
 }
 
 -- App切换
+-- NOTE:
+--   获取某个App的bundleId的方法举例: osascript -e 'id of app "chrome"'
 _M.apps = {
+    {prefix = {"Option"}, key = "H", message = "Hammerspoon", bundleId = "org.hammerspoon.Hammerspoon"},
     {prefix = {"Option"}, key = "F", message = "Finder", bundleId = "com.apple.finder"},
     {prefix = {"Option"}, key = "I", message = "Alacritty", bundleId = "io.alacritty"},
     {prefix = {"Option"}, key = "C", message = "Chrome", bundleId = "com.google.Chrome"},
