@@ -15,7 +15,8 @@ _M.hotkeys_show = {
 -- 指定目标输入法
 _M.input_methods = {
     abc = {prefix = {"Option"}, key = "1", message = "ABC"},
-    chinese = {prefix = {"Option"}, key = "2", message = "简体拼音"}
+    -- NOTE: message的值不能是中文, 会导致快捷键列表面板显示错位.
+    chinese = {prefix = {"Option"}, key = "2", message = "Pinyin"}
 }
 
 -- App切换
