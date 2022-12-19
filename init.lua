@@ -17,6 +17,9 @@ require("apps_switch")
 -- app窗口管理
 require("windows_manage")
 
+-- 指定输入法切换
+require("input_method")
+
 -- 显示快捷键列表
 require("hotkeys_show")
 

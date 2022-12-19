@@ -4,11 +4,18 @@ _M.version = "0.1.0"
 _M.name = "shortcuts_config"
 _M.description = "快捷键配置"
 
+-- 快捷键列表展示
 _M.hotkeys_show = {
     prefix = {
         "Option"
     },
     key = "/"
+}
+
+-- 指定目标输入法
+_M.input_methods = {
+    abc = {prefix = {"Option"}, key = "1", message = "ABC"},
+    chinese = {prefix = {"Option"}, key = "2", message = "简体拼音"}
 }
 
 -- App切换
