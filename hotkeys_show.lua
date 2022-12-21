@@ -196,8 +196,6 @@ local function drawText(renderText)
                 }
             }
         )
-
-        column = nil
     end
 
     -- 居中显示

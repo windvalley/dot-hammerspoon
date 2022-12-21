@@ -208,7 +208,7 @@ _M.day_step = function(old_day, step)
 
     local new_day = os.date("*t", new_time)
 
-    local res = ""
+    local res
     if tonumber(new_day.day) < 10 and tonumber(new_day.month) < 10 then
         res = new_day.year .. "-" .. "0" .. new_day.month .. "-" .. "0" .. new_day.day
     elseif tonumber(new_day.month) < 10 then
