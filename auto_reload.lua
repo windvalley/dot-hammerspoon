@@ -15,12 +15,13 @@ local function reload(files)
     end
 
     if doReload then
+        hs.console.clearConsole()
         hs.reload()
     end
 end
 
 hs.pathwatcher.new(hammerspoon_path, reload):start()
 
-hs.alert.show("Hammerspoon config reloaded")
+hs.alert.show("hammerspoon reloaded")
 
 return _M
