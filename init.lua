@@ -8,9 +8,6 @@ _M.author = "XG <levinwang6@gmail.com>"
 _M.license = "MIT"
 _M.homepage = "https://github.com/windvalley/dot-hammerspoon"
 
--- 每次按快捷键时显示快捷键alert消息持续的秒数, 0 为禁用.
-hs.hotkey.alertDuration = 0
-
 -- app切换
 require("apps_switch")
 
