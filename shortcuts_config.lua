@@ -73,25 +73,25 @@ _M.windows = {
     left_1_3 = {
         prefix = {"Ctrl", "Option"},
         key = "Q",
-        message = "Left 1/3 or Top 1/3"
+        message = "Left or Top 1/3"
     },
     -- 右 1/3（横屏）或下 1/3（竖屏）
     right_1_3 = {
         prefix = {"Ctrl", "Option"},
         key = "W",
-        message = "Right 1/3 or Bottom 1/3"
+        message = "Right or Bottom 1/3"
     },
     -- 左 2/3（横屏）或上 2/3（竖屏）
     left_2_3 = {
         prefix = {"Ctrl", "Option"},
         key = "E",
-        message = "Left 2/3 or Top 2/3"
+        message = "Left or Top 2/3"
     },
     -- 右 2/3（横屏）或下 2/3（竖屏）
     right_2_3 = {
         prefix = {"Ctrl", "Option"},
         key = "R",
-        message = "Right 2/3 or Bottom 2/3"
+        message = "Right or Bottom 2/3"
     },
     -- **************************************
     -- 向上移动窗口
