@@ -1,6 +1,6 @@
 # dot-hammerspoon
 
-`dot-hammerspoon` is my configuration for [Hammerspoon](http://www.hammerspoon.org/).
+`dot-hammerspoon` is my personal configuration for [Hammerspoon](http://www.hammerspoon.org/), and you can modify to suit your needs and preferences.
 
 ## Features
 
@@ -67,10 +67,10 @@ cd ~/.hammerspoon && git pull
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>O</kbd>: Bottom Left Corner
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>P</kbd>: Bottom Right Corner
 
-- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>D</kbd>: Left 1/3
-- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>F</kbd>: Right 1/3
-- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>E</kbd>: Left 2/3
-- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>T</kbd>: Right 2/3
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>Q</kbd>: Left or Top 1/3
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>W</kbd>: Right or Bottom 1/3
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>E</kbd>: Left or Top 2/3
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>R</kbd>: Right or Bottom 2/3
 
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>K</kbd>: Move Upward
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>J</kbd>: Move Downward
