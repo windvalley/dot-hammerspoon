@@ -8,7 +8,7 @@
 - Application window manipulation, such as movement, stretch or shrink, change position, etc.
 - Quickly switch to the specified input method.
 - Toggle the keybindings cheatsheet.
-- Configuration file changes will be automatically reloaded to take effect in real time.
+- Auto reload configuration when lua files changes.
 - The code structure is clear and easy to customize into your own configuration.
 
 ## Installation
@@ -54,8 +54,8 @@ cd ~/.hammerspoon && git pull
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>=</kbd>: Stretch Outward
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>-</kbd>: Shrink Inward
 
-- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>C</kbd>: Center window
-- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>M</kbd>: Max window
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>C</kbd>: Center Window
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>M</kbd>: Max Window
 
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>H</kbd>: Left Half of Screen
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>L</kbd>: Right Half of Screen
@@ -76,6 +76,11 @@ cd ~/.hammerspoon && git pull
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>J</kbd>: Move Downward
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>H</kbd>: Move Leftward
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>L</kbd>: Move Rightward
+
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>K</kbd>: Bottom Side Stretch Upward
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>J</kbd>: Bottom Side Stretch Downward
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>H</kbd>: Right Side Stretch Leftward
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>L</kbd>: Right Side Stretch Rightward
 
 ## Keybindings Customization
 
