@@ -4,6 +4,203 @@ _M.name = "windows_lib"
 _M.version = "0.1.0"
 _M.description = "窗口管理相关函数库"
 
+-- 判断指定屏幕是否为竖屏
+local isVerticalScreen = function(screen)
+    if screen:rotate() == 90 or screen:rotate() == 270 then
+        return true
+    else
+        return false
+    end
+end
+
+-- An integer specifying how many gridparts the screen should be divided into.
+-- Defaults to 30.
+_M.gridparts = 30
+
+-- Move the focused window in the `direction` by on step.
+-- Parameters: left, right, up, down
+_M.stepMove = function(direction)
+    local cwin = hs.window.focusedWindow()
+    if cwin then
+        local cscreen = cwin:screen()
+        local cres = cscreen:fullFrame()
+        local stepw = cres.w / _M.gridparts
+        local steph = cres.h / _M.gridparts
+        local wtopleft = cwin:topLeft()
+
+        if direction == "left" then
+            cwin:setTopLeft({x = wtopleft.x - stepw, y = wtopleft.y})
+        elseif direction == "right" then
+            cwin:setTopLeft({x = wtopleft.x + stepw, y = wtopleft.y})
+        elseif direction == "up" then
+            cwin:setTopLeft({x = wtopleft.x, y = wtopleft.y - steph})
+        elseif direction == "down" then
+            cwin:setTopLeft({x = wtopleft.x, y = wtopleft.y + steph})
+        end
+    else
+        hs.alert.show("No focused window!")
+    end
+end
+
+-- Move and resize the focused window.
+-- Parameters:
+--   halfleft: 左半屏
+--   halfright: 右半屏
+--   halfup: 上半屏
+--   halfdown: 下半屏
+--   left_1_3: 左或上1/3
+--   right_1_3: 右或下1/3
+--   left_2_3: 左或上2/3
+--   right_2_3: 右或下2/3
+--   cornerTopLeft: 左上角
+--   cornerTopRight: 右上角
+--   cornerBottomLeft: 左下角
+--   cornerBottomRight: 右下角
+--   max: 最大化
+--   center: 保持窗口原右大小居中
+--   stretch: 放大
+--   shrink: 缩小
+_M.moveAndResize = function(option)
+    local cwin = hs.window.focusedWindow()
+
+    if cwin then
+        local cscreen = cwin:screen()
+        local cres = cscreen:fullFrame()
+        local stepw = cres.w / _M.gridparts
+        local steph = cres.h / _M.gridparts
+        local wf = cwin:frame()
+
+        if option == "halfleft" then
+            cwin:setFrame({x = cres.x, y = cres.y, w = cres.w / 2, h = cres.h})
+        elseif option == "halfright" then
+            cwin:setFrame({x = cres.x + cres.w / 2, y = cres.y, w = cres.w / 2, h = cres.h})
+        elseif option == "halfup" then
+            cwin:setFrame({x = cres.x, y = cres.y, w = cres.w, h = cres.h / 2})
+        elseif option == "halfdown" then
+            cwin:setFrame({x = cres.x, y = cres.y + cres.h / 2, w = cres.w, h = cres.h / 2})
+        elseif option == "cornerTopLeft" then
+            cwin:setFrame({x = cres.x, y = cres.y, w = cres.w / 2, h = cres.h / 2})
+        elseif option == "cornerTopRight" then
+            cwin:setFrame({x = cres.x + cres.w / 2, y = cres.y, w = cres.w / 2, h = cres.h / 2})
+        elseif option == "cornerBottomLeft" then
+            cwin:setFrame({x = cres.x, y = cres.y + cres.h / 2, w = cres.w / 2, h = cres.h / 2})
+        elseif option == "cornerBottomRight" then
+            cwin:setFrame({x = cres.x + cres.w / 2, y = cres.y + cres.h / 2, w = cres.w / 2, h = cres.h / 2})
+        elseif option == "max" then
+            cwin:setFrame({x = cres.x, y = cres.y, w = cres.w, h = cres.h})
+        elseif option == "center" then
+            cwin:centerOnScreen()
+        elseif option == "stretch" then
+            cwin:setFrame({x = wf.x - stepw, y = wf.y - steph, w = wf.w + (stepw * 2), h = wf.h + (steph * 2)})
+        elseif option == "shrink" then
+            cwin:setFrame({x = wf.x + stepw, y = wf.y + steph, w = wf.w - (stepw * 2), h = wf.h - (steph * 2)})
+        elseif option == "left_1_3" then
+            local obj
+            if isVerticalScreen(cscreen) then
+                obj = {
+                    x = cres.x,
+                    y = cres.y,
+                    w = cres.w,
+                    h = cres.h / 3
+                }
+            else
+                obj = {
+                    x = cres.x,
+                    y = cres.y,
+                    w = cres.w / 3,
+                    h = cres.h
+                }
+            end
+
+            cwin:setFrame(obj)
+        elseif option == "right_1_3" then
+            local obj
+            if isVerticalScreen(cscreen) then
+                obj = {
+                    x = cres.x,
+                    y = cres.y + (cres.h / 3 * 2),
+                    w = cres.w,
+                    h = cres.h / 3
+                }
+            else
+                obj = {
+                    x = cres.x + (cres.w / 3 * 2),
+                    y = cres.y,
+                    w = cres.w / 3,
+                    h = cres.h
+                }
+            end
+
+            cwin:setFrame(obj)
+        elseif option == "left_2_3" then
+            local obj
+            if isVerticalScreen(cscreen) then
+                obj = {
+                    x = cres.x,
+                    y = cres.y,
+                    w = cres.w,
+                    h = cres.h / 3 * 2
+                }
+            else
+                obj = {
+                    x = cres.x,
+                    y = cres.y,
+                    w = cres.w / 3 * 2,
+                    h = cres.h
+                }
+            end
+
+            cwin:setFrame(obj)
+        elseif option == "right_2_3" then
+            local obj
+            if isVerticalScreen(cscreen) then
+                obj = {
+                    x = cres.x,
+                    y = cres.y + (cres.h / 3),
+                    w = cres.w,
+                    h = cres.h / 3 * 2
+                }
+            else
+                obj = {
+                    x = cres.x + (cres.w / 3),
+                    y = cres.y,
+                    w = cres.w / 3 * 2,
+                    h = cres.h
+                }
+            end
+
+            cwin:setFrame(obj)
+        end
+    else
+        hs.alert.show("No focused window!")
+    end
+end
+
+-- Resize the focused window in the `direction` by on step.
+-- Parameters: left, right, up, down
+_M.directionStepResize = function(direction)
+    local cwin = hs.window.focusedWindow()
+
+    if cwin then
+        local cscreen = cwin:screen()
+        local cres = cscreen:fullFrame()
+        local stepw = cres.w / _M.gridparts
+        local steph = cres.h / _M.gridparts
+        local wsize = cwin:size()
+        if direction == "left" then
+            cwin:setSize({w = wsize.w - stepw, h = wsize.h})
+        elseif direction == "right" then
+            cwin:setSize({w = wsize.w + stepw, h = wsize.h})
+        elseif direction == "up" then
+            cwin:setSize({w = wsize.w, h = wsize.h - steph})
+        elseif direction == "down" then
+            cwin:setSize({w = wsize.w, h = wsize.h + steph})
+        end
+    else
+        hs.alert.show("No focused window!")
+    end
+end
+
 -- 窗口枚举
 _M.AUTO_LAYOUT_TYPE = {
     -- 网格式布局
@@ -11,15 +208,6 @@ _M.AUTO_LAYOUT_TYPE = {
     -- 水平或垂直评分
     HORIZONTAL_OR_VERTICAL = "HORIZONTAL_OR_VERTICAL"
 }
-
--- 判断指定屏幕是否为竖屏
-_M.isVerticalScreen = function(screen)
-    if screen:rotate() == 90 or screen:rotate() == 270 then
-        return true
-    else
-        return false
-    end
-end
 
 -- 平铺模式-网格均分
 local function layout_grid(windows)
@@ -71,7 +259,7 @@ local function layout_grid(windows)
             local column = item.column
             local row = item.row
 
-            if _M.isVerticalScreen(focusedScreen) then
+            if isVerticalScreen(focusedScreen) then
                 if item.column > item.row then
                     column = item.row
                     row = item.column
@@ -147,7 +335,7 @@ local function layout_horizontal_or_vertical(windows)
     local focusedScreenFrame = focusedScreen:frame()
 
     -- 如果是竖屏，就水平均分，否则垂直均分
-    if _M.isVerticalScreen(focusedScreen) then
+    if isVerticalScreen(focusedScreen) then
         layout_horizontal(windows, focusedScreenFrame)
     else
         layout_vertical(windows, focusedScreenFrame)
