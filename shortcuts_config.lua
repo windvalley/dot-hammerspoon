@@ -95,13 +95,54 @@ _M.windows = {
     },
     -- **************************************
     -- 向上移动窗口
-    to_up = {prefix = {"Ctrl", "Option", "Command"}, key = "K", message = "Move Upward"},
+    to_up = {
+        prefix = {"Ctrl", "Option", "Command"},
+        key = "K",
+        message = "Move Upward"
+    },
     -- 向下移动窗口
-    to_down = {prefix = {"Ctrl", "Option", "Command"}, key = "J", message = "Move Downward"},
+    to_down = {
+        prefix = {"Ctrl", "Option", "Command"},
+        key = "J",
+        message = "Move Downward"
+    },
     -- 向左移动窗口
-    to_left = {prefix = {"Ctrl", "Option", "Command"}, key = "H", message = "Move Leftward"},
+    to_left = {
+        prefix = {"Ctrl", "Option", "Command"},
+        key = "H",
+        message = "Move Leftward"
+    },
     -- 向右移动窗口
-    to_right = {prefix = {"Ctrl", "Option", "Command"}, key = "L", message = "Move Rightward"}
+    to_right = {
+        prefix = {"Ctrl", "Option", "Command"},
+        key = "L",
+        message = "Move Rightward"
+    },
+    -- **************************************
+    -- 底边向上伸展窗口
+    stretch_up = {
+        prefix = {"Ctrl", "Option", "Command", "Shift"},
+        key = "K",
+        message = "Bottom Side Stretch Upward"
+    },
+    -- 底边向下伸展窗口
+    stretch_down = {
+        prefix = {"Ctrl", "Option", "Command", "Shift"},
+        key = "J",
+        message = "Bottom Side Stretch Downward"
+    },
+    -- 右边向左伸展窗口
+    stretch_left = {
+        prefix = {"Ctrl", "Option", "Command", "Shift"},
+        key = "H",
+        message = "Right Side Stretch Leftward"
+    },
+    -- 右边向右伸展窗口
+    stretch_right = {
+        prefix = {"Ctrl", "Option", "Command", "Shift"},
+        key = "L",
+        message = "Right Side Stretch Rightward"
+    }
 }
 
 return _M
