@@ -23,4 +23,7 @@ require("hotkeys_show")
 -- lua文件变动自动reload
 require("auto_reload")
 
+-- 使桌面壁纸保持和 Bing Daily Picture 一致
+require("bing_daily_wallpaper")
+
 return _M
