@@ -5,20 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.3.0
+
+### Added
+
+#### Features
+
+- Keep the desktop wallpaper the same as the bing daily picture.
+- New window manipulation: Move to other monitors.
+
+#### Keybindins
+
+Move to other monitors:
+
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>UP</kbd>: Move to Above Monitor
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>DOWN</kbd>: Move to Below Monitor
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>LEFT</kbd>: Move to Left Monitor
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>RIGHT</kbd>: Move to Right Monitor
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>SPACE</kbd>: Move to Next Monitor
+
 ## v0.2.0
 
 ### Added
 
 #### Features
 
-Window manipulation:
-
-1. Bottom Side Stretch Upward
-2. Bottom Side Stretch Downward
-3. Right Side Stretch Leftward
-4. Right Side Stretch Rightward
+New window manipulation: Stretch from bottom or right side.
 
 #### Keybindins
+
+Stretch from bottom or right side:
 
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>K</kbd>: Bottom Side Stretch Upward
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>J</kbd>: Bottom Side Stretch Downward
