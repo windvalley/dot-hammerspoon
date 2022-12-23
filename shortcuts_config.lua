@@ -93,7 +93,34 @@ _M.windows = {
         key = "R",
         message = "Right or Bottom 2/3"
     },
-    -- **************************************
+    -- **********************************
+    -- 移动到上下左右或下一个显示器
+    to_above_screen = {
+        prefix = {"Ctrl", "Option"},
+        key = "up",
+        message = "Move to Above Monitor"
+    },
+    to_below_screen = {
+        prefix = {"Ctrl", "Option"},
+        key = "down",
+        message = "Move to Below Monitor"
+    },
+    to_left_screen = {
+        prefix = {"Ctrl", "Option"},
+        key = "left",
+        message = "Move to Left Monitor"
+    },
+    to_right_screen = {
+        prefix = {"Ctrl", "Option"},
+        key = "right",
+        message = "Move to Right Monitor"
+    },
+    to_next_screen = {
+        prefix = {"Ctrl", "Option"},
+        key = "space",
+        message = "Move to Next Monitor"
+    },
+    -- **********************************
     -- 向上移动窗口
     to_up = {
         prefix = {"Ctrl", "Option", "Command"},
