@@ -13,7 +13,13 @@ local function curl_callback(exitCode, stdOut, stdErr)
         _M.last_pic = hs.http.urlParts(_M.full_url).lastPathComponent
 
         local localpath = os.getenv("HOME") .. "/.Trash/" .. hs.http.urlParts(_M.full_url).lastPathComponent
-        hs.screen.mainScreen():desktopImageURL("file://" .. localpath)
+
+        -- 为每个显示器都设置壁纸(注意不是macOS新建的其他桌面, 而是扩展显示器)
+        local screens = hs.screen.allScreens()
+        for _, screen in ipairs(screens) do
+            print("[INFO] set wallpaper for ", screen)
+            screen:desktopImageURL("file://" .. localpath)
+        end
     else
         print(stdOut, stdErr)
     end
