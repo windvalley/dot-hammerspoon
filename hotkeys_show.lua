@@ -68,7 +68,6 @@ local function formatText()
 
     -- 快捷键分类
     for _, v in ipairs(hotkeys) do
-        print("key: ", v.idx)
         -- 以 ⌥ 开头，表示为应用切换快捷键
         if string.find(v.idx, "^⌥") ~= nil then
             table.insert(applicationSwitchText, {msg = v.msg})
