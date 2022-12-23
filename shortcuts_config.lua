@@ -117,7 +117,7 @@ _M.windows = {
     },
     to_next_screen = {
         prefix = {"Ctrl", "Option"},
-        key = "space",
+        key = "space", -- 扩展显示器比较少的情况只用这个就可以.
         message = "Move to Next Monitor"
     },
     -- **********************************
