@@ -314,7 +314,7 @@ hs.hotkey.bind(
     windows.to_next_screen.message,
     function()
         print("[INFO] move to next monitor")
-        windows_lib.moveToScreen("space")
+        windows_lib.moveToScreen("next")
     end
 )
 
