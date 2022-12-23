@@ -271,4 +271,51 @@ hs.hotkey.bind(
     end
 )
 
+-- 将窗口移动到上下左右或下一个显示器.
+hs.hotkey.bind(
+    windows.to_above_screen.prefix,
+    windows.to_above_screen.key,
+    windows.to_above_screen.message,
+    function()
+        print("[INFO] move to above monitor")
+        windows_lib.moveToScreen("up")
+    end
+)
+hs.hotkey.bind(
+    windows.to_below_screen.prefix,
+    windows.to_below_screen.key,
+    windows.to_below_screen.message,
+    function()
+        print("[INFO] move to below monitor")
+        windows_lib.moveToScreen("down")
+    end
+)
+hs.hotkey.bind(
+    windows.to_left_screen.prefix,
+    windows.to_left_screen.key,
+    windows.to_left_screen.message,
+    function()
+        print("[INFO] move to left monitor")
+        windows_lib.moveToScreen("left")
+    end
+)
+hs.hotkey.bind(
+    windows.to_right_screen.prefix,
+    windows.to_right_screen.key,
+    windows.to_right_screen.message,
+    function()
+        print("[INFO] move to right monitor")
+        windows_lib.moveToScreen("right")
+    end
+)
+hs.hotkey.bind(
+    windows.to_next_screen.prefix,
+    windows.to_next_screen.key,
+    windows.to_next_screen.message,
+    function()
+        print("[INFO] move to next monitor")
+        windows_lib.moveToScreen("space")
+    end
+)
+
 return _M

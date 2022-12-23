@@ -201,6 +201,29 @@ _M.directionStepResize = function(direction)
     end
 end
 
+-- Move the focused window between all of the screens in the `direction`.
+-- Parameters: up, down, left, right, next
+_M.moveToScreen = function(direction)
+    local cwin = hs.window.focusedWindow()
+
+    if cwin then
+        local cscreen = cwin:screen()
+        if direction == "up" then
+            cwin:moveOneScreenNorth()
+        elseif direction == "down" then
+            cwin:moveOneScreenSouth()
+        elseif direction == "left" then
+            cwin:moveOneScreenWest()
+        elseif direction == "right" then
+            cwin:moveOneScreenEast()
+        elseif direction == "next" then
+            cwin:moveToScreen(cscreen:next())
+        end
+    else
+        hs.alert.show("No focused window!")
+    end
+end
+
 -- 窗口枚举
 _M.AUTO_LAYOUT_TYPE = {
     -- 网格式布局
