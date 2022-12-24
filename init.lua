@@ -17,6 +17,9 @@ require("windows_manage")
 -- 指定输入法切换
 require("input_method")
 
+-- 系统管理
+require("system_manage")
+
 -- 显示快捷键列表
 require("hotkeys_show")
 
