@@ -7,6 +7,7 @@
 - Application quick launch or switch.
 - Application window manipulation, such as movement, stretch or shrink, change position, etc.
 - Quickly switch to the specified input method.
+- System management, such as lock screen, restart system, etc.
 - Toggle the keybindings cheatsheet.
 - Keep the desktop wallpaper the same as the bing daily picture.
 - Auto reload configuration when lua files changes.
@@ -36,6 +37,13 @@ cd ~/.hammerspoon && git pull
 
 - <kbd>⌥</kbd> + <kbd>1</kbd>: ABC
 - <kbd>⌥</kbd> + <kbd>2</kbd>: Pinyin
+
+### System Management
+
+- <kbd>⌥</kbd> + <kbd>Q</kbd>: Lock Screen
+- <kbd>⌥</kbd> + <kbd>S</kbd>: Start Screensaver
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>R</kbd>: Restart Computer
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>S</kbd>: Shutdown Computer
 
 ### Application launch or switch
 
@@ -83,6 +91,10 @@ cd ~/.hammerspoon && git pull
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>J</kbd>: Move Downward
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>H</kbd>: Move Leftward
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>L</kbd>: Move Rightward
+
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>M</kbd>: Minimize All Windows
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>U</kbd>: Unminimize All Windows
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>Q</kbd>: Close All Windows
 
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>K</kbd>: Bottom Side Stretch Upward
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>J</kbd>: Bottom Side Stretch Downward

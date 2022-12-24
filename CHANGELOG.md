@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.4.0
+
+### Added
+
+#### Features
+
+- New window manipulation: Minimize or Unminimize or Close all windows.
+- Add system manage
+
+#### Keybindins
+
+Minimize or Unminimize or Close all windows:
+
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>M</kbd>: Minimize All Windows
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>U</kbd>: Unminimize All Windows
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>Q</kbd>: Close All Windows
+
+System Manage:
+
+- <kbd>⌥</kbd> + <kbd>Q</kbd>: Lock Screen
+- <kbd>⌥</kbd> + <kbd>S</kbd>: Start Screensaver
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>R</kbd>: Restart Computer
+- <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>S</kbd>: Shutdown Computer
+
+### Changed
+
+- Optimize bing daily wallpaper.
+- Optimize `Center Window` for window manipulation:  
+  From keeping the original size in the center, to changing to the appropriate size and centering.
+
 ## v0.3.1
 
 ### Changed
