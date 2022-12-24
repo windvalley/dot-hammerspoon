@@ -1,6 +1,6 @@
 local _M = {}
 
-_M.name = "shortcuts_config"
+_M.name = "keybindings_config"
 _M.version = "0.1.0"
 _M.description = "快捷键配置"
 
@@ -8,18 +8,19 @@ _M.description = "快捷键配置"
 hs.hotkey.alertDuration = 0
 
 -- 快捷键备忘单展示
-_M.hotkeys_show = {
+_M.keybindings_cheatsheet = {
     prefix = {
         "Option"
     },
-    key = "/"
+    key = "/",
+    message = "Toggle this keybindings cheatsheet"
 }
 
 -- 指定目标输入法
 _M.input_methods = {
     abc = {prefix = {"Option"}, key = "1", message = "ABC"},
     -- NOTE: message的值不能是中文, 会导致快捷键列表面板显示错位.
-    chinese = {prefix = {"Option"}, key = "2", message = "Pinyin"}
+    pinyin = {prefix = {"Option"}, key = "2", message = "Pinyin"}
 }
 
 -- 系统管理
@@ -46,7 +47,7 @@ _M.system = {
     }
 }
 
--- App切换
+-- App启动或切换
 -- NOTE:
 --   获取某个App的bundleId的方法举例: osascript -e 'id of app "chrome"'
 _M.apps = {
@@ -63,17 +64,11 @@ _M.apps = {
     {prefix = {"Option"}, key = "W", message = "WeChat", bundleId = "com.tencent.xinWeChat"}
 }
 
--- 窗口管理
-_M.windows = {
-    -- 等比例放大窗口
-    stretch = {prefix = {"Ctrl", "Option"}, key = "=", message = "Stretch Outward"},
-    -- 等比例缩小窗口
-    shrink = {prefix = {"Ctrl", "Option"}, key = "-", message = "Shrink Inward"},
+-- 窗口管理: 改变窗口位置
+_M.window_position = {
     -- **************************************
     -- 居中
     center = {prefix = {"Ctrl", "Option"}, key = "C", message = "Center Window"},
-    -- 最大化
-    max = {prefix = {"Ctrl", "Option"}, key = "M", message = "Max Window"},
     -- **************************************
     -- 左半屏
     left = {prefix = {"Ctrl", "Option"}, key = "H", message = "Left Half of Screen"},
@@ -116,9 +111,95 @@ _M.windows = {
         prefix = {"Ctrl", "Option"},
         key = "R",
         message = "Right or Bottom 2/3"
+    }
+}
+
+-- 窗口操作: 移动窗口.
+_M.window_movement = {
+    -- 向上移动窗口
+    to_up = {
+        prefix = {"Ctrl", "Option", "Command"},
+        key = "K",
+        message = "Move Upward"
     },
-    -- **********************************
-    -- 移动到上下左右或下一个显示器
+    -- 向下移动窗口
+    to_down = {
+        prefix = {"Ctrl", "Option", "Command"},
+        key = "J",
+        message = "Move Downward"
+    },
+    -- 向左移动窗口
+    to_left = {
+        prefix = {"Ctrl", "Option", "Command"},
+        key = "H",
+        message = "Move Leftward"
+    },
+    -- 向右移动窗口
+    to_right = {
+        prefix = {"Ctrl", "Option", "Command"},
+        key = "L",
+        message = "Move Rightward"
+    }
+}
+
+-- 窗口操作: 改变窗口大小
+_M.window_resize = {
+    -- 最大化
+    max = {prefix = {"Ctrl", "Option"}, key = "M", message = "Max Window"},
+    -- 等比例放大窗口
+    stretch = {prefix = {"Ctrl", "Option"}, key = "=", message = "Stretch Outward"},
+    -- 等比例缩小窗口
+    shrink = {prefix = {"Ctrl", "Option"}, key = "-", message = "Shrink Inward"},
+    -- 底边向上伸展窗口
+    stretch_up = {
+        prefix = {"Ctrl", "Option", "Command", "Shift"},
+        key = "K",
+        message = "Bottom Side Stretch Upward"
+    },
+    -- 底边向下伸展窗口
+    stretch_down = {
+        prefix = {"Ctrl", "Option", "Command", "Shift"},
+        key = "J",
+        message = "Bottom Side Stretch Downward"
+    },
+    -- 右边向左伸展窗口
+    stretch_left = {
+        prefix = {"Ctrl", "Option", "Command", "Shift"},
+        key = "H",
+        message = "Right Side Stretch Leftward"
+    },
+    -- 右边向右伸展窗口
+    stretch_right = {
+        prefix = {"Ctrl", "Option", "Command", "Shift"},
+        key = "L",
+        message = "Right Side Stretch Rightward"
+    }
+}
+
+-- 窗口管理: 批量处理
+_M.window_batch = {
+    -- 最小化所有窗口.
+    minimize_all_windows = {
+        prefix = {"Ctrl", "Option", "Command"},
+        key = "M",
+        message = "Minimize All Windows"
+    },
+    -- 恢复所有最小化的窗口.
+    un_minimize_all_windows = {
+        prefix = {"Ctrl", "Option", "Command"},
+        key = "U",
+        message = "Unminimize All Windows"
+    },
+    -- 关闭所有窗口.
+    close_all_windows = {
+        prefix = {"Ctrl", "Option", "Command"},
+        key = "Q",
+        message = "Close All Windows"
+    }
+}
+
+-- 窗口操作: 移动到上下左右或下一个显示器
+_M.window_monitor = {
     to_above_screen = {
         prefix = {"Ctrl", "Option"},
         key = "up",
@@ -143,75 +224,6 @@ _M.windows = {
         prefix = {"Ctrl", "Option"},
         key = "space", -- 扩展显示器比较少的情况只用这个就可以.
         message = "Move to Next Monitor"
-    },
-    -- **********************************
-    -- 向上移动窗口
-    to_up = {
-        prefix = {"Ctrl", "Option", "Command"},
-        key = "K",
-        message = "Move Upward"
-    },
-    -- 向下移动窗口
-    to_down = {
-        prefix = {"Ctrl", "Option", "Command"},
-        key = "J",
-        message = "Move Downward"
-    },
-    -- 向左移动窗口
-    to_left = {
-        prefix = {"Ctrl", "Option", "Command"},
-        key = "H",
-        message = "Move Leftward"
-    },
-    -- 向右移动窗口
-    to_right = {
-        prefix = {"Ctrl", "Option", "Command"},
-        key = "L",
-        message = "Move Rightward"
-    },
-    -- **************************************
-    -- 底边向上伸展窗口
-    stretch_up = {
-        prefix = {"Ctrl", "Option", "Command", "Shift"},
-        key = "K",
-        message = "Bottom Side Stretch Upward"
-    },
-    -- 底边向下伸展窗口
-    stretch_down = {
-        prefix = {"Ctrl", "Option", "Command", "Shift"},
-        key = "J",
-        message = "Bottom Side Stretch Downward"
-    },
-    -- 右边向左伸展窗口
-    stretch_left = {
-        prefix = {"Ctrl", "Option", "Command", "Shift"},
-        key = "H",
-        message = "Right Side Stretch Leftward"
-    },
-    -- 右边向右伸展窗口
-    stretch_right = {
-        prefix = {"Ctrl", "Option", "Command", "Shift"},
-        key = "L",
-        message = "Right Side Stretch Rightward"
-    },
-    -- **************************************
-    -- 最小化所有窗口.
-    minimize_all_windows = {
-        prefix = {"Ctrl", "Option", "Command"},
-        key = "M",
-        message = "Minimize All Windows"
-    },
-    -- 恢复所有最小化的窗口.
-    un_minimize_all_windows = {
-        prefix = {"Ctrl", "Option", "Command"},
-        key = "U",
-        message = "Unminimize All Windows"
-    },
-    -- 关闭所有窗口.
-    close_all_windows = {
-        prefix = {"Ctrl", "Option", "Command"},
-        key = "Q",
-        message = "Close All Windows"
     }
 }
 

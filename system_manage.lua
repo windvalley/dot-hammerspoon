@@ -4,7 +4,7 @@ _M.name = "system_manage"
 _M.version = "0.1.0"
 _M.description = "系统管理, 比如: 锁屏, 启动屏保, 重启等"
 
-local system = require("shortcuts_config").system
+local system = require("keybindings_config").system
 
 -- 锁屏.
 hs.hotkey.bind(

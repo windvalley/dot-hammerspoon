@@ -9,10 +9,10 @@ _M.license = "MIT"
 _M.homepage = "https://github.com/windvalley/dot-hammerspoon"
 
 -- app快速启动或切换
-require("apps_switch")
+require("app_launch")
 
--- app窗口管理
-require("windows_manage")
+-- app窗口操作
+require("window_manipulation")
 
 -- 指定输入法切换
 require("input_method")
@@ -21,7 +21,7 @@ require("input_method")
 require("system_manage")
 
 -- 显示快捷键列表
-require("hotkeys_show")
+require("keybindings_cheatsheet")
 
 -- lua文件变动自动reload
 require("auto_reload")
