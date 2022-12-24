@@ -22,6 +22,30 @@ _M.input_methods = {
     chinese = {prefix = {"Option"}, key = "2", message = "Pinyin"}
 }
 
+-- 系统管理
+_M.system = {
+    lock_screen = {
+        prefix = {"Option"},
+        key = "Q",
+        message = "Lock Screen"
+    },
+    screen_saver = {
+        prefix = {"Option"},
+        key = "S",
+        message = "Start Screensaver"
+    },
+    restart = {
+        prefix = {"Ctrl", "Option", "Command", "Shift"},
+        key = "R",
+        message = "Restart Computer"
+    },
+    shutdown = {
+        prefix = {"Ctrl", "Option", "Command", "Shift"},
+        key = "S",
+        message = "Shutdown Computer"
+    }
+}
+
 -- App切换
 -- NOTE:
 --   获取某个App的bundleId的方法举例: osascript -e 'id of app "chrome"'
