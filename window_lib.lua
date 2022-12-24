@@ -1,6 +1,6 @@
 local _M = {}
 
-_M.name = "windows_lib"
+_M.name = "window_lib"
 _M.version = "0.1.0"
 _M.description = "窗口管理相关函数库"
 

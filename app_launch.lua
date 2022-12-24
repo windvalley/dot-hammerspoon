@@ -2,11 +2,11 @@ local _M = {}
 
 _M.__index = _M
 
-_M.name = "apps_switch"
+_M.name = "app_launch"
 _M.version = "0.1.0"
 _M.description = "app启动或切换"
 
-local apps = require "shortcuts_config".apps
+local apps = require "keybindings_config".apps
 
 -- 存储鼠标位置
 local mousePositions = {}
