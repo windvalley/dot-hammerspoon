@@ -89,7 +89,16 @@ _M.moveAndResize = function(option)
         elseif option == "max" then
             cwin:setFrame({x = cres.x, y = cres.y, w = cres.w, h = cres.h})
         elseif option == "center" then
-            cwin:centerOnScreen()
+            -- cwin:centerOnScreen() 居中但不改变大小,
+            -- 改成如下居中且调整成适当的大小.
+            cwin:setFrame(
+                {
+                    x = cres.x + cres.w / 6,
+                    y = cres.y + cres.h / 6,
+                    w = cres.w / 1.5,
+                    h = cres.h / 1.5
+                }
+            )
         elseif option == "stretch" then
             cwin:setFrame({x = wf.x - stepw, y = wf.y - steph, w = wf.w + (stepw * 2), h = wf.h + (steph * 2)})
         elseif option == "shrink" then
