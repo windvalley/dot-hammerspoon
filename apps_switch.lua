@@ -4,7 +4,7 @@ _M.__index = _M
 
 _M.name = "apps_switch"
 _M.version = "0.1.0"
-_M.description = "app切换"
+_M.description = "app启动或切换"
 
 local apps = require "shortcuts_config".apps
 

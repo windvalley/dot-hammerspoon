@@ -169,6 +169,25 @@ _M.windows = {
         prefix = {"Ctrl", "Option", "Command", "Shift"},
         key = "L",
         message = "Right Side Stretch Rightward"
+    },
+    -- **************************************
+    -- 最小化所有窗口.
+    minimize_all_windows = {
+        prefix = {"Ctrl", "Option", "Command"},
+        key = "M",
+        message = "Minimize All Windows"
+    },
+    -- 恢复所有最小化的窗口.
+    un_minimize_all_windows = {
+        prefix = {"Ctrl", "Option", "Command"},
+        key = "U",
+        message = "Unminimize All Windows"
+    },
+    -- 关闭所有窗口.
+    close_all_windows = {
+        prefix = {"Ctrl", "Option", "Command"},
+        key = "Q",
+        message = "Close All Windows"
     }
 }
 

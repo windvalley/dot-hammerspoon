@@ -234,4 +234,35 @@ _M.moveToScreen = function(direction)
     end
 end
 
+-- 最小化所有窗口.
+_M.minimizeAllWindows = function()
+    local windows = hs.window.allWindows()
+
+    for _, window in pairs(windows) do
+        print("[INFO] minimize window: ", window)
+        window:minimize()
+    end
+end
+
+-- 恢复所有最小化的窗口.
+_M.unMinimizeAllWindows = function()
+    local windows = hs.window.minimizedWindows()
+
+    for _, window in pairs(windows) do
+        print("[INFO] unminimize window: ", window)
+        window:unminimize()
+        window:focus()
+    end
+end
+
+-- 关闭所有窗口.
+_M.closeAllWindows = function()
+    local windows = hs.window.allWindows()
+
+    for _, window in pairs(windows) do
+        print("[INFO] close window: ", window)
+        window:close()
+    end
+end
+
 return _M
