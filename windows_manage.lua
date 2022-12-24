@@ -90,7 +90,7 @@ hs.hotkey.bind(
     end
 )
 
--- 保持原有窗口大小居中
+-- 居中
 hs.hotkey.bind(
     windows.center.prefix,
     windows.center.key,
