@@ -318,4 +318,34 @@ hs.hotkey.bind(
     end
 )
 
+-- 最小化所有窗口
+hs.hotkey.bind(
+    windows.minimize_all_windows.prefix,
+    windows.minimize_all_windows.key,
+    windows.minimize_all_windows.message,
+    function()
+        windows_lib.minimizeAllWindows()
+    end
+)
+
+-- 恢复所有最小化的窗口
+hs.hotkey.bind(
+    windows.un_minimize_all_windows.prefix,
+    windows.un_minimize_all_windows.key,
+    windows.un_minimize_all_windows.message,
+    function()
+        windows_lib.unMinimizeAllWindows()
+    end
+)
+
+-- 关闭所有窗口
+hs.hotkey.bind(
+    windows.close_all_windows.prefix,
+    windows.close_all_windows.key,
+    windows.close_all_windows.message,
+    function()
+        windows_lib.closeAllWindows()
+    end
+)
+
 return _M

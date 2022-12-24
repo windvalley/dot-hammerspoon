@@ -8,7 +8,7 @@ _M.author = "XG <levinwang6@gmail.com>"
 _M.license = "MIT"
 _M.homepage = "https://github.com/windvalley/dot-hammerspoon"
 
--- app切换
+-- app快速启动或切换
 require("apps_switch")
 
 -- app窗口管理
