@@ -13,7 +13,7 @@ _M.keybindings_cheatsheet = {
         "Option"
     },
     key = "/",
-    message = "Toggle this keybindings cheatsheet"
+    message = "Toggle Keybindings Cheatsheet"
 }
 
 -- 指定目标输入法
@@ -45,6 +45,13 @@ _M.system = {
         key = "S",
         message = "Shutdown Computer"
     }
+}
+
+-- 调用默认浏览器快速打开URL
+_M.urls = {
+    github = {prefix = {"Option"}, key = "8", message = "github.com"},
+    google = {prefix = {"Option"}, key = "9", message = "google.com"},
+    bing = {prefix = {"Option"}, key = "7", message = "bing.com"}
 }
 
 -- App启动或切换
