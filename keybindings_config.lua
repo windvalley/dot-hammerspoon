@@ -49,16 +49,31 @@ _M.system = {
 
 -- 调用默认浏览器快速打开URL
 _M.urls = {
-    github = {prefix = {"Option"}, key = "8", message = "github.com"},
-    google = {prefix = {"Option"}, key = "9", message = "google.com"},
-    bing = {prefix = {"Option"}, key = "7", message = "bing.com"}
+    {
+        prefix = {"Option"},
+        key = "8",
+        message = "github.com",
+        target = "https://github.com/windvalley"
+    },
+    {
+        prefix = {"Option"},
+        key = "9",
+        message = "google.com",
+        target = "https://www.google.com"
+    },
+    {
+        prefix = {"Option"},
+        key = "7",
+        message = "bing.com",
+        target = "https://www.bing.com"
+    }
 }
 
 -- App启动或切换
 -- NOTE:
 --   获取某个App的bundleId的方法举例: osascript -e 'id of app "chrome"'
 _M.apps = {
-    {prefix = {"Option"}, key = "H", message = "Hammerspoon", bundleId = "org.hammerspoon.Hammerspoon"},
+    {prefix = {"Option"}, key = "H", message = "Hammerspoon Console", bundleId = "org.hammerspoon.Hammerspoon"},
     {prefix = {"Option"}, key = "F", message = "Finder", bundleId = "com.apple.finder"},
     {prefix = {"Option"}, key = "I", message = "Alacritty", bundleId = "io.alacritty"},
     {prefix = {"Option"}, key = "C", message = "Chrome", bundleId = "com.google.Chrome"},
