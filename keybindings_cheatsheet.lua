@@ -117,12 +117,12 @@ local function formatText()
             goto continue
         end
 
-        if
-            string.find(v.msg, urls.github.message) ~= nil or string.find(v.msg, urls.google.message) ~= nil or
-                string.find(v.msg, urls.bing.message) ~= nil
-         then
-            table.insert(openURL, {msg = v.msg})
-            goto continue
+        -- Open URL.
+        for _, u in pairs(urls) do
+            if string.find(v.msg, u.message) ~= nil then
+                table.insert(openURL, {msg = v.msg})
+                goto continue
+            end
         end
 
         -- window position
@@ -192,7 +192,7 @@ local function formatText()
             goto continue
         end
 
-        -- 以 ⌥  开头, 表示为应用启动或切换快捷键.
+        -- 其他的以 ⌥  开头, 表示为应用启动或切换快捷键.
         if string.find(v.idx, "^⌥") ~= nil then
             table.insert(applicationLaunch, {msg = v.msg})
         end
