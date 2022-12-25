@@ -7,7 +7,7 @@ _M.description = "展示快捷键备忘列表"
 local keybindings_cheatsheet = require "keybindings_config".keybindings_cheatsheet
 local input_methods = require "keybindings_config".input_methods
 local system = require "keybindings_config".system
-local urls = require "keybindings_config".urls
+local websites = require "keybindings_config".websites
 local apps = require "keybindings_config".apps
 
 local window_position = require("keybindings_config").window_position
@@ -72,7 +72,7 @@ local function formatText()
     local renderText = {}
 
     local keybindingsCheatsheet = {}
-    table.insert(keybindingsCheatsheet, {msg = "[Keybindings Cheatsheet]"})
+    table.insert(keybindingsCheatsheet, {msg = "[Cheatsheet]"})
     table.insert(keybindingsCheatsheet, {msg = keybindings_cheatsheet.description})
 
     local inputMethods = {}
@@ -81,8 +81,8 @@ local function formatText()
     local systemManagement = {}
     table.insert(systemManagement, {msg = "[System Management]"})
 
-    local openURL = {}
-    table.insert(openURL, {msg = "[Open URL]"})
+    local WebsiteOpen = {}
+    table.insert(WebsiteOpen, {msg = "[Website Open]"})
 
     local applicationLaunch = {}
     table.insert(applicationLaunch, {msg = "[Application Launch]"})
@@ -123,9 +123,9 @@ local function formatText()
         end
 
         -- Open URL.
-        for _, u in pairs(urls) do
+        for _, u in pairs(websites) do
             if _msg == u.message then
-                table.insert(openURL, {msg = v.msg})
+                table.insert(WebsiteOpen, {msg = v.msg})
                 goto continue
             end
         end
@@ -201,7 +201,7 @@ local function formatText()
 
     table.insert(hotkeys, {msg = ""})
 
-    for _, v in ipairs(openURL) do
+    for _, v in ipairs(WebsiteOpen) do
         table.insert(hotkeys, {msg = v.msg})
     end
 
