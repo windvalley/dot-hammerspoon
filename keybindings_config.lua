@@ -49,7 +49,7 @@ _M.system = {
 }
 
 -- 调用默认浏览器快速打开URL
-_M.urls = {
+_M.websites = {
     {
         prefix = {"Option"},
         key = "8",

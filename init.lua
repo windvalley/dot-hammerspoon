@@ -21,7 +21,7 @@ require("input_method")
 require("system_manage")
 
 -- 网站快捷访问
-require("open_url")
+require("website_open")
 
 -- 显示快捷键列表
 require("keybindings_cheatsheet")
