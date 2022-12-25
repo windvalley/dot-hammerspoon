@@ -13,7 +13,8 @@ _M.keybindings_cheatsheet = {
         "Option"
     },
     key = "/",
-    message = "Toggle Keybindings Cheatsheet"
+    message = "Toggle Keybindings Cheatsheet",
+    description = "⌥/: Toggle Keybindings Cheatsheet"
 }
 
 -- 指定目标输入法

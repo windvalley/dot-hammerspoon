@@ -8,6 +8,7 @@ local keybindings_cheatsheet = require "keybindings_config".keybindings_cheatshe
 local input_methods = require "keybindings_config".input_methods
 local system = require "keybindings_config".system
 local urls = require "keybindings_config".urls
+local apps = require "keybindings_config".apps
 
 local window_position = require("keybindings_config").window_position
 local window_movement = require("keybindings_config").window_movement
@@ -17,6 +18,8 @@ local window_batch = require("keybindings_config").window_batch
 
 local utf8len = require "utils_lib".utf8len
 local utf8sub = require "utils_lib".utf8sub
+local split = require "utils_lib".split
+local trim = require "utils_lib".trim
 
 local focusedWindow = hs.window.focusedWindow()
 if focusedWindow == nil then
@@ -60,10 +63,17 @@ local function styleText(text)
 end
 
 local function formatText()
+    -- 每行最多 35 个字符
+    local MAX_LEN = 35
+
     -- 加载所有绑定的快捷键
     local hotkeys = hs.hotkey.getHotkeys()
 
     local renderText = {}
+
+    local keybindingsCheatsheet = {}
+    table.insert(keybindingsCheatsheet, {msg = "[Keybindings Cheatsheet]"})
+    table.insert(keybindingsCheatsheet, {msg = keybindings_cheatsheet.description})
 
     local inputMethods = {}
     table.insert(inputMethods, {msg = "[Input Methods]"})
@@ -92,117 +102,92 @@ local function formatText()
     local windowBatch = {}
     table.insert(windowBatch, {msg = "[Window Batch]"})
 
-    -- 每行最多 35 个字符
-    local MAX_LEN = 35
-
     -- 快捷键分类
     for _, v in ipairs(hotkeys) do
-        -- 输入法切换.
-        if
-            string.find(v.msg, input_methods.abc.message) ~= nil or
-                string.find(v.msg, input_methods.pinyin.message) ~= nil
-         then
-            table.insert(inputMethods, {msg = v.msg})
-            goto continue
+        local _msg = trim(split(v.msg, ":")[2])
+
+        -- Input methods
+        for _, i in pairs(input_methods) do
+            if _msg == i.message then
+                table.insert(inputMethods, {msg = v.msg})
+                goto continue
+            end
         end
 
-        -- 系统管理.
-        if
-            string.find(v.msg, system.lock_screen.message) ~= nil or
-                string.find(v.msg, system.screen_saver.message) ~= nil or
-                string.find(v.msg, system.restart.message) ~= nil or
-                string.find(v.msg, system.shutdown.message) ~= nil
-         then
-            table.insert(systemManagement, {msg = v.msg})
-            goto continue
+        -- System management
+        for _, s in pairs(system) do
+            if _msg == s.message then
+                table.insert(systemManagement, {msg = v.msg})
+                goto continue
+            end
         end
 
         -- Open URL.
         for _, u in pairs(urls) do
-            if string.find(v.msg, u.message) ~= nil then
+            if _msg == u.message then
                 table.insert(openURL, {msg = v.msg})
                 goto continue
             end
         end
 
-        -- window position
-        if
-            string.find(v.msg, window_position.up.message) ~= nil or
-                string.find(v.msg, window_position.down.message) ~= nil or
-                string.find(v.msg, window_position.left.message) ~= nil or
-                string.find(v.msg, window_position.right.message) ~= nil or
-                string.find(v.msg, window_position.center.message) ~= nil or
-                string.find(v.msg, window_position.top_left.message) ~= nil or
-                string.find(v.msg, window_position.top_right.message) ~= nil or
-                string.find(v.msg, window_position.bottom_left.message) ~= nil or
-                string.find(v.msg, window_position.bottom_right.message) ~= nil or
-                string.find(v.msg, window_position.left_1_3.message) ~= nil or
-                string.find(v.msg, window_position.right_1_3.message) ~= nil or
-                string.find(v.msg, window_position.left_2_3.message) ~= nil or
-                string.find(v.msg, window_position.right_2_3.message) ~= nil
-         then
-            table.insert(windowPosition, {msg = v.msg})
-            goto continue
+        -- Application launch or switch
+        for _, a in pairs(apps) do
+            if _msg == a.message then
+                table.insert(applicationLaunch, {msg = v.msg})
+                goto continue
+            end
         end
 
-        -- window movement
-        if
-            string.find(v.msg, window_movement.to_up.message) ~= nil or
-                string.find(v.msg, window_movement.to_down.message) ~= nil or
-                string.find(v.msg, window_movement.to_left.message) ~= nil or
-                string.find(v.msg, window_movement.to_right.message) ~= nil
-         then
-            table.insert(windowMovement, {msg = v.msg})
-            goto continue
+        -- Window position
+        for _, wp in pairs(window_position) do
+            if _msg == wp.message then
+                table.insert(windowPosition, {msg = v.msg})
+                goto continue
+            end
         end
 
-        -- window resize
-        if
-            string.find(v.msg, window_resize.max.message) ~= nil or
-                string.find(v.msg, window_resize.stretch.message) ~= nil or
-                string.find(v.msg, window_resize.shrink.message) ~= nil or
-                string.find(v.msg, window_resize.stretch_up.message) ~= nil or
-                string.find(v.msg, window_resize.stretch_down.message) ~= nil or
-                string.find(v.msg, window_resize.stretch_left.message) ~= nil or
-                string.find(v.msg, window_resize.stretch_right.message) ~= nil
-         then
-            table.insert(windowResize, {msg = v.msg})
-            goto continue
+        -- Window movement
+        for _, wm in pairs(window_movement) do
+            if _msg == wm.message then
+                table.insert(windowMovement, {msg = v.msg})
+                goto continue
+            end
         end
 
-        -- window monitor
-        if
-            string.find(v.msg, window_monitor.to_above_screen.message) ~= nil or
-                string.find(v.msg, window_monitor.to_below_screen.message) ~= nil or
-                string.find(v.msg, window_monitor.to_left_screen.message) ~= nil or
-                string.find(v.msg, window_monitor.to_right_screen.message) ~= nil or
-                string.find(v.msg, window_monitor.to_next_screen.message) ~= nil
-         then
-            table.insert(windowMonitor, {msg = v.msg})
-            goto continue
+        -- Window resize
+        for _, wr in pairs(window_resize) do
+            if _msg == wr.message then
+                table.insert(windowResize, {msg = v.msg})
+                goto continue
+            end
         end
 
-        -- window batch
-        if
-            string.find(v.msg, window_batch.minimize_all_windows.message) ~= nil or
-                string.find(v.msg, window_batch.un_minimize_all_windows.message) ~= nil or
-                string.find(v.msg, window_batch.close_all_windows.message) ~= nil
-         then
-            table.insert(windowBatch, {msg = v.msg})
-            goto continue
+        -- Window monitor
+        for _, wm in pairs(window_monitor) do
+            if _msg == wm.message then
+                table.insert(windowMonitor, {msg = v.msg})
+                goto continue
+            end
         end
 
-        -- 其他的以 ⌥  开头, 表示为应用启动或切换快捷键.
-        if string.find(v.idx, "^⌥") ~= nil then
-            table.insert(applicationLaunch, {msg = v.msg})
+        -- Window batch
+        for _, wb in pairs(window_batch) do
+            if _msg == wb.message then
+                table.insert(windowBatch, {msg = v.msg})
+                goto continue
+            end
         end
 
         ::continue::
     end
 
-    table.insert(applicationLaunch, {msg = "⌥/: Toggle Keybindings Cheatsheet"})
-
     hotkeys = {}
+
+    for _, v in ipairs(keybindingsCheatsheet) do
+        table.insert(hotkeys, {msg = v.msg})
+    end
+
+    table.insert(hotkeys, {msg = ""})
 
     for _, v in ipairs(inputMethods) do
         table.insert(hotkeys, {msg = v.msg})
@@ -263,7 +248,7 @@ local function formatText()
         local msg = v.msg
         local len = utf8len(msg)
 
-        -- 超过最大长度，截断多余部分，截断的部分作为新的一行
+        -- 超过最大长度, 截断多余部分, 截断的部分作为新的一行.
         while len > MAX_LEN do
             local substr = utf8sub(msg, 1, MAX_LEN)
             table.insert(renderText, {line = substr})
@@ -371,7 +356,7 @@ end
 
 -- 默认不显示
 local show = false
-local function toggleHotkeysShow()
+local function toggleKeybindingsCheatsheet()
     if show then
         -- 0.3s 过渡
         canvas:hide(.3)
@@ -390,7 +375,7 @@ hs.hotkey.bind(
     keybindings_cheatsheet.prefix,
     keybindings_cheatsheet.key,
     keybindings_cheatsheet.message,
-    toggleHotkeysShow
+    toggleKeybindingsCheatsheet
 )
 
 return _M
