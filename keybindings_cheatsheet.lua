@@ -7,6 +7,7 @@ _M.description = "展示快捷键备忘列表"
 local keybindings_cheatsheet = require "keybindings_config".keybindings_cheatsheet
 local input_methods = require "keybindings_config".input_methods
 local system = require "keybindings_config".system
+local urls = require "keybindings_config".urls
 
 local window_position = require("keybindings_config").window_position
 local window_movement = require("keybindings_config").window_movement
@@ -70,6 +71,9 @@ local function formatText()
     local systemManagement = {}
     table.insert(systemManagement, {msg = "[System Management]"})
 
+    local openURL = {}
+    table.insert(openURL, {msg = "[Open URL]"})
+
     local applicationLaunch = {}
     table.insert(applicationLaunch, {msg = "[Application Launch]"})
 
@@ -110,6 +114,14 @@ local function formatText()
                 string.find(v.msg, system.shutdown.message) ~= nil
          then
             table.insert(systemManagement, {msg = v.msg})
+            goto continue
+        end
+
+        if
+            string.find(v.msg, urls.github.message) ~= nil or string.find(v.msg, urls.google.message) ~= nil or
+                string.find(v.msg, urls.bing.message) ~= nil
+         then
+            table.insert(openURL, {msg = v.msg})
             goto continue
         end
 
@@ -199,6 +211,12 @@ local function formatText()
     table.insert(hotkeys, {msg = ""})
 
     for _, v in ipairs(systemManagement) do
+        table.insert(hotkeys, {msg = v.msg})
+    end
+
+    table.insert(hotkeys, {msg = ""})
+
+    for _, v in ipairs(openURL) do
         table.insert(hotkeys, {msg = v.msg})
     end
 
