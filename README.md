@@ -45,6 +45,12 @@ cd ~/.hammerspoon && git pull
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>R</kbd>: Restart Computer
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>S</kbd>: Shutdown Computer
 
+### Open URL
+
+- <kbd>⌥</kbd> + <kbd>8</kbd>: github.com
+- <kbd>⌥</kbd> + <kbd>9</kbd>: google.com
+- <kbd>⌥</kbd> + <kbd>7</kbd>: bing.com
+
 ### Application Launch or Switch
 
 - <kbd>⌥</kbd> + <kbd>H</kbd>: Hammerspoon Console
