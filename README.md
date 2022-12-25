@@ -8,6 +8,7 @@
 - Application window manipulation, such as movement, stretch or shrink, change position, etc.
 - Quickly switch to the specified input method.
 - System management, such as lock screen, restart system, etc.
+- Open the specified website directly.
 - Toggle the keybindings cheatsheet.
 - Keep the desktop wallpaper the same as the bing daily picture.
 - Auto reload configuration when lua files changes.
@@ -45,7 +46,7 @@ cd ~/.hammerspoon && git pull
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>R</kbd>: Restart Computer
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>S</kbd>: Shutdown Computer
 
-### Open URL
+### Website Open
 
 - <kbd>⌥</kbd> + <kbd>8</kbd>: github.com
 - <kbd>⌥</kbd> + <kbd>9</kbd>: google.com
