@@ -11,7 +11,7 @@ local apps = require "keybindings_config".apps
 -- App显示或隐藏
 local function toggleAppByBundleId(bundleID)
     local frontApp = hs.application.frontmostApplication()
-    if frontApp:bundleID() == bundleID then
+    if frontApp:bundleID() == bundleID and frontApp:focusedWindow() then
         frontApp:hide()
     else
         hs.application.launchOrFocusByBundleID(bundleID)
