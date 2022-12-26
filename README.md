@@ -4,9 +4,9 @@
 
 ## Features
 
-- Application quick launch or switch.
-- Application window manipulation, such as movement, stretch or shrink, change position, etc.
-- Quickly switch to the specified input method.
+- Application quick launch or hide.
+- Application window manipulation, such as moving, resizing, changing position, etc.
+- Switch to the specified input method.
 - System management, such as lock screen, restart system, etc.
 - Open the specified website directly.
 - Toggle the keybindings cheatsheet.
@@ -52,7 +52,7 @@ cd ~/.hammerspoon && git pull
 - <kbd>⌥</kbd> + <kbd>9</kbd>: google.com
 - <kbd>⌥</kbd> + <kbd>7</kbd>: bing.com
 
-### Application Launch or Switch
+### Application Launch or Hide
 
 - <kbd>⌥</kbd> + <kbd>H</kbd>: Hammerspoon Console
 - <kbd>⌥</kbd> + <kbd>F</kbd>: Finder
