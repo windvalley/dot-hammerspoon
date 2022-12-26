@@ -85,7 +85,7 @@ local function formatText()
     table.insert(WebsiteOpen, {msg = "[Website Open]"})
 
     local applicationLaunch = {}
-    table.insert(applicationLaunch, {msg = "[Application Launch]"})
+    table.insert(applicationLaunch, {msg = "[App Launch Or Hide]"})
 
     local windowPosition = {}
     table.insert(windowPosition, {msg = "[Window Position]"})
