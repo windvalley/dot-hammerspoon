@@ -8,43 +8,13 @@ _M.description = "app启动或切换"
 
 local apps = require "keybindings_config".apps
 
--- 存储鼠标位置
-local mousePositions = {}
-
-local function setMouseToCenter(foucusedWindow)
-    if foucusedWindow == nil then
-        return
-    end
-
-    local frame = foucusedWindow:frame()
-    local centerPosition = hs.geometry.point(frame.x + frame.w / 2, frame.y + frame.h / 2)
-
-    hs.mouse.absolutePosition(centerPosition)
-end
-
-local function toggleAppByBundleId(appBundleID)
-    local previousFocusedWindow = hs.window.focusedWindow()
-
-    if previousFocusedWindow ~= nil then
-        mousePositions[previousFocusedWindow:id()] = hs.mouse.absolutePosition()
-    end
-
-    hs.application.launchOrFocusByBundleID(appBundleID)
-
-    -- 获取 application 对象
-    local applications = hs.application.applicationsForBundleID(appBundleID)
-    local application = nil
-
-    for _, v in ipairs(applications) do
-        application = v
-    end
-
-    local currentFocusedWindow = application:focusedWindow()
-
-    if currentFocusedWindow ~= nil and mousePositions[currentFocusedWindow:id()] ~= nil then
-        hs.mouse.absolutePosition(mousePositions[currentFocusedWindow:id()])
+-- App显示或隐藏
+local function toggleAppByBundleId(bundleID)
+    local frontApp = hs.application.frontmostApplication()
+    if frontApp:bundleID() == bundleID then
+        frontApp:hide()
     else
-        setMouseToCenter(currentFocusedWindow)
+        hs.application.launchOrFocusByBundleID(bundleID)
     end
 end
 
