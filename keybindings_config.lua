@@ -18,7 +18,7 @@ _M.keybindings_cheatsheet = {
 }
 
 -- 指定目标输入法
-_M.input_methods = {
+_M.manual_input_methods = {
     abc = {prefix = {"Option"}, key = "1", message = "ABC"},
     -- NOTE: message的值不能是中文, 会导致快捷键列表面板显示错位.
     pinyin = {prefix = {"Option"}, key = "2", message = "Pinyin"}
@@ -70,7 +70,7 @@ _M.websites = {
     }
 }
 
--- App启动或切换
+-- App启动或隐藏
 -- NOTE:
 --   获取某个App的bundleId的方法举例: osascript -e 'id of app "chrome"'
 _M.apps = {
@@ -79,6 +79,7 @@ _M.apps = {
     {prefix = {"Option"}, key = "I", message = "Alacritty", bundleId = "io.alacritty"},
     {prefix = {"Option"}, key = "C", message = "Chrome", bundleId = "com.google.Chrome"},
     {prefix = {"Option"}, key = "N", message = "Note", bundleId = "ynote-desktop"},
+    {prefix = {"Option"}, key = "D", message = "DeepL", bundleId = "com.linguee.DeepLCopyTranslator"},
     {prefix = {"Option"}, key = "M", message = "Mail", bundleId = "com.apple.mail"},
     {prefix = {"Option"}, key = "P", message = "Postman", bundleId = "com.postmanlabs.mac"},
     {prefix = {"Option"}, key = "E", message = "Excel", bundleId = "com.microsoft.Excel"},
