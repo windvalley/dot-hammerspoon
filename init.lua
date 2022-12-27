@@ -3,7 +3,6 @@ local _M = {}
 _M.__index = _M
 
 _M.name = "init"
-_M.version = "0.1.0"
 _M.author = "XG <levinwang6@gmail.com>"
 _M.license = "MIT"
 _M.homepage = "https://github.com/windvalley/dot-hammerspoon"
@@ -22,8 +21,11 @@ require("app_launch")
 -- app窗口操作
 require("window_manipulation")
 
--- 指定输入法切换
+-- 切换到指定输入法
 require("manual_switch_input_method")
+
+-- 根据应用不同, 自动切换输入法
+require("auto_switch_input_method")
 
 -- 系统管理
 require("system_manage")

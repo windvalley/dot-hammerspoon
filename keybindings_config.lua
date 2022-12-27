@@ -1,8 +1,10 @@
 local _M = {}
 
 _M.name = "keybindings_config"
-_M.version = "0.1.0"
 _M.description = "快捷键配置"
+
+local abc = require "input_method_lib".abc
+local pinyin = require "input_method_lib".pinyin
 
 -- 每次按快捷键时显示快捷键alert消息持续的秒数, 0 为禁用.
 hs.hotkey.alertDuration = 0
@@ -15,13 +17,6 @@ _M.keybindings_cheatsheet = {
     key = "/",
     message = "Toggle Keybindings Cheatsheet",
     description = "⌥/: Toggle Keybindings Cheatsheet"
-}
-
--- 指定目标输入法
-_M.manual_input_methods = {
-    abc = {prefix = {"Option"}, key = "1", message = "ABC"},
-    -- NOTE: message的值不能是中文, 会导致快捷键列表面板显示错位.
-    pinyin = {prefix = {"Option"}, key = "2", message = "Pinyin"}
 }
 
 -- 系统管理
@@ -70,9 +65,32 @@ _M.websites = {
     }
 }
 
+-- 手动切换到目标输入法
+_M.manual_input_methods = {
+    -- NOTE: message的值不能是中文, 会导致快捷键列表面板显示错位.
+    {prefix = {"Option"}, key = "1", input_method = abc, message = "ABC"},
+    {prefix = {"Option"}, key = "2", input_method = pinyin, message = "Pinyin"}
+}
+
+-- 自动切换App所对应的输入法, 格式: 应用的bundleID = 输入法简称
+-- NOTE: 获取某个App的bundleId的方法举例: osascript -e 'id of app "chrome"'
+_M.auto_input_methods = {
+    ["org.hammerspoon.Hammerspoon"] = abc,
+    ["com.apple.finder"] = abc,
+    ["com.apple.Spotlight"] = abc,
+    ["io.alacritty"] = abc,
+    ["com.google.Chrome"] = abc,
+    ["com.microsoft.VSCode"] = abc,
+    ["com.postmanlabs.mac"] = abc,
+    ["com.tencent.xinWeChat"] = pinyin,
+    ["com.apple.mail"] = pinyin,
+    ["com.microsoft.Excel"] = pinyin,
+    ["mac.im.qihoo.net"] = pinyin,
+    ["ynote-desktop"] = pinyin
+}
+
 -- App启动或隐藏
--- NOTE:
---   获取某个App的bundleId的方法举例: osascript -e 'id of app "chrome"'
+-- NOTE: 获取某个App的bundleId的方法举例: osascript -e 'id of app "chrome"'
 _M.apps = {
     {prefix = {"Option"}, key = "H", message = "Hammerspoon Console", bundleId = "org.hammerspoon.Hammerspoon"},
     {prefix = {"Option"}, key = "F", message = "Finder", bundleId = "com.apple.finder"},
