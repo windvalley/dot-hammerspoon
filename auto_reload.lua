@@ -1,7 +1,6 @@
 local _M = {}
 
 _M.name = "auto_reload"
-_M.version = "0.1.1"
 _M.description = "lua文件变动自动reload, 使实时生效"
 
 local function reload(files)
@@ -19,7 +18,7 @@ local function reload(files)
     end
 end
 
-local configWatcher = hs.pathwatcher.new(hs.configdir, reload)
+configWatcher = hs.pathwatcher.new(hs.configdir, reload)
 
 configWatcher:start()
 
