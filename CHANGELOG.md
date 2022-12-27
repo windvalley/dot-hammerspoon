@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.6.0
+
+### Added
+
+New feature: Auto switch input method according to the application, for example:
+
+```lua
+-- keybindings_config.lua
+_M.auto_input_methods = {
+    ["org.hammerspoon.Hammerspoon"] = abc,
+    ["com.apple.finder"] = abc,
+    ["com.apple.Spotlight"] = abc,
+    ["io.alacritty"] = abc,
+    ["com.google.Chrome"] = abc,
+    ["com.microsoft.VSCode"] = abc,
+    ["com.postmanlabs.mac"] = abc,
+    ["com.tencent.xinWeChat"] = pinyin,
+    ["com.apple.mail"] = pinyin,
+    ["com.microsoft.Excel"] = pinyin,
+    ["mac.im.qihoo.net"] = pinyin,
+    ["ynote-desktop"] = pinyin
+}
+```
+
+### Changed
+
+- Optimize manual switch input method.
+
 ## v0.5.1
 
 ### Changed

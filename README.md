@@ -6,8 +6,9 @@
 
 - Application quick launch or hide.
 - Application window manipulation, such as moving, resizing, changing position, etc.
-- Switch to the specified input method.
 - System management, such as lock screen, restart system, etc.
+- Auto switch input method according to the application.
+- Switch to the specified input method.
 - Open the specified website directly.
 - Toggle the keybindings cheatsheet.
 - Keep the desktop wallpaper the same as the bing daily picture.
