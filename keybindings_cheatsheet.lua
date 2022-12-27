@@ -5,7 +5,7 @@ _M.version = "0.1.0"
 _M.description = "展示快捷键备忘列表"
 
 local keybindings_cheatsheet = require "keybindings_config".keybindings_cheatsheet
-local input_methods = require "keybindings_config".input_methods
+local input_methods = require "keybindings_config".manual_input_methods
 local system = require "keybindings_config".system
 local websites = require "keybindings_config".websites
 local apps = require "keybindings_config".apps
