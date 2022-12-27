@@ -23,7 +23,9 @@ std = {
         "assert",
         "type",
         "load",
-        "error"
+        "error",
+        "configWatcher",
+        "appWatcher"
     }
 }
 
