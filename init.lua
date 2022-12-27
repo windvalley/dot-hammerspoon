@@ -23,7 +23,7 @@ require("app_launch")
 require("window_manipulation")
 
 -- 指定输入法切换
-require("input_method")
+require("manual_switch_input_method")
 
 -- 系统管理
 require("system_manage")
