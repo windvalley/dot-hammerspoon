@@ -1,14 +1,13 @@
 local _M = {}
 
-_M.name = "auto_switch_input_method"
+_M.name = "auto_input_method"
 _M.description = "切换应用时自动切换输入法"
 
 local auto_input_methods = require "keybindings_config".auto_input_methods
-local input_method_lib = require "input_method_lib"
 
-local log = hs.logger.new("inputMethod")
+local log = hs.logger.new("input")
 
-local show_switch_info = false
+local pop_msg = false
 
 local function applicationWatcher(appName, eventType, appObject)
     local bundleID = appObject:bundleID()
@@ -17,9 +16,9 @@ local function applicationWatcher(appName, eventType, appObject)
         local input_method = auto_input_methods[bundleID]
 
         if input_method ~= nil then
-            input_method_lib.switch_input_method(input_method)
+            hs.keycodes.currentSourceID(input_method)
 
-            if show_switch_info then
+            if pop_msg then
                 hs.alert.show(input_method, 0.5)
             end
 
