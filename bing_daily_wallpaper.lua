@@ -1,8 +1,9 @@
 local _M = {}
 
 _M.name = "bing_daily_wallpaper"
-_M.version = "0.1.0"
 _M.description = "使用Bing Daily Picture作为屏幕壁纸"
+
+local log = hs.logger.new("wallpaper")
 
 -- 每隔多少秒触发一次bing请求进行壁纸更新:
 --   2分钟: 2 * 60
@@ -37,11 +38,11 @@ local function curl_callback(exitCode, stdOut, stdErr)
         -- 为每个显示器都设置壁纸(注意不是macOS新建的其他桌面, 而是扩展显示器)
         local screens = hs.screen.allScreens()
         for _, screen in ipairs(screens) do
-            print("[INFO] set wallpaper for ", screen)
+            log.i(string.format("set wallpaper for %s", screen))
             screen:desktopImageURL("file://" .. localpath)
         end
     else
-        print(stdOut, stdErr)
+        log.e(stdOut, stdErr)
     end
 end
 
@@ -84,13 +85,13 @@ local function bing_request()
 
                         _M.task:start()
 
-                        print("[INFO] wallpaper changed, current picture: ", pic_name, " last picture: ", _M.last_pic)
+                        log.d("wallpaper changed, current picture: ", pic_name, " last picture: ", _M.last_pic)
                     else
-                        print("[INFO] current picture is same as last picture: ", pic_name)
+                        log.d("current picture is same as last picture: ", pic_name)
                     end
                 end
             else
-                print("[ERROR] Bing URL request failed!")
+                log.e("Bing URL request failed!")
             end
         end
     )

@@ -1,7 +1,6 @@
 local _M = {}
 
 _M.name = "window_lib"
-_M.version = "0.1.0"
 _M.description = "窗口管理相关函数库"
 
 -- An integer specifying how many gridparts the screen should be divided into.
@@ -239,7 +238,6 @@ _M.minimizeAllWindows = function()
     local windows = hs.window.allWindows()
 
     for _, window in pairs(windows) do
-        print("[INFO] minimize window: ", window)
         window:minimize()
     end
 end
@@ -249,7 +247,6 @@ _M.unMinimizeAllWindows = function()
     local windows = hs.window.minimizedWindows()
 
     for _, window in pairs(windows) do
-        print("[INFO] unminimize window: ", window)
         window:unminimize()
         window:focus()
     end
@@ -260,7 +257,6 @@ _M.closeAllWindows = function()
     local windows = hs.window.allWindows()
 
     for _, window in pairs(windows) do
-        print("[INFO] close window: ", window)
         window:close()
     end
 end

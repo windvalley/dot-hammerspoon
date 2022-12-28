@@ -7,13 +7,18 @@ _M.author = "XG <levinwang6@gmail.com>"
 _M.license = "MIT"
 _M.homepage = "https://github.com/windvalley/dot-hammerspoon"
 
--- Preferences
+-- Hammerspoon Preferences
 hs.autoLaunch(true)
 hs.automaticallyCheckForUpdates(false)
 hs.consoleOnTop(false)
 hs.dockIcon(false)
 hs.menuIcon(true)
 hs.uploadCrashData(false)
+
+-- Hammerspoon Console 上打印的日志级别.
+-- 可选: verbose, debug, info, warning, error, nothing
+-- 默认: warning
+hs.logger.defaultLogLevel = "warning"
 
 -- app快速启动或切换
 require("app_launch")
