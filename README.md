@@ -1,5 +1,11 @@
 # dot-hammerspoon
 
+![Language](https://img.shields.io/badge/language-Lua-orange)
+![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
+[![Version](https://img.shields.io/github/v/release/windvalley/dot-hammerspoon?include_prereleases)](https://github.com/windvalley/dot-hammerspoon/releases)
+[![LICENSE](https://img.shields.io/github/license/windvalley/dot-hammerspoon)](LICENSE)
+![Page Views](https://views.whatilearened.today/views/github/windvalley/dot-hammerspoon.svg)
+
 `dot-hammerspoon` is my personal configuration for [Hammerspoon](http://www.hammerspoon.org/), and you can modify to suit your needs and preferences.
 
 ## Features
@@ -61,6 +67,8 @@ cd ~/.hammerspoon && git pull
 - <kbd>⌥</kbd> + <kbd>C</kbd>: Chrome
 - <kbd>⌥</kbd> + <kbd>N</kbd>: YNote
 - <kbd>⌥</kbd> + <kbd>M</kbd>: Mail
+- <kbd>⌥</kbd> + <kbd>O</kbd>: VirtualBox
+- <kbd>⌥</kbd> + <kbd>D</kbd>: DeepL
 - <kbd>⌥</kbd> + <kbd>P</kbd>: Postman
 - <kbd>⌥</kbd> + <kbd>E</kbd>: Excel
 - <kbd>⌥</kbd> + <kbd>V</kbd>: VSCode
