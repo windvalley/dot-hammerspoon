@@ -1,7 +1,6 @@
 local _M = {}
 
 _M.name = "utils_lib"
-_M.version = "0.1.0"
 _M.description = "通用函数工具库"
 
 local charsize = function(ch)
