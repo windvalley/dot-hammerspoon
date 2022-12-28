@@ -26,25 +26,25 @@ require("app_launch")
 -- app窗口操作
 require("window_manipulation")
 
--- 切换到指定输入法
-require("manual_switch_input_method")
-
--- 根据应用不同, 自动切换输入法
-require("auto_switch_input_method")
-
 -- 系统管理
 require("system_manage")
 
 -- 网站快捷访问
 require("website_open")
 
--- 显示快捷键列表
+-- 切换到指定输入法
+require("manual_input_method")
+
+-- 根据应用不同, 自动切换输入法
+require("auto_input_method")
+
+-- 使桌面壁纸保持和 Bing Daily Picture 一致
+require("bing_daily_wallpaper")
+
+-- 显示快捷键备忘面板
 require("keybindings_cheatsheet")
 
 -- lua文件变动自动reload
 require("auto_reload")
-
--- 使桌面壁纸保持和 Bing Daily Picture 一致
-require("bing_daily_wallpaper")
 
 return _M

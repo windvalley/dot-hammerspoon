@@ -3,9 +3,6 @@ local _M = {}
 _M.name = "keybindings_config"
 _M.description = "快捷键配置"
 
-local abc = require "input_method_lib".abc
-local pinyin = require "input_method_lib".pinyin
-
 -- 每次按快捷键时显示快捷键alert消息持续的秒数, 0 为禁用.
 hs.hotkey.alertDuration = 0
 
@@ -64,6 +61,11 @@ _M.websites = {
         target = "https://www.bing.com"
     }
 }
+
+-- 简体拼音
+local pinyin = "com.apple.inputmethod.SCIM.ITABC"
+-- ABC
+local abc = "com.apple.keylayout.ABC"
 
 -- 手动切换到目标输入法
 _M.manual_input_methods = {
