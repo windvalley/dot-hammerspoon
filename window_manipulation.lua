@@ -1,7 +1,6 @@
 local _M = {}
 
 _M.name = "window_manipulation"
-_M.version = "0.1.0"
 _M.description = "app窗口管理, 比如移动、放大、缩小、分屏等"
 
 local window_position = require("keybindings_config").window_position
@@ -11,6 +10,8 @@ local window_batch = require("keybindings_config").window_batch
 local window_monitor = require("keybindings_config").window_monitor
 
 local window_lib = require("window_lib")
+
+local log = hs.logger.new("window")
 
 -- 窗口动画持续时间, 0为关闭动画效果.
 hs.window.animationDuration = 0.1
@@ -271,7 +272,7 @@ hs.hotkey.bind(
     window_monitor.to_above_screen.key,
     window_monitor.to_above_screen.message,
     function()
-        print("[INFO] move to above monitor")
+        log.d("move to above monitor")
         window_lib.moveToScreen("up")
     end
 )
@@ -280,7 +281,7 @@ hs.hotkey.bind(
     window_monitor.to_below_screen.key,
     window_monitor.to_below_screen.message,
     function()
-        print("[INFO] move to below monitor")
+        log.d("move to below monitor")
         window_lib.moveToScreen("down")
     end
 )
@@ -289,7 +290,7 @@ hs.hotkey.bind(
     window_monitor.to_left_screen.key,
     window_monitor.to_left_screen.message,
     function()
-        print("[INFO] move to left monitor")
+        log.d("move to left monitor")
         window_lib.moveToScreen("left")
     end
 )
@@ -298,7 +299,7 @@ hs.hotkey.bind(
     window_monitor.to_right_screen.key,
     window_monitor.to_right_screen.message,
     function()
-        print("[INFO] move to right monitor")
+        log.d("move to right monitor")
         window_lib.moveToScreen("right")
     end
 )
@@ -307,7 +308,7 @@ hs.hotkey.bind(
     window_monitor.to_next_screen.key,
     window_monitor.to_next_screen.message,
     function()
-        print("[INFO] move to next monitor")
+        log.d("move to next monitor")
         window_lib.moveToScreen("next")
     end
 )
@@ -319,6 +320,7 @@ hs.hotkey.bind(
     window_batch.minimize_all_windows.key,
     window_batch.minimize_all_windows.message,
     function()
+        log.d("minimized all windows")
         window_lib.minimizeAllWindows()
     end
 )
@@ -328,6 +330,7 @@ hs.hotkey.bind(
     window_batch.un_minimize_all_windows.key,
     window_batch.un_minimize_all_windows.message,
     function()
+        log.d("unminimize all windows")
         window_lib.unMinimizeAllWindows()
     end
 )
@@ -337,6 +340,7 @@ hs.hotkey.bind(
     window_batch.close_all_windows.key,
     window_batch.close_all_windows.message,
     function()
+        log.d("close all windows")
         window_lib.closeAllWindows()
     end
 )

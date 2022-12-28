@@ -6,6 +6,8 @@ _M.description = "切换应用时自动切换输入法"
 local auto_input_methods = require "keybindings_config".auto_input_methods
 local input_method_lib = require "input_method_lib"
 
+local log = hs.logger.new("inputMethod")
+
 local show_switch_info = false
 
 local function applicationWatcher(appName, eventType, appObject)
@@ -21,7 +23,7 @@ local function applicationWatcher(appName, eventType, appObject)
                 hs.alert.show(input_method, 0.5)
             end
 
-            print("[INFO] ", appName, "switched to", input_method)
+            log.d(string.format("app '%s' switched to '%s'", appName, input_method))
         end
     end
 end
