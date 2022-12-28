@@ -1,7 +1,6 @@
 local _M = {}
 
 _M.name = "keybindings_cheatsheet"
-_M.version = "0.1.0"
 _M.description = "展示快捷键备忘列表"
 
 local keybindings_cheatsheet = require "keybindings_config".keybindings_cheatsheet
@@ -21,6 +20,27 @@ local utf8sub = require "utils_lib".utf8sub
 local split = require "utils_lib".split
 local trim = require "utils_lib".trim
 
+-- 背景不透明度
+local background_opacity = 0.8
+-- 每行最大的长度
+local max_line_length = 35
+-- 每列的行数
+local max_line_number = 20
+-- 行距
+local line_spacing = 5
+-- 文本距离分割线的距离
+local seperator_spacing = 6
+-- 字体名称
+local font_name = "Monaco"
+-- 字体大小
+local font_size = 15
+-- 字体颜色
+local font_color = "#c6c6c6"
+-- 分割线颜色
+local stroke_color = "#585858"
+-- 分割线的宽度
+local stroke_width = 1
+
 local focusedWindow = hs.window.focusedWindow()
 if focusedWindow == nil then
     return
@@ -28,8 +48,8 @@ end
 
 local screen = focusedWindow:screen():frame()
 
-local COORIDNATE_X = screen.w / 2
-local COORIDNATE_Y = screen.h / 2
+local cooridnate_x = screen.w / 2
+local cooridnate_y = screen.h / 2
 
 -- 快捷键总数
 local num = 0
@@ -41,7 +61,7 @@ canvas:appendElements(
     {
         id = "pannel",
         action = "fill",
-        fillColor = {alpha = 0.8, red = 0, green = 0, blue = 0},
+        fillColor = {alpha = background_opacity, red = 0, green = 0, blue = 0},
         type = "rectangle"
     }
 )
@@ -51,21 +71,18 @@ local function styleText(text)
         text,
         {
             font = {
-                name = "Monaco",
-                size = 15
+                name = font_name,
+                size = font_size
             },
-            color = {hex = "#c6c6c6"},
+            color = {hex = font_color},
             paragraphStyle = {
-                lineSpacing = 5
+                lineSpacing = line_spacing
             }
         }
     )
 end
 
 local function formatText()
-    -- 每行最多 35 个字符
-    local MAX_LEN = 35
-
     -- 加载所有绑定的快捷键
     local hotkeys = hs.hotkey.getHotkeys()
 
@@ -249,15 +266,15 @@ local function formatText()
         local len = utf8len(msg)
 
         -- 超过最大长度, 截断多余部分, 截断的部分作为新的一行.
-        while len > MAX_LEN do
-            local substr = utf8sub(msg, 1, MAX_LEN)
+        while len > max_line_length do
+            local substr = utf8sub(msg, 1, max_line_length)
             table.insert(renderText, {line = substr})
 
-            msg = utf8sub(msg, MAX_LEN + 1, len)
+            msg = utf8sub(msg, max_line_length + 1, len)
             len = utf8len(msg)
         end
 
-        for _ = 1, MAX_LEN - utf8len(msg), 1 do
+        for _ = 1, max_line_length - utf8len(msg), 1 do
             msg = msg .. " "
         end
 
@@ -268,32 +285,27 @@ local function formatText()
 end
 
 local function drawText(renderText)
-    -- 每列最多 20 行
-    local MAX_LINE_NUM = 20
     local w = 0
     local h = 0
-    -- 文本距离分割线的距离
-    local SEPRATOR_W = 5
 
     -- 每一列需要显示的文本
     local column = ""
 
     for k, v in ipairs(renderText) do
         local line = v.line
-        if math.fmod(k, MAX_LINE_NUM) == 0 then
+        if math.fmod(k, max_line_number) == 0 then
             column = column .. line .. "  "
         else
             column = column .. line .. "  \n"
         end
 
-        -- k mod MAX_LINE_NUM
-        if math.fmod(k, MAX_LINE_NUM) == 0 then
+        -- k mod max_line_number
+        if math.fmod(k, max_line_number) == 0 then
             local itemText = styleText(column)
             local size = canvas:minimumTextSize(itemText)
 
-            -- 多 text size w 累加
             w = w + size.w
-            if k == MAX_LINE_NUM then
+            if k == max_line_number then
                 h = size.h
             end
 
@@ -302,9 +314,9 @@ local function drawText(renderText)
                     type = "text",
                     text = itemText,
                     frame = {
-                        x = (k / MAX_LINE_NUM - 1) * size.w + SEPRATOR_W,
+                        x = (k / max_line_number - 1) * size.w + seperator_spacing,
                         y = 0,
-                        w = size.w + SEPRATOR_W,
+                        w = size.w + seperator_spacing,
                         h = size.h
                     }
                 }
@@ -314,14 +326,12 @@ local function drawText(renderText)
                 {
                     type = "segments",
                     closed = false,
-                    -- 分割线的颜色
-                    strokeColor = {hex = "#585858"},
+                    strokeColor = {hex = stroke_color},
                     action = "stroke",
-                    -- 分隔线的宽度
-                    strokeWidth = 1,
+                    strokeWidth = stroke_width,
                     coordinates = {
-                        {x = (k / MAX_LINE_NUM) * size.w - SEPRATOR_W, y = 0},
-                        {x = (k / MAX_LINE_NUM) * size.w - SEPRATOR_W, y = h}
+                        {x = (k / max_line_number) * size.w - seperator_spacing, y = 0},
+                        {x = (k / max_line_number) * size.w - seperator_spacing, y = h}
                     }
                 }
             )
@@ -341,9 +351,9 @@ local function drawText(renderText)
                 type = "text",
                 text = itemText,
                 frame = {
-                    x = math.ceil(num / MAX_LINE_NUM - 1) * size.w + SEPRATOR_W,
+                    x = math.ceil(num / max_line_number - 1) * size.w + seperator_spacing,
                     y = 0,
-                    w = size.w + SEPRATOR_W,
+                    w = size.w + seperator_spacing,
                     h = size.h
                 }
             }
@@ -351,7 +361,7 @@ local function drawText(renderText)
     end
 
     -- 居中显示
-    canvas:frame({x = COORIDNATE_X - w / 2, y = COORIDNATE_Y - h / 2, w = w, h = h})
+    canvas:frame({x = cooridnate_x - w / 2, y = cooridnate_y - h / 2, w = w, h = h})
 end
 
 -- 默认不显示
