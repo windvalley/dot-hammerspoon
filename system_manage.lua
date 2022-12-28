@@ -1,10 +1,11 @@
 local _M = {}
 
 _M.name = "system_manage"
-_M.version = "0.1.0"
 _M.description = "系统管理, 比如: 锁屏, 启动屏保, 重启等"
 
 local system = require("keybindings_config").system
+
+local log = hs.logger.new("system")
 
 -- 锁屏.
 hs.hotkey.bind(
@@ -12,7 +13,7 @@ hs.hotkey.bind(
     system.lock_screen.key,
     system.lock_screen.message,
     function()
-        print("[INFO] lock screen")
+        log.d("lock screen")
         hs.caffeinate.lockScreen()
     end
 )
@@ -23,7 +24,7 @@ hs.hotkey.bind(
     system.screen_saver.key,
     system.screen_saver.message,
     function()
-        print("[INFO] start screensaver")
+        log.d("start screensaver")
         hs.caffeinate.startScreensaver()
     end
 )
