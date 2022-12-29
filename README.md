@@ -1,4 +1,4 @@
-# dot-hammerspoon
+# ![sre.im](https://sre.im/favicon-64.png)dot-hammerspoon
 
 ![Language](https://img.shields.io/badge/language-Lua-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
@@ -131,6 +131,71 @@ cd ~/.hammerspoon && git pull
 ## Keybindings Customization
 
 Modify the file `~/.hammerspoon/keybindings_config.lua` according to your keystroke habits.
+
+## Some Useful Shortcuts Come With macOS
+
+<details>
+<summary>More details</summary>
+
+### Desktop
+
+- <kbd>⌃</kbd> + <kbd>RIGHT</kbd>: Switch to right desktop
+- <kbd>⌃</kbd> + <kbd>LEFT</kbd>: Switch to left desktop
+- <kbd>⌃</kbd> + <kbd>UP</kbd>: Toggle tiling windows
+- <kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>D</kbd>: Toggle dock
+
+### Application
+
+- <kbd>⌘</kbd> + <kbd>Q</kbd>: Close app
+- <kbd>⌘</kbd> + <kbd>,</kbd>: Open the app's preferences
+- <kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>/</kbd>: Toggle help
+
+### Window
+
+- <kbd>⌘</kbd> + <kbd>H</kbd>: Hide window
+- <kbd>⌘</kbd> + <kbd>M</kbd>: Minimize window
+- <kbd>⌘</kbd> + <kbd>N</kbd>: New window
+- <kbd>⌘</kbd> + <kbd>W</kbd>: Close window
+- <kbd>⌘</kbd> + <kbd>\`</kbd>: Switch between windows of the same application
+- <kbd>⌃</kbd><kbd>⌘</kbd> + <kbd>F</kbd>: Toggle window fullscreen
+- <kbd>⌃</kbd><kbd>⌘</kbd> + <kbd>H</kbd>: Hide all windows except the current one
+
+### Window Tab
+
+- <kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>[</kbd>: Switch to the left tab
+- <kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>]</kbd>: Switch to the right tab
+- <kbd>⌘</kbd> + <kbd>NUMBER</kbd>: Switch to the specified tab
+- <kbd>⌘</kbd> + <kbd>9</kbd>: Switch to the last tab
+
+### Cursor
+
+- <kbd>⌃</kbd> + <kbd>P</kbd>: Move the cursor up
+- <kbd>⌃</kbd> + <kbd>N</kbd>: Move the cursor down
+- <kbd>⌃</kbd> + <kbd>B</kbd>: Move the cursor back/left
+- <kbd>⌃</kbd> + <kbd>F</kbd>: Move the cursor forward/right
+- <kbd>⌃</kbd> + <kbd>A</kbd>: Move the cursor to the beginning of the line
+- <kbd>⌃</kbd> + <kbd>E</kbd>: Move the cursor to the end of the line
+
+### File
+
+- <kbd>⌘</kbd> + <kbd>BACKSPACE</kbd>: Delete the selected file
+- <kbd>⌘</kbd> + <kbd>DOWN</kbd>: Go to a directory or open a file
+- <kbd>⌘</kbd> + <kbd>UP</kbd>: Back to the upper level directory
+- <kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>BACKSPACE</kbd>: Clear the Trash
+
+### Others
+
+- <kbd>⌘</kbd> + <kbd>+</kbd>: Expand font size
+- <kbd>⌘</kbd> + <kbd>-</kbd>: Shrink font size
+- <kbd>⌘</kbd> + <kbd>0</kbd>: Reset font size
+
+- <kbd>⌘</kbd> + <kbd>Z</kbd>: Undo
+- <kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>Z</kbd>: Redo
+- <kbd>⌘</kbd> + <kbd>C</kbd>: Copy
+- <kbd>⌘</kbd> + <kbd>V</kbd>: Paste
+- <kbd>⌘</kbd><kbd>⌥</kbd> + <kbd>V</kbd>: Paste and delete the original object
+
+</details>
 
 ## Acknowledgments
 
