@@ -3,9 +3,6 @@ local _M = {}
 _M.name = "keybindings_config"
 _M.description = "快捷键配置"
 
--- 每次按快捷键时显示快捷键alert消息持续的秒数, 0 为禁用.
-hs.hotkey.alertDuration = 0
-
 -- 快捷键备忘单展示
 _M.keybindings_cheatsheet = {
     prefix = {
@@ -88,7 +85,8 @@ _M.auto_input_methods = {
     ["com.apple.mail"] = pinyin,
     ["com.microsoft.Excel"] = pinyin,
     ["mac.im.qihoo.net"] = pinyin,
-    ["ynote-desktop"] = pinyin
+    ["ynote-desktop"] = pinyin,
+    ["com.linguee.DeepLCopyTranslator"] = pinyin
 }
 
 -- App启动或隐藏

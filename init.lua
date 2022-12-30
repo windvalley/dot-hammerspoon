@@ -15,6 +15,12 @@ hs.dockIcon(false)
 hs.menuIcon(true)
 hs.uploadCrashData(false)
 
+-- 每次按快捷键时显示快捷键alert消息持续的秒数, 0 为禁用.
+hs.hotkey.alertDuration = 0
+
+-- 窗口动画持续时间, 0为关闭动画效果.
+hs.window.animationDuration = 0
+
 -- Hammerspoon Console 上打印的日志级别.
 -- 可选: verbose, debug, info, warning, error, nothing
 -- 默认: warning
