@@ -13,9 +13,6 @@ local window_lib = require("window_lib")
 
 local log = hs.logger.new("window")
 
--- 窗口动画持续时间, 0为关闭动画效果.
-hs.window.animationDuration = 0.1
-
 -- ********** window position **********
 -- 居中
 hs.hotkey.bind(
