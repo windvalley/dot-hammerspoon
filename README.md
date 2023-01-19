@@ -39,6 +39,8 @@ cd ~/.hammerspoon && git pull
 
 ### Toggle Keybindings Cheatsheet
 
+![toggle-keybindings-cheatsheet](https://user-images.githubusercontent.com/6139938/213378139-2d005ac0-bce3-4798-a8b5-e2c23fd5817c.gif)
+
 <kbd>⌥</kbd> + <kbd>/</kbd>
 
 ### Switch to the specified Input Method
