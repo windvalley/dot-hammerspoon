@@ -39,6 +39,8 @@ cd ~/.hammerspoon && git pull
 
 ### Toggle Keybindings Cheatsheet
 
+![toggle-keybindings-cheatsheet](https://user-images.githubusercontent.com/6139938/213378139-2d005ac0-bce3-4798-a8b5-e2c23fd5817c.gif)
+
 <kbd>⌥</kbd> + <kbd>/</kbd>
 
 ### Switch to the specified Input Method
@@ -61,6 +63,8 @@ cd ~/.hammerspoon && git pull
 
 ### Application Launch or Hide
 
+![application-launch](https://user-images.githubusercontent.com/6139938/213380921-4a8a891f-3476-4160-a23d-afd402f53c46.gif)
+
 - <kbd>⌥</kbd> + <kbd>H</kbd>: Hammerspoon Console
 - <kbd>⌥</kbd> + <kbd>F</kbd>: Finder
 - <kbd>⌥</kbd> + <kbd>I</kbd>: Alacritty
@@ -77,6 +81,8 @@ cd ~/.hammerspoon && git pull
 ### Window Manipulation
 
 #### Window Position
+
+![window-position](https://user-images.githubusercontent.com/6139938/213381748-31c10324-aee6-48d4-9ec7-492611fac499.gif)
 
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>C</kbd>: Center Window
 
@@ -97,6 +103,8 @@ cd ~/.hammerspoon && git pull
 
 #### Window Resize
 
+![window-resize](https://user-images.githubusercontent.com/6139938/213382832-7f326b87-a704-441d-aa56-9c016f2072cc.gif)
+
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>M</kbd>: Max Window
 
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>=</kbd>: Stretch Outward
@@ -108,6 +116,8 @@ cd ~/.hammerspoon && git pull
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>L</kbd>: Right Side Stretch Rightward
 
 #### Window Movement
+
+![window-movement](https://user-images.githubusercontent.com/6139938/213383576-facc8b81-a94f-4124-b0a1-409d23261421.gif)
 
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>K</kbd>: Move Upward
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + <kbd>J</kbd>: Move Downward
