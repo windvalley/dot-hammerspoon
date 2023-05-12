@@ -78,6 +78,8 @@ _M.auto_input_methods = {
     ["com.apple.finder"] = abc,
     ["com.apple.Spotlight"] = abc,
     ["io.alacritty"] = abc,
+    ["com.todesktop.230313mzl4w4u92"] = abc, -- Cursor
+    ["org.virtualbox.app.VirtualBox"] = abc,
     ["com.google.Chrome"] = abc,
     ["com.microsoft.VSCode"] = abc,
     ["com.postmanlabs.mac"] = abc,
@@ -86,7 +88,7 @@ _M.auto_input_methods = {
     ["com.microsoft.Excel"] = pinyin,
     ["mac.im.qihoo.net"] = pinyin,
     ["ynote-desktop"] = pinyin,
-    ["com.linguee.DeepLCopyTranslator"] = pinyin
+    ["org.mozilla.firefox"] = pinyin
 }
 
 -- App启动或隐藏
@@ -95,9 +97,10 @@ _M.apps = {
     {prefix = {"Option"}, key = "H", message = "Hammerspoon Console", bundleId = "org.hammerspoon.Hammerspoon"},
     {prefix = {"Option"}, key = "F", message = "Finder", bundleId = "com.apple.finder"},
     {prefix = {"Option"}, key = "I", message = "Alacritty", bundleId = "io.alacritty"},
+    {prefix = {"Option"}, key = "L", message = "Cursor", bundleId = "com.todesktop.230313mzl4w4u92"},
     {prefix = {"Option"}, key = "C", message = "Chrome", bundleId = "com.google.Chrome"},
     {prefix = {"Option"}, key = "N", message = "Note", bundleId = "ynote-desktop"},
-    {prefix = {"Option"}, key = "D", message = "DeepL", bundleId = "com.linguee.DeepLCopyTranslator"},
+    {prefix = {"Option"}, key = "D", message = "FireFox", bundleId = "org.mozilla.firefox"},
     {prefix = {"Option"}, key = "O", message = "VirtualBox", bundleId = "org.virtualbox.app.VirtualBox"},
     {prefix = {"Option"}, key = "M", message = "Mail", bundleId = "com.apple.mail"},
     {prefix = {"Option"}, key = "P", message = "Postman", bundleId = "com.postmanlabs.mac"},
