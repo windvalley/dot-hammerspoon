@@ -77,7 +77,7 @@ _M.auto_input_methods = {
     ["org.hammerspoon.Hammerspoon"] = abc,
     ["com.apple.finder"] = abc,
     ["com.apple.Spotlight"] = abc,
-    ["io.alacritty"] = abc,
+    ["org.alacritty"] = abc,
     ["com.todesktop.230313mzl4w4u92"] = abc, -- Cursor
     ["org.virtualbox.app.VirtualBox"] = abc,
     ["com.google.Chrome"] = abc,
@@ -96,7 +96,7 @@ _M.auto_input_methods = {
 _M.apps = {
     {prefix = {"Option"}, key = "H", message = "Hammerspoon Console", bundleId = "org.hammerspoon.Hammerspoon"},
     {prefix = {"Option"}, key = "F", message = "Finder", bundleId = "com.apple.finder"},
-    {prefix = {"Option"}, key = "I", message = "Alacritty", bundleId = "io.alacritty"},
+    {prefix = {"Option"}, key = "I", message = "Alacritty", bundleId = "org.alacritty"},
     {prefix = {"Option"}, key = "L", message = "Cursor", bundleId = "com.todesktop.230313mzl4w4u92"},
     {prefix = {"Option"}, key = "C", message = "Chrome", bundleId = "com.google.Chrome"},
     {prefix = {"Option"}, key = "N", message = "Note", bundleId = "ynote-desktop"},
