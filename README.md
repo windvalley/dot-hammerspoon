@@ -68,11 +68,12 @@ cd ~/.hammerspoon && git pull
 - <kbd>⌥</kbd> + <kbd>H</kbd>: Hammerspoon Console
 - <kbd>⌥</kbd> + <kbd>F</kbd>: Finder
 - <kbd>⌥</kbd> + <kbd>I</kbd>: Alacritty
+- <kbd>⌥</kbd> + <kbd>L</kbd>: Cursor
 - <kbd>⌥</kbd> + <kbd>C</kbd>: Chrome
 - <kbd>⌥</kbd> + <kbd>N</kbd>: YNote
 - <kbd>⌥</kbd> + <kbd>M</kbd>: Mail
 - <kbd>⌥</kbd> + <kbd>O</kbd>: VirtualBox
-- <kbd>⌥</kbd> + <kbd>D</kbd>: DeepL
+- <kbd>⌥</kbd> + <kbd>D</kbd>: Firefox
 - <kbd>⌥</kbd> + <kbd>P</kbd>: Postman
 - <kbd>⌥</kbd> + <kbd>E</kbd>: Excel
 - <kbd>⌥</kbd> + <kbd>V</kbd>: VSCode
