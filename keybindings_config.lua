@@ -100,6 +100,7 @@ _M.apps = {
     {prefix = {"Option"}, key = "C", message = "Chrome", bundleId = "com.google.Chrome"},
     {prefix = {"Option"}, key = "N", message = "Note", bundleId = "ynote-desktop"},
     {prefix = {"Option"}, key = "D", message = "Draw.io", bundleId = "com.jgraph.drawio.desktop"},
+    {prefix = {"Option"}, key = "K", message = "Freeplane", bundleId = "org.freeplane.launcher"},
     {prefix = {"Option"}, key = "O", message = "VirtualBox", bundleId = "org.virtualbox.app.VirtualBox"},
     {prefix = {"Option"}, key = "M", message = "Mail", bundleId = "com.apple.mail"},
     {prefix = {"Option"}, key = "P", message = "Postman", bundleId = "com.postmanlabs.mac"},
