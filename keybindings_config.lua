@@ -78,17 +78,16 @@ _M.auto_input_methods = {
     ["com.apple.finder"] = abc,
     ["com.apple.Spotlight"] = abc,
     ["org.alacritty"] = abc,
-    ["com.todesktop.230313mzl4w4u92"] = abc, -- Cursor
-    ["org.virtualbox.app.VirtualBox"] = abc,
+    ["md.obsidian"] = abc,
     ["com.google.Chrome"] = abc,
     ["com.microsoft.VSCode"] = abc,
+    ["org.virtualbox.app.VirtualBox"] = abc,
     ["com.postmanlabs.mac"] = abc,
     ["com.tencent.xinWeChat"] = pinyin,
     ["com.apple.mail"] = pinyin,
     ["com.microsoft.Excel"] = pinyin,
     ["mac.im.qihoo.net"] = pinyin,
-    ["ynote-desktop"] = pinyin,
-    ["org.mozilla.firefox"] = pinyin
+    ["ynote-desktop"] = pinyin
 }
 
 -- App启动或隐藏
