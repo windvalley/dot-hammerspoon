@@ -60,7 +60,7 @@ _M.websites = {
 }
 
 -- 简体拼音
-local pinyin = "com.apple.inputmethod.SCIM.ITABC"
+local pinyin = "com.tencent.inputmethod.wetype"
 -- ABC
 local abc = "com.apple.keylayout.ABC"
 
@@ -74,14 +74,14 @@ _M.manual_input_methods = {
 -- 自动切换App所对应的输入法, 格式: 应用的bundleID = 输入法简称
 -- NOTE: 获取某个App的bundleId的方法举例: osascript -e 'id of app "chrome"'
 _M.auto_input_methods = {
-	["org.hammerspoon.Hammerspoon"] = abc,
-	["com.apple.finder"] = abc,
-	["com.apple.Spotlight"] = abc,
-	["org.alacritty"] = abc,
-	["dev.warp.Warp-Stable"] = abc,
-	["com.google.Chrome"] = abc,
-	["org.virtualbox.app.VirtualBox"] = abc,
-	["com.postmanlabs.mac"] = abc,
+	["org.hammerspoon.Hammerspoon"] = pinyin,
+	["com.apple.finder"] = pinyin,
+	["com.apple.Spotlight"] = pinyin,
+	["org.alacritty"] = pinyin,
+	["dev.warp.Warp-Stable"] = pinyin,
+	["com.google.Chrome"] = pinyin,
+	["org.virtualbox.app.VirtualBox"] = pinyin,
+	["com.postmanlabs.mac"] = pinyin,
 	["com.tencent.xinWeChat"] = pinyin,
 	["com.apple.mail"] = pinyin,
 	["com.microsoft.Excel"] = pinyin,
@@ -98,7 +98,7 @@ _M.auto_input_methods = {
 _M.apps = {
 	{ prefix = { "Option" }, key = "H", message = "Hammerspoon Console", bundleId = "org.hammerspoon.Hammerspoon" },
 	{ prefix = { "Option" }, key = "F", message = "Finder", bundleId = "com.apple.finder" },
-	{ prefix = { "Option" }, key = "I", message = "Warp", bundleId = "dev.warp.Warp-Stable" },
+	{ prefix = { "Option" }, key = "I", message = "Ghostty", bundleId = "com.mitchellh.ghostty" },
 	{ prefix = { "Option" }, key = "C", message = "Chrome", bundleId = "com.google.Chrome" },
 	{ prefix = { "Option" }, key = "N", message = "Antigravity", bundleId = "com.google.antigravity" },
 	{ prefix = { "Option" }, key = "D", message = "WPS", bundleId = "com.kingsoft.wpsoffice.mac" },
