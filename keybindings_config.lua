@@ -285,6 +285,8 @@ _M.break_reminder = {
 	-- soft: 显示半透明遮罩但不抢占鼠标和键盘
 	-- hard: 显示遮罩并明确拦截鼠标和键盘
 	mode = "hard",
+	-- true 时仅显示简洁图标，不显示倒计时和说明文字
+	minimal_display = false,
 	-- 单位: 分钟
 	work_minutes = 28,
 	-- 单位: 分钟

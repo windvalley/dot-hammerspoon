@@ -86,6 +86,7 @@ The configuration will enforce a 2-minute break every 30 minutes on all screens.
 
 - `soft`: show a translucent fullscreen overlay, keep the current app usable.
 - `hard`: show the overlay and block keyboard/mouse input during the break.
+- `minimal_display`: when enabled, the overlay only shows a coffee icon `☕️`.
 - Locked-screen time is not counted as work time. After unlocking the screen, the work timer restarts from a new cycle.
 
 You can change or disable it in `~/.hammerspoon/keybindings_config.lua`:
@@ -94,6 +95,7 @@ You can change or disable it in `~/.hammerspoon/keybindings_config.lua`:
 _M.break_reminder = {
 	enabled = true,
 	mode = "hard",
+	minimal_display = false,
 	work_minutes = 30,
 	rest_minutes = 2,
 }

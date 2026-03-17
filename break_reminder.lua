@@ -39,6 +39,7 @@ local rest_minutes = tonumber(config.rest_minutes) or 2
 local work_seconds = math.max(60, math.floor(work_minutes * 60))
 local rest_seconds = math.max(10, math.floor(rest_minutes * 60))
 local mode = tostring(config.mode or "hard"):lower()
+local minimal_display = config.minimal_display == true
 
 if valid_modes[mode] ~= true then
 	log.w(string.format("invalid break mode: %s, fallback to hard", mode))
@@ -51,6 +52,7 @@ local countdown_color = { hex = "#E9C46A" }
 local description_color = { hex = "#D8DEE9" }
 local hint_color = { hex = "#9AA5B1" }
 local font_name = "Monaco"
+local icon_font_name = "Apple Color Emoji"
 
 local work_timer = nil
 local break_timer = nil
@@ -92,6 +94,18 @@ local function style_text(text, size, color)
 				size = size,
 			},
 			color = color,
+		}
+	)
+end
+
+local function style_icon_text(text, size)
+	return hs.styledtext.new(
+		text,
+		{
+			font = {
+				name = icon_font_name,
+				size = size,
+			},
 		}
 	)
 end
@@ -203,6 +217,15 @@ local function create_overlay(screen, remaining_seconds)
 		}
 	)
 
+	if minimal_display then
+		local icon = style_icon_text("☕️", math.floor(math.min(frame.w, frame.h) * 0.22))
+		local icon_height = canvas:minimumTextSize(icon).h
+
+		append_centered_text(canvas, "icon", icon, math.floor((frame.h - icon_height) / 2))
+		canvas:show(0)
+		return canvas
+	end
+
 	local title = style_text("休息时间", 40, title_color)
 	local countdown = style_text(format_seconds(remaining_seconds), 72, countdown_color)
 	local description = style_text(
@@ -239,6 +262,10 @@ end
 local function update_overlays(remaining_seconds)
 	if next(overlays) == nil then
 		render_overlays(remaining_seconds)
+		return
+	end
+
+	if minimal_display then
 		return
 	end
 
