@@ -82,12 +82,25 @@ cd ~/.hammerspoon && git pull
 
 ### Break Reminder
 
-The configuration will enforce a 2-minute break every 30 minutes on all screens.
+The configuration will enforce scheduled breaks on all screens based on your configured work and rest durations.
 
 - `soft`: show a translucent fullscreen overlay, keep the current app usable.
 - `hard`: show the overlay and block keyboard/mouse input during the break.
 - `minimal_display`: when enabled, the overlay only shows a coffee icon `☕️`.
+- `friendly_reminder_message`: customize the reminder message template.
+- `friendly_reminder_duration_seconds`: how long the reminder stays visible. Set `0` to keep it open until manually closed with `×`.
+- `friendly_reminder_seconds`: how many seconds before the break to show a light reminder. Set `0` to disable it.
+- `rest_seconds`: break duration in seconds.
 - Locked-screen time is not counted as work time. After unlocking the screen, the work timer restarts from a new cycle.
+
+Supported reminder placeholders:
+
+- `{{remaining}}`: human-readable time such as `1 分钟 30 秒`
+- `{{remaining_seconds}}`: remaining seconds as an integer
+- `{{remaining_mmss}}`: remaining time in `MM:SS`
+- `{{rest}}`: break duration in human-readable form
+- `{{rest_seconds}}`: break duration in seconds
+- `{{rest_mmss}}`: break duration in `MM:SS`
 
 You can change or disable it in `~/.hammerspoon/keybindings_config.lua`:
 
@@ -96,8 +109,11 @@ _M.break_reminder = {
 	enabled = true,
 	mode = "hard",
 	minimal_display = false,
+	friendly_reminder_message = "再过 {{remaining}} 去休息一下",
+	friendly_reminder_duration_seconds = 2,
+	friendly_reminder_seconds = 90,
 	work_minutes = 30,
-	rest_minutes = 2,
+	rest_seconds = 120,
 }
 ```
 

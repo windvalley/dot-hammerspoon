@@ -286,11 +286,18 @@ _M.break_reminder = {
 	-- hard: 显示遮罩并明确拦截鼠标和键盘
 	mode = "hard",
 	-- true 时仅显示简洁图标，不显示倒计时和说明文字
-	minimal_display = false,
+	minimal_display = true,
+	-- 友好提示文案模板
+	-- 可用占位符: {{remaining}} {{remaining_seconds}} {{remaining_mmss}} {{rest}} {{rest_seconds}} {{rest_mmss}}
+	friendly_reminder_message = "还有 {{remaining}} 开始休息",
+	-- 友好提示默认停留秒数, 0 表示不自动关闭, 只允许手动点 x 关闭
+	friendly_reminder_duration_seconds = 10,
+	-- 距离休息还有多少秒时做一次友好提示, 0 为禁用
+	friendly_reminder_seconds = 120,
 	-- 单位: 分钟
 	work_minutes = 28,
-	-- 单位: 分钟
-	rest_minutes = 2,
+	-- 单位: 秒
+	rest_seconds = 2,
 }
 
 return _M
