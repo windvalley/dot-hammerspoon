@@ -47,6 +47,9 @@ require("auto_input_method")
 -- 使桌面壁纸保持和 Bing Daily Picture 一致
 require("bing_daily_wallpaper")
 
+-- 每隔一段时间强制休息
+require("break_reminder")
+
 -- 显示快捷键备忘面板
 require("keybindings_cheatsheet")
 

@@ -1,4 +1,4 @@
-# ![sre.im](https://sre.im/favicon-64.png)dot-hammerspoon
+# dot-hammerspoon
 
 ![Language](https://img.shields.io/badge/language-Lua-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
@@ -18,6 +18,7 @@
 - Open the specified website directly.
 - Toggle the keybindings cheatsheet.
 - Keep the desktop wallpaper the same as the bing daily picture.
+- Force a 2-minute break every 30 minutes, with configurable soft or hard mode.
 - Auto reload configuration when lua files changes.
 - The code structure is clear and easy to customize into your own configuration.
 
@@ -78,6 +79,25 @@ cd ~/.hammerspoon && git pull
 - <kbd>⌥</kbd> + <kbd>E</kbd>: Excel
 - <kbd>⌥</kbd> + <kbd>V</kbd>: VSCode
 - <kbd>⌥</kbd> + <kbd>W</kbd>: WeChat
+
+### Break Reminder
+
+The configuration will enforce a 2-minute break every 30 minutes on all screens.
+
+- `soft`: show a translucent fullscreen overlay, keep the current app usable.
+- `hard`: show the overlay and block keyboard/mouse input during the break.
+- Locked-screen time is not counted as work time. After unlocking the screen, the work timer restarts from a new cycle.
+
+You can change or disable it in `~/.hammerspoon/keybindings_config.lua`:
+
+```lua
+_M.break_reminder = {
+	enabled = true,
+	mode = "hard",
+	work_minutes = 30,
+	rest_minutes = 2,
+}
+```
 
 ### Window Manipulation
 
