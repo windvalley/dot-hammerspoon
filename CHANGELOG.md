@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0] - 2026-03-17
+
+### Added
+- New Break Reminder module to encourage healthy work-rest intervals.
+
+### Changed
+- Refactored and optimized the global keybinding system, including dedicated shortcut support for Cursor, Obsidian, and Freeplane.
+- Updated environment configurations to migrate input methods and terminal support to WeType and Ghostty.
+- Restructured core configuration by consolidating settings into `init.lua` for better maintainability.
+- Enhanced project documentation with interactive GIF demonstrations and a curated list of native macOS shortcuts.
+
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
