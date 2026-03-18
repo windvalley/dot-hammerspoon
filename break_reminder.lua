@@ -84,6 +84,7 @@ local break_timer = nil
 local friendly_reminder_timer = nil
 local friendly_reminder_popup_timer = nil
 local break_ends_at = nil
+local session_is_inactive = false
 local overlays = {}
 local frontmost_app = nil
 local blocked_event_types = {}
@@ -516,6 +517,41 @@ local function stop_work_timer()
 	work_timer = nil
 end
 
+local function reset_cycle_for_inactive_session(reason)
+	stop_work_timer()
+	stop_friendly_reminder_timer()
+	stop_break_timer()
+	stop_input_blocker()
+	destroy_friendly_reminder_popup()
+	destroy_overlays()
+	break_ends_at = nil
+	frontmost_app = nil
+	session_is_inactive = true
+	log.i(string.format("break timer reset because session became inactive: %s", reason))
+end
+
+local function can_resume_after_inactive_session()
+	local session_properties = hs.caffeinate.sessionProperties()
+
+	if session_properties == nil then
+		return true
+	end
+
+	local is_locked = session_properties.CGSSessionScreenIsLocked
+
+	if is_locked == true or is_locked == 1 then
+		return false
+	end
+
+	local is_on_console = session_properties.kCGSSessionOnConsoleKey
+
+	if is_on_console == false or is_on_console == 0 then
+		return false
+	end
+
+	return true
+end
+
 local function finish_break()
 	stop_break_timer()
 	stop_input_blocker()
@@ -609,25 +645,30 @@ _M.screen_watcher:start()
 
 _M.caffeinate_watcher = hs.caffeinate.watcher.new(
 	function(event)
+		if event == hs.caffeinate.watcher.screensDidLock
+			or event == hs.caffeinate.watcher.systemWillSleep
+			or event == hs.caffeinate.watcher.sessionDidResignActive then
+			reset_cycle_for_inactive_session(tostring(event))
+			return
+		end
+
 		if event ~= hs.caffeinate.watcher.systemDidWake
-			and event ~= hs.caffeinate.watcher.screensDidUnlock then
+			and event ~= hs.caffeinate.watcher.screensDidUnlock
+			and event ~= hs.caffeinate.watcher.sessionDidBecomeActive then
 			return
 		end
 
-		if break_ends_at ~= nil then
-			local remaining_seconds = break_ends_at - os.time()
-
-			if remaining_seconds <= 0 then
-				finish_break()
-				return
-			end
-
-			render_overlays(remaining_seconds)
-			start_input_blocker()
+		if session_is_inactive ~= true then
 			return
 		end
 
-		log.i("break timer reset after wake/unlock")
+		if can_resume_after_inactive_session() ~= true then
+			log.i("session is still locked/inactive after wake, waiting before restarting break timer")
+			return
+		end
+
+		session_is_inactive = false
+		log.i("break timer restarted after wake/unlock")
 		schedule_next_break()
 	end
 )
