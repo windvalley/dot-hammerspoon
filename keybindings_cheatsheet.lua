@@ -41,18 +41,10 @@ local stroke_color = "#585858"
 -- 分割线的宽度
 local stroke_width = 1
 
-local focusedWindow = hs.window.focusedWindow()
-if focusedWindow == nil then
-    return
-end
-
-local screen = focusedWindow:screen():frame()
-
-local cooridnate_x = screen.w / 2
-local cooridnate_y = screen.h / 2
-
 -- 快捷键总数
 local num = 0
+local canvas_width = 0
+local canvas_height = 0
 
 local canvas = hs.canvas.new({x = 0, y = 0, w = 0, h = 0})
 
@@ -78,6 +70,42 @@ local function styleText(text)
             paragraphStyle = {
                 lineSpacing = line_spacing
             }
+        }
+    )
+end
+
+local function resolveTargetScreenFrame()
+    local targetScreen = nil
+    local focusedWindow = hs.window.focusedWindow()
+
+    if focusedWindow ~= nil then
+        targetScreen = focusedWindow:screen()
+    end
+
+    if targetScreen == nil then
+        targetScreen = hs.screen.mainScreen()
+    end
+
+    if targetScreen == nil then
+        return nil
+    end
+
+    return targetScreen:frame()
+end
+
+local function positionCanvas()
+    local screen = resolveTargetScreenFrame()
+
+    if screen == nil then
+        return
+    end
+
+    canvas:frame(
+        {
+            x = screen.x + (screen.w - canvas_width) / 2,
+            y = screen.y + (screen.h - canvas_height) / 2,
+            w = canvas_width,
+            h = canvas_height
         }
     )
 end
@@ -360,8 +388,9 @@ local function drawText(renderText)
         )
     end
 
-    -- 居中显示
-    canvas:frame({x = cooridnate_x - w / 2, y = cooridnate_y - h / 2, w = w, h = h})
+    canvas_width = w
+    canvas_height = h
+    positionCanvas()
 end
 
 -- 默认不显示
@@ -371,6 +400,7 @@ local function toggleKeybindingsCheatsheet()
         -- 0.3s 过渡
         canvas:hide(.3)
     else
+        positionCanvas()
         canvas:show(.3)
     end
 
