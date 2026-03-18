@@ -12,11 +12,15 @@ local default_overlay_opacity = {
 	soft = 0.32,
 	hard = 0.96,
 }
-local menubar_icon_size = 18
+local menubar_icon_size = 22
 local menubar_canvas_size = 36
 local valid_modes = {
 	soft = true,
 	hard = true,
+}
+local valid_start_next_cycle_modes = {
+	auto = true,
+	on_input = true,
 }
 local blocked_event_type_names = {
 	"keyDown",
@@ -36,6 +40,19 @@ local blocked_event_type_names = {
 	"gesture",
 	"tabletPointer",
 	"tabletProximity",
+}
+local resume_input_event_type_names = {
+	"keyDown",
+	"mouseMoved",
+	"leftMouseDown",
+	"leftMouseDragged",
+	"rightMouseDown",
+	"rightMouseDragged",
+	"otherMouseDown",
+	"otherMouseDragged",
+	"scrollWheel",
+	"gesture",
+	"tabletPointer",
 }
 
 local function resolve_integer_seconds(value, default_value, minimum_seconds)
@@ -87,6 +104,17 @@ local function normalize_mode(value)
 	return mode
 end
 
+local function normalize_start_next_cycle_mode(value)
+	local mode = tostring(value or "auto"):lower()
+
+	if valid_start_next_cycle_modes[mode] ~= true then
+		log.w(string.format("invalid start_next_cycle mode: %s, fallback to auto", mode))
+		mode = "auto"
+	end
+
+	return mode
+end
+
 local function merged_config(runtime_overrides)
 	local config = shallow_copy(base_config)
 
@@ -106,6 +134,7 @@ local function normalize_config(config)
 		show_menubar = config.show_menubar ~= false,
 		show_progress_in_menubar = config.show_progress_in_menubar ~= false,
 		menubar_title = tostring(config.menubar_title or default_menubar_title),
+		start_next_cycle = normalize_start_next_cycle_mode(config.start_next_cycle),
 		mode = mode,
 		minimal_display = config.minimal_display == true,
 		work_seconds = work_seconds,
@@ -143,6 +172,23 @@ local function format_duration(total_seconds)
 	end
 
 	return string.format("%d 秒", seconds)
+end
+
+local function format_compact_duration(total_seconds)
+	total_seconds = math.max(0, math.floor(total_seconds))
+
+	local minutes = math.floor(total_seconds / 60)
+	local seconds = total_seconds % 60
+
+	if minutes > 0 and seconds > 0 then
+		return string.format("%d分%d秒", minutes, seconds)
+	end
+
+	if minutes > 0 then
+		return string.format("%d分", minutes)
+	end
+
+	return string.format("%d秒", seconds)
 end
 
 local function format_minutes(total_seconds)
@@ -190,17 +236,6 @@ local function serialize_lua_value(value)
 	error(string.format("unsupported lua value type: %s", value_type))
 end
 
-local function interpolate_color(from_color, to_color, ratio)
-	ratio = clamp_number(ratio, 0, 1)
-
-	return {
-		red = (from_color.red or 0) + ((to_color.red or 0) - (from_color.red or 0)) * ratio,
-		green = (from_color.green or 0) + ((to_color.green or 0) - (from_color.green or 0)) * ratio,
-		blue = (from_color.blue or 0) + ((to_color.blue or 0) - (from_color.blue or 0)) * ratio,
-		alpha = (from_color.alpha or 1) + ((to_color.alpha or 1) - (from_color.alpha or 1)) * ratio,
-	}
-end
-
 local function render_template(template, variables)
 	return (template:gsub("{{%s*([%w_]+)%s*}}", function(key)
 		local value = variables[key]
@@ -243,13 +278,11 @@ local reminder_background_color = { red = 0.10, green = 0.11, blue = 0.15, alpha
 local reminder_border_color = { red = 0.82, green = 0.68, blue = 0.34, alpha = 1 }
 local reminder_text_color = { hex = "#F4F1DE" }
 local reminder_close_color = { hex = "#E9C46A" }
-local menubar_disabled_color = { red = 0.52, green = 0.56, blue = 0.60, alpha = 1 }
-local menubar_paused_color = { red = 0.56, green = 0.65, blue = 0.75, alpha = 1 }
-local menubar_work_start_color = { red = 0.31, green = 0.78, blue = 0.54, alpha = 1 }
-local menubar_work_mid_color = { red = 0.91, green = 0.70, blue = 0.21, alpha = 1 }
-local menubar_work_end_color = { red = 0.91, green = 0.42, blue = 0.20, alpha = 1 }
-local menubar_break_color = { red = 0.90, green = 0.33, blue = 0.24, alpha = 1 }
-local menubar_track_color = { white = 1, alpha = 0.18 }
+local menubar_disabled_color = { white = 0, alpha = 0.34 }
+local menubar_paused_color = { white = 0, alpha = 0.52 }
+local menubar_active_color = { white = 0, alpha = 1 }
+local menubar_waiting_color = { white = 0, alpha = 0.72 }
+local menubar_track_color = { white = 0, alpha = 0.18 }
 local font_name = "Monaco"
 local icon_font_name = "Apple Color Emoji"
 
@@ -262,9 +295,11 @@ local break_ends_at = nil
 local next_break_at = nil
 local work_cycle_started_at = nil
 local session_is_inactive = false
+local waiting_for_resume_input = false
 local overlays = {}
 local frontmost_app = nil
 local blocked_event_types = {}
+local resume_input_event_types = {}
 local friendly_reminder_canvas = nil
 local menubar_item = nil
 
@@ -287,6 +322,14 @@ for _, name in ipairs(blocked_event_type_names) do
 
 	if event_type ~= nil then
 		table.insert(blocked_event_types, event_type)
+	end
+end
+
+for _, name in ipairs(resume_input_event_type_names) do
+	local event_type = hs.eventtap.event.types[name]
+
+	if event_type ~= nil then
+		table.insert(resume_input_event_types, event_type)
 	end
 end
 
@@ -342,6 +385,30 @@ local function is_hard_mode()
 	return state.mode == "hard"
 end
 
+local function start_next_cycle_label(mode)
+	if mode == "on_input" then
+		return "首次输入后开始"
+	end
+
+	return "休息结束立即开始"
+end
+
+local function short_start_next_cycle_label(mode)
+	if mode == "on_input" then
+		return "输入后开始"
+	end
+
+	return "立即开始"
+end
+
+local function short_mode_label(mode)
+	if mode == "soft" then
+		return "柔性"
+	end
+
+	return "硬性"
+end
+
 local function overlay_background()
 	return {
 		red = background_color.red,
@@ -394,6 +461,49 @@ local function stop_input_blocker()
 	_M.input_blocker:stop()
 end
 
+local function stop_resume_input_watcher()
+	if _M.resume_input_watcher == nil then
+		return
+	end
+
+	_M.resume_input_watcher:stop()
+end
+
+local function start_resume_input_watcher()
+	if #resume_input_event_types == 0 then
+		log.w("resume input event types are empty, skip waiting for input")
+		return false
+	end
+
+	if _M.resume_input_watcher == nil then
+		_M.resume_input_watcher = hs.eventtap.new(
+			resume_input_event_types,
+			function()
+				if waiting_for_resume_input ~= true then
+					return false
+				end
+
+				waiting_for_resume_input = false
+				stop_resume_input_watcher()
+
+				if state.enabled ~= true or session_is_inactive == true or break_ends_at ~= nil then
+					update_menubar_status()
+					return false
+				end
+
+				log.i("work timer restarted on first input after break")
+				schedule_next_break("first input after break")
+
+				return false
+			end
+		)
+	end
+
+	_M.resume_input_watcher:start()
+
+	return true
+end
+
 local function start_input_blocker()
 	if not is_hard_mode() then
 		return
@@ -443,9 +553,11 @@ local function clear_active_runtime(clear_break_cycle)
 	stop_break_timer()
 	stop_friendly_reminder_timer()
 	stop_input_blocker()
+	stop_resume_input_watcher()
 	destroy_friendly_reminder_popup()
 	destroy_overlays()
 	frontmost_app = nil
+	waiting_for_resume_input = false
 
 	if clear_break_cycle ~= false then
 		break_ends_at = nil
@@ -592,6 +704,10 @@ local function current_status()
 		return "会话未激活", "锁屏或睡眠期间不会累计工作时长"
 	end
 
+	if waiting_for_resume_input == true then
+		return "等待输入", "休息已结束，首次键盘或鼠标输入后开始下一轮工作计时"
+	end
+
 	if break_ends_at ~= nil then
 		local remaining_seconds = math.max(0, break_ends_at - os.time())
 
@@ -624,6 +740,14 @@ local function menubar_visual_state()
 		}
 	end
 
+	if waiting_for_resume_input == true then
+		return {
+			progress = nil,
+			progress_color = menubar_waiting_color,
+			icon_color = menubar_waiting_color,
+		}
+	end
+
 	if break_ends_at ~= nil then
 		local remaining_seconds = math.max(0, break_ends_at - os.time())
 		local progress = 0
@@ -634,33 +758,26 @@ local function menubar_visual_state()
 
 		return {
 			progress = state.show_progress_in_menubar and progress or nil,
-			progress_color = menubar_break_color,
-			icon_color = menubar_break_color,
+			progress_color = menubar_active_color,
+			icon_color = menubar_active_color,
 		}
 	end
 
 	if next_break_at ~= nil and work_cycle_started_at ~= nil and state.work_seconds > 0 then
 		local elapsed_seconds = clamp_number(os.time() - work_cycle_started_at, 0, state.work_seconds)
 		local progress = clamp_number(elapsed_seconds / state.work_seconds, 0, 1)
-		local progress_color = nil
-
-		if progress < 0.7 then
-			progress_color = interpolate_color(menubar_work_start_color, menubar_work_mid_color, progress / 0.7)
-		else
-			progress_color = interpolate_color(menubar_work_mid_color, menubar_work_end_color, (progress - 0.7) / 0.3)
-		end
 
 		return {
 			progress = state.show_progress_in_menubar and progress or nil,
-			progress_color = progress_color,
-			icon_color = progress_color,
+			progress_color = menubar_active_color,
+			icon_color = menubar_active_color,
 		}
 	end
 
 	return {
 		progress = nil,
-		progress_color = menubar_work_start_color,
-		icon_color = menubar_work_start_color,
+		progress_color = menubar_active_color,
+		icon_color = menubar_active_color,
 	}
 end
 
@@ -700,81 +817,157 @@ local function build_menubar_icon()
 	})
 	local center_x = menubar_canvas_size / 2
 	local center_y = menubar_canvas_size / 2
-	local ring_radius = 14.2
-	local ring_width = 3.0
+	local ring_radius = 15.0
+	local ring_width = 1.9
+	local show_progress_ring = state.show_progress_in_menubar == true
+	local cup_color = visual_state.icon_color
+	local icon_scale = show_progress_ring and 1.08 or 1.24
+	local icon_offset_x = show_progress_ring and 0 or 0.2
+	local icon_offset_y = show_progress_ring and 0.15 or 0.35
 
-	canvas:appendElements(
+	local function transform_coordinates(coordinates)
+		local transformed = {}
+
+		for _, point in ipairs(coordinates) do
+			table.insert(
+				transformed,
+				{
+					x = center_x + ((point.x - center_x) * icon_scale) + icon_offset_x,
+					y = center_y + ((point.y - center_y) * icon_scale) + icon_offset_y,
+				}
+			)
+		end
+
+		return transformed
+	end
+
+	local elements = {}
+
+	if show_progress_ring == true then
+		table.insert(
+			elements,
+			{
+				type = "circle",
+				action = "stroke",
+				center = { x = center_x, y = center_y },
+				radius = ring_radius,
+				strokeWidth = ring_width,
+				strokeColor = menubar_track_color,
+			}
+		)
+	end
+
+	table.insert(
+		elements,
+			{
+				type = "segments",
+				action = "stroke",
+				closed = false,
+				strokeWidth = show_progress_ring and 1.85 or 1.95,
+				strokeCapStyle = "round",
+				strokeJoinStyle = "round",
+				strokeColor = cup_color,
+			coordinates = transform_coordinates({
+				{ x = 11.6, y = 16.6 },
+				{ x = 11.6, y = 23.3 },
+				{ x = 13.1, y = 25.1 },
+				{ x = 20.8, y = 25.1 },
+				{ x = 22.3, y = 23.3 },
+				{ x = 22.3, y = 16.6 },
+			}),
+		}
+	)
+	table.insert(
+		elements,
 		{
-			type = "circle",
+			type = "segments",
 			action = "stroke",
-			center = { x = center_x, y = center_y },
-			radius = ring_radius,
-			strokeWidth = ring_width,
-			strokeColor = menubar_track_color,
-		},
+			closed = false,
+			strokeWidth = show_progress_ring and 1.75 or 1.85,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = cup_color,
+			coordinates = transform_coordinates({
+				{ x = 12.5, y = 16.3 },
+				{ x = 21.4, y = 16.3 },
+			}),
+		}
+	)
+	table.insert(
+		elements,
 		{
-			type = "rectangle",
-			action = "fill",
-			roundedRectRadii = { xRadius = 2.2, yRadius = 2.2 },
-			fillColor = visual_state.icon_color,
-			frame = {
-				x = 10.2,
-				y = 17.0,
-				w = 12.6,
-				h = 8.4,
-			},
-		},
-		{
-			type = "oval",
+			type = "segments",
 			action = "stroke",
-			strokeWidth = 2.2,
-			strokeColor = visual_state.icon_color,
-			frame = {
-				x = 21.2,
-				y = 18.2,
-				w = 5.4,
-				h = 5.8,
-			},
-		},
+			closed = false,
+			strokeWidth = show_progress_ring and 1.85 or 1.95,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = cup_color,
+			coordinates = transform_coordinates({
+				{ x = 22.2, y = 17.9 },
+				{ x = 24.9, y = 18.1 },
+				{ x = 25.5, y = 20.7 },
+				{ x = 24.9, y = 23.2 },
+				{ x = 22.1, y = 23.4 },
+			}),
+		}
+	)
+	table.insert(
+		elements,
 		{
-			type = "rectangle",
-			action = "fill",
-			roundedRectRadii = { xRadius = 1.4, yRadius = 1.4 },
-			fillColor = visual_state.icon_color,
-			frame = {
-				x = 9.5,
-				y = 27.4,
-				w = 16.8,
-				h = 2.2,
-			},
-		},
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = show_progress_ring and 1.45 or 1.55,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = cup_color,
+			coordinates = transform_coordinates({
+				{ x = 14.2, y = 12.8 },
+				{ x = 13.3, y = 11.2 },
+				{ x = 14.4, y = 9.8 },
+				{ x = 13.8, y = 8.5 },
+			}),
+		}
+	)
+	table.insert(
+		elements,
 		{
-			type = "rectangle",
-			action = "fill",
-			roundedRectRadii = { xRadius = 0.8, yRadius = 0.8 },
-			fillColor = visual_state.icon_color,
-			frame = {
-				x = 12.4,
-				y = 9.0,
-				w = 1.9,
-				h = 6.0,
-			},
-		},
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = show_progress_ring and 1.45 or 1.55,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = cup_color,
+			coordinates = transform_coordinates({
+				{ x = 18.9, y = 12.5 },
+				{ x = 18.0, y = 10.9 },
+				{ x = 19.0, y = 9.5 },
+				{ x = 18.5, y = 8.2 },
+			}),
+		}
+	)
+	table.insert(
+		elements,
 		{
-			type = "rectangle",
-			action = "fill",
-			roundedRectRadii = { xRadius = 0.8, yRadius = 0.8 },
-			fillColor = visual_state.icon_color,
-			frame = {
-				x = 17.2,
-				y = 7.7,
-				w = 1.9,
-				h = 7.4,
-			},
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = show_progress_ring and 1.6 or 1.75,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = cup_color,
+			coordinates = transform_coordinates({
+				{ x = 10.4, y = 27.9 },
+				{ x = 24.3, y = 27.9 },
+			}),
 		}
 	)
 
-	if visual_state.progress ~= nil and visual_state.progress > 0 then
+	canvas:appendElements(table.unpack(elements))
+
+	if show_progress_ring == true and visual_state.progress ~= nil and visual_state.progress > 0 then
 		canvas:appendElements(
 			{
 				type = "segments",
@@ -812,7 +1005,7 @@ update_menubar_status = function()
 	menubar_item:setTitle(nil)
 
 	if icon ~= nil then
-		menubar_item:setIcon(icon, false)
+		menubar_item:setIcon(icon, true)
 	else
 		menubar_item:setIcon(nil)
 		menubar_item:setTitle(state.menubar_title)
@@ -820,12 +1013,13 @@ update_menubar_status = function()
 
 	menubar_item:setTooltip(
 		string.format(
-			"Break Reminder\n状态: %s\n%s\n模式: %s | 工作: %s | 休息: %s",
+			"Break Reminder\n状态: %s\n%s\n模式: %s | 工作: %s | 休息: %s | 下一轮: %s",
 			status_title,
 			status_detail,
 			mode_label(state.mode),
 			format_minutes(state.work_seconds),
-			format_duration(state.rest_seconds)
+			format_duration(state.rest_seconds),
+			start_next_cycle_label(state.start_next_cycle)
 		)
 	)
 end
@@ -1004,7 +1198,19 @@ finish_break = function()
 	log.i("break finished")
 
 	if state.enabled == true and session_is_inactive ~= true then
-		schedule_next_break("break finished")
+		if state.start_next_cycle == "on_input" then
+			waiting_for_resume_input = true
+
+			if start_resume_input_watcher() ~= true then
+				waiting_for_resume_input = false
+				schedule_next_break("break finished fallback to auto")
+				return
+			end
+
+			update_menubar_status()
+		else
+			schedule_next_break("break finished")
+		end
 	else
 		next_break_at = nil
 		work_cycle_started_at = nil
@@ -1018,8 +1224,10 @@ start_break = function(reason)
 	end
 
 	stop_work_timer()
+	stop_resume_input_watcher()
 	stop_friendly_reminder_timer()
 	destroy_friendly_reminder_popup()
+	waiting_for_resume_input = false
 	next_break_at = nil
 	work_cycle_started_at = nil
 	break_ends_at = os.time() + state.rest_seconds
@@ -1059,11 +1267,13 @@ schedule_next_break = function(reason)
 	stop_work_timer()
 	stop_break_timer()
 	stop_input_blocker()
+	stop_resume_input_watcher()
 	stop_friendly_reminder_timer()
 	destroy_friendly_reminder_popup()
 	destroy_overlays()
 	break_ends_at = nil
 	frontmost_app = nil
+	waiting_for_resume_input = false
 	work_cycle_started_at = os.time()
 	next_break_at = work_cycle_started_at + state.work_seconds
 
@@ -1156,6 +1366,23 @@ apply_current_configuration = function(reason, schedule_should_restart)
 		return
 	end
 
+	if waiting_for_resume_input == true then
+		if state.start_next_cycle == "auto" then
+			waiting_for_resume_input = false
+			stop_resume_input_watcher()
+			schedule_next_break(reason or "configuration updated from waiting")
+		else
+			if start_resume_input_watcher() ~= true then
+				waiting_for_resume_input = false
+				schedule_next_break(reason or "configuration updated fallback to auto")
+			else
+				update_menubar_status()
+			end
+		end
+
+		return
+	end
+
 	if schedule_should_restart == true or next_break_at == nil then
 		schedule_next_break(reason or "configuration updated")
 	else
@@ -1239,6 +1466,7 @@ local function exportable_config()
 		enabled = state.enabled,
 		show_menubar = state.show_menubar,
 		show_progress_in_menubar = state.show_progress_in_menubar,
+		start_next_cycle = state.start_next_cycle,
 		mode = state.mode,
 		overlay_opacity = state.overlay_opacity,
 		minimal_display = state.minimal_display,
@@ -1259,6 +1487,8 @@ local function render_break_reminder_config_block(config)
 			"\tshow_menubar = " .. serialize_lua_value(config.show_menubar) .. ",",
 			"\t-- 是否在菜单栏图标中直接显示进度",
 			"\tshow_progress_in_menubar = " .. serialize_lua_value(config.show_progress_in_menubar) .. ",",
+			"\t-- 休息结束后如何开始下一轮工作计时: \"auto\" 或 \"on_input\"",
+			"\tstart_next_cycle = " .. serialize_lua_value(config.start_next_cycle) .. ",",
 			"\t-- 可选: \"soft\" 或 \"hard\"",
 			"\t-- soft: 显示半透明遮罩但不抢占鼠标和键盘",
 			"\t-- hard: 显示遮罩并明确拦截鼠标和键盘",
@@ -1735,23 +1965,89 @@ local function build_mode_menu()
 	}
 end
 
+local function build_start_next_cycle_menu()
+	return {
+		{
+			title = "休息结束立即开始",
+			checked = state.start_next_cycle == "auto",
+			fn = function()
+				update_runtime_overrides(
+					{
+						start_next_cycle = "auto",
+					},
+					"已切换为休息结束立即开始下一轮工作计时"
+				)
+			end,
+		},
+		{
+			title = "首次输入后开始",
+			checked = state.start_next_cycle == "on_input",
+			fn = function()
+				update_runtime_overrides(
+					{
+						start_next_cycle = "on_input",
+					},
+					"已切换为休息结束后等待首次输入再开始"
+				)
+			end,
+		},
+	}
+end
+
+local function menu_status_detail()
+	if state.enabled ~= true then
+		return "提醒未启用"
+	end
+
+	if session_is_inactive == true then
+		return "锁屏/睡眠中"
+	end
+
+	if waiting_for_resume_input == true then
+		return "等待首次输入"
+	end
+
+	if break_ends_at ~= nil then
+		return string.format("休息剩余: %s", format_seconds(math.max(0, break_ends_at - os.time())))
+	end
+
+	if next_break_at ~= nil then
+		return string.format("下次休息: %s", format_seconds(math.max(0, next_break_at - os.time())))
+	end
+
+	return "等待新一轮计时"
+end
+
+local function menu_config_summary()
+	return string.format(
+		"%s | 工%s | 休%s",
+		short_mode_label(state.mode),
+		format_compact_duration(state.work_seconds),
+		format_compact_duration(state.rest_seconds)
+	)
+end
+
+local function menu_config_source_label()
+	if table_is_empty(runtime_overrides) then
+		return "配置: 文件"
+	end
+
+	return "配置: 文件+菜单"
+end
+
 local function build_menu()
 	local status_title, status_detail = current_status()
 
 	return {
 		{ title = string.format("状态: %s", status_title), disabled = true },
-		{ title = status_detail, disabled = true },
+		{ title = menu_status_detail(), disabled = true },
 		{
-			title = string.format(
-				"模式: %s | 工作: %s | 休息: %s",
-				mode_label(state.mode),
-				format_minutes(state.work_seconds),
-				format_duration(state.rest_seconds)
-			),
+			title = menu_config_summary(),
 			disabled = true,
 		},
+		{ title = "下一轮: " .. short_start_next_cycle_label(state.start_next_cycle), disabled = true },
 		{
-			title = table_is_empty(runtime_overrides) and "当前使用文件配置" or "当前使用文件配置 + 菜单覆盖配置",
+			title = menu_config_source_label(),
 			disabled = true,
 		},
 		{ title = "-" },
@@ -1770,7 +2066,7 @@ local function build_menu()
 				end,
 			},
 			{
-				title = "图标显示进度",
+				title = "显示进度环",
 				checked = state.show_progress_in_menubar,
 				disabled = state.show_menubar ~= true,
 				fn = function()
@@ -1781,6 +2077,11 @@ local function build_menu()
 						state.show_progress_in_menubar and "已关闭图标进度显示" or "已开启图标进度显示"
 					)
 				end,
+			},
+			{
+				title = "下一轮启动",
+				disabled = state.enabled ~= true,
+				menu = build_start_next_cycle_menu(),
 			},
 			{
 				title = "提醒模式",
@@ -1809,7 +2110,7 @@ local function build_menu()
 		},
 		{ title = "-" },
 		{
-			title = "立即开始休息",
+			title = "立即休息",
 			disabled = state.enabled ~= true or break_ends_at ~= nil,
 			fn = function()
 				start_break("manual start from menubar")
@@ -1817,7 +2118,7 @@ local function build_menu()
 			end,
 		},
 		{
-			title = "重置工作计时",
+			title = "重置计时",
 			disabled = state.enabled ~= true,
 			fn = function()
 				restart_work_cycle("manual reset from menubar")
@@ -1833,7 +2134,7 @@ local function build_menu()
 			end,
 		},
 		{
-			title = "导出当前配置到文件",
+			title = "导出到文件",
 			fn = function()
 				export_current_config_to_file()
 			end,
@@ -1945,6 +2246,7 @@ _M.get_state = function()
 		enabled = state.enabled,
 		show_menubar = state.show_menubar,
 		show_progress_in_menubar = state.show_progress_in_menubar,
+		start_next_cycle = state.start_next_cycle,
 		mode = state.mode,
 		minimal_display = state.minimal_display,
 		work_seconds = state.work_seconds,
@@ -1957,6 +2259,7 @@ _M.get_state = function()
 		next_break_at = next_break_at,
 		work_cycle_started_at = work_cycle_started_at,
 		session_is_inactive = session_is_inactive,
+		waiting_for_resume_input = waiting_for_resume_input,
 		runtime_overrides = shallow_copy(runtime_overrides),
 	}
 end
