@@ -16,13 +16,18 @@ local isVerticalScreen = function(screen)
     end
 end
 
+-- 使用可见工作区，避免窗口布局覆盖菜单栏或 Dock
+local function visibleFrame(screen)
+    return screen:frame()
+end
+
 -- Move the focused window in the `direction` by on step.
 -- Parameters: left, right, up, down
 _M.stepMove = function(direction)
     local cwin = hs.window.focusedWindow()
     if cwin then
         local cscreen = cwin:screen()
-        local cres = cscreen:fullFrame()
+        local cres = visibleFrame(cscreen)
         local stepw = cres.w / gridparts
         local steph = cres.h / gridparts
         local wtopleft = cwin:topLeft()
@@ -64,7 +69,7 @@ _M.moveAndResize = function(option)
 
     if cwin then
         local cscreen = cwin:screen()
-        local cres = cscreen:fullFrame()
+        local cres = visibleFrame(cscreen)
         local stepw = cres.w / gridparts
         local steph = cres.h / gridparts
         local wf = cwin:frame()
@@ -191,7 +196,7 @@ _M.directionStepResize = function(direction)
 
     if cwin then
         local cscreen = cwin:screen()
-        local cres = cscreen:fullFrame()
+        local cres = visibleFrame(cscreen)
         local stepw = cres.w / gridparts
         local steph = cres.h / gridparts
         local wsize = cwin:size()
