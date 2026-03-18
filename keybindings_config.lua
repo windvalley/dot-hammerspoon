@@ -297,7 +297,7 @@ _M.break_reminder = {
 	-- 单位: 分钟
 	work_minutes = 28,
 	-- 单位: 秒
-	rest_seconds = 2,
+	rest_seconds = 120,
 }
 
 return _M

@@ -18,7 +18,7 @@
 - Open the specified website directly.
 - Toggle the keybindings cheatsheet.
 - Keep the desktop wallpaper the same as the bing daily picture.
-- Force a 2-minute break every 30 minutes, with configurable soft or hard mode.
+- Force a configurable break reminder, with support for soft or hard mode.
 - Auto reload configuration when lua files changes.
 - The code structure is clear and easy to customize into your own configuration.
 
@@ -68,16 +68,17 @@ cd ~/.hammerspoon && git pull
 
 - <kbd>⌥</kbd> + <kbd>H</kbd>: Hammerspoon Console
 - <kbd>⌥</kbd> + <kbd>F</kbd>: Finder
-- <kbd>⌥</kbd> + <kbd>I</kbd>: Alacritty
+- <kbd>⌥</kbd> + <kbd>I</kbd>: Ghostty
 - <kbd>⌥</kbd> + <kbd>C</kbd>: Chrome
+- <kbd>⌥</kbd> + <kbd>N</kbd>: Antigravity
+- <kbd>⌥</kbd> + <kbd>D</kbd>: WPS
 - <kbd>⌥</kbd> + <kbd>O</kbd>: Obsidian
-- <kbd>⌥</kbd> + <kbd>D</kbd>: Draw.io
-- <kbd>⌥</kbd> + <kbd>K</kbd>: Freeplane
-- <kbd>⌥</kbd> + <kbd>N</kbd>: YNote
 - <kbd>⌥</kbd> + <kbd>M</kbd>: Mail
 - <kbd>⌥</kbd> + <kbd>P</kbd>: Postman
 - <kbd>⌥</kbd> + <kbd>E</kbd>: Excel
 - <kbd>⌥</kbd> + <kbd>V</kbd>: VSCode
+- <kbd>⌥</kbd> + <kbd>K</kbd>: Cursor
+- <kbd>⌥</kbd> + <kbd>J</kbd>: Tuitui
 - <kbd>⌥</kbd> + <kbd>W</kbd>: WeChat
 
 ### Break Reminder
@@ -108,11 +109,11 @@ You can change or disable it in `~/.hammerspoon/keybindings_config.lua`:
 _M.break_reminder = {
 	enabled = true,
 	mode = "hard",
-	minimal_display = false,
-	friendly_reminder_message = "再过 {{remaining}} 去休息一下",
-	friendly_reminder_duration_seconds = 2,
-	friendly_reminder_seconds = 90,
-	work_minutes = 30,
+	minimal_display = true,
+	friendly_reminder_message = "还有 {{remaining}} 开始休息",
+	friendly_reminder_duration_seconds = 10,
+	friendly_reminder_seconds = 120,
+	work_minutes = 28,
 	rest_seconds = 120,
 }
 ```
@@ -130,10 +131,10 @@ _M.break_reminder = {
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>H</kbd>: Left Half of Screen
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>L</kbd>: Right Half of Screen
 
-- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>U</kbd>: Top Left Corner
-- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>I</kbd>: Top Right Corner
-- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>O</kbd>: Bottom Left Corner
-- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>P</kbd>: Bottom Right Corner
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>Y</kbd>: Top Left Corner
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>O</kbd>: Top Right Corner
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>U</kbd>: Bottom Left Corner
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>I</kbd>: Bottom Right Corner
 
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>Q</kbd>: Left or Top 1/3
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>W</kbd>: Right or Bottom 1/3
