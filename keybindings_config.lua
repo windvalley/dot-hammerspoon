@@ -25,6 +25,17 @@ _M.system = {
 		key = "S",
 		message = "Start Screensaver",
 	},
+	keep_awake = {
+		prefix = { "Option" },
+		key = "A",
+		message = "Toggle Prevent Sleep",
+		-- 是否默认开启防休眠状态
+		enabled = false,
+		-- 是否显示菜单栏图标
+		show_menubar = true,
+		-- true 时同时阻止屏幕休眠; false 时仅阻止系统休眠, 屏幕仍可熄灭
+		keep_display_awake = false,
+	},
 	restart = {
 		prefix = { "Ctrl", "Option", "Command", "Shift" },
 		key = "R",

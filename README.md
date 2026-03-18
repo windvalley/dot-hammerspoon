@@ -13,6 +13,7 @@
 - Application quick launch or hide.
 - Application window manipulation, such as moving, resizing, changing position, etc.
 - System management, such as lock screen, restart system, etc.
+- Keep the Mac awake for uninterrupted work with a menubar status icon.
 - Auto switch input method according to the application.
 - Switch to the specified input method.
 - Open the specified website directly.
@@ -51,10 +52,22 @@ cd ~/.hammerspoon && git pull
 
 ### System Management
 
+- <kbd>⌥</kbd> + <kbd>A</kbd>: Toggle Prevent Sleep
 - <kbd>⌥</kbd> + <kbd>Q</kbd>: Lock Screen
 - <kbd>⌥</kbd> + <kbd>S</kbd>: Start Screensaver
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>R</kbd>: Restart Computer
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>S</kbd>: Shutdown Computer
+
+### Prevent Sleep
+
+Use the menubar icon or <kbd>⌥</kbd> + <kbd>A</kbd> to prevent idle sleep during long-running tasks.
+
+- `enabled`: default on/off state for the prevent-sleep mode.
+- `show_menubar`: show the menubar icon for quick status checks and toggling.
+- `keep_display_awake`: when `true`, prevent both system sleep and display sleep. When `false`, only prevent system idle sleep so the display can still turn off.
+- The menubar menu can switch `keep_display_awake` at runtime.
+- The menubar menu can also update the toggle hotkey at runtime.
+- The current on/off state and `keep_display_awake` mode are restored after Hammerspoon reloads via `hs.settings`, so auto reload will not silently drop the prevent-sleep assertion.
 
 ### Website Open
 

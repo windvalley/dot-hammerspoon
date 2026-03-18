@@ -35,6 +35,9 @@ require("window_manipulation")
 -- 系统管理
 require("system_manage")
 
+-- 持续工作/防休眠
+require("keep_awake")
+
 -- 网站快捷访问
 require("website_open")
 
