@@ -281,6 +281,8 @@ _M.window_monitor = {
 -- 2. 解锁屏幕后会重新开始新一轮工作计时
 _M.break_reminder = {
 	enabled = true,
+	-- 是否显示菜单栏图标, 可通过菜单直接调整提醒配置
+	show_menubar = true,
 	-- 可选: "soft" 或 "hard"
 	-- soft: 显示半透明遮罩但不抢占鼠标和键盘
 	-- hard: 显示遮罩并明确拦截鼠标和键盘

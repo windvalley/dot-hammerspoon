@@ -85,14 +85,18 @@ cd ~/.hammerspoon && git pull
 
 The configuration will enforce scheduled breaks on all screens based on your configured work and rest durations.
 
+- A menubar icon is available for runtime control and quick configuration.
 - `soft`: show a translucent fullscreen overlay, keep the current app usable.
 - `hard`: show the overlay and block keyboard/mouse input during the break.
+- `show_menubar`: show the menubar icon for quick actions and UI-based configuration.
 - `overlay_opacity`: overlay opacity in the range `0` to `1`. Defaults to `0.32` in `soft` mode and `0.96` in `hard` mode.
 - `minimal_display`: when enabled, the overlay only shows a coffee icon `☕️`.
 - `friendly_reminder_message`: customize the reminder message template.
 - `friendly_reminder_duration_seconds`: how long the reminder stays visible. Set `0` to keep it open until manually closed with `×`.
 - `friendly_reminder_seconds`: how many seconds before the break to show a light reminder. Set `0` to disable it.
 - `rest_seconds`: break duration in seconds.
+- Changes made from the menubar are persisted via `hs.settings`. They override the file config until you choose "Restore File Config" from the menu.
+- The menubar also provides "Export Current Config to File", which writes the current effective reminder config back to `keybindings_config.lua` and clears the runtime overrides.
 - Locked-screen time is not counted as work time. After unlocking the screen, the work timer restarts from a new cycle.
 
 Supported reminder placeholders:
@@ -109,6 +113,7 @@ You can change or disable it in `~/.hammerspoon/keybindings_config.lua`:
 ```lua
 _M.break_reminder = {
 	enabled = true,
+	show_menubar = true,
 	mode = "hard",
 	overlay_opacity = 0.96,
 	minimal_display = true,

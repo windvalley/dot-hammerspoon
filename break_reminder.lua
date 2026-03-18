@@ -3,13 +3,15 @@ local _M = {}
 _M.name = "break_reminder"
 _M.description = "每工作一段时间后强制休息"
 
-local config = require("keybindings_config").break_reminder or {}
-
-if config.enabled == false then
-	return _M
-end
+local base_config = require("keybindings_config").break_reminder or {}
 
 local log = hs.logger.new("break")
+local settings_key = "break_reminder.runtime_overrides"
+local default_menubar_title = "☕"
+local default_overlay_opacity = {
+	soft = 0.32,
+	hard = 0.96,
+}
 local valid_modes = {
 	soft = true,
 	hard = true,
@@ -58,57 +60,62 @@ local function clamp_number(value, minimum_value, maximum_value)
 	return math.min(maximum_value, math.max(minimum_value, value))
 end
 
-local work_seconds = math.max(60, math.floor((tonumber(config.work_minutes) or 30) * 60))
-local rest_seconds = resolve_integer_seconds(config.rest_seconds, 120, 1)
-local mode = tostring(config.mode or "hard"):lower()
-local minimal_display = config.minimal_display == true
-local friendly_reminder_seconds = resolve_integer_seconds(config.friendly_reminder_seconds, 0, 0)
-local friendly_reminder_duration_seconds = resolve_number(config.friendly_reminder_duration_seconds, 1.5, 0)
-local friendly_reminder_message = tostring(config.friendly_reminder_message or "还有 {{remaining}} 开始休息")
+local function shallow_copy(table_value)
+	local copy = {}
 
-if valid_modes[mode] ~= true then
-	log.w(string.format("invalid break mode: %s, fallback to hard", mode))
-	mode = "hard"
+	for key, value in pairs(table_value or {}) do
+		copy[key] = value
+	end
+
+	return copy
 end
 
-local overlay_opacity = clamp_number(
-	resolve_number(config.overlay_opacity, mode == "soft" and 0.32 or 0.96, 0),
-	0,
-	1
-)
+local function table_is_empty(table_value)
+	return next(table_value or {}) == nil
+end
 
-local background_color = { red = 0.04, green = 0.05, blue = 0.08 }
-local title_color = { hex = "#F4F1DE" }
-local countdown_color = { hex = "#E9C46A" }
-local description_color = { hex = "#D8DEE9" }
-local hint_color = { hex = "#9AA5B1" }
-local reminder_background_color = { red = 0.10, green = 0.11, blue = 0.15, alpha = 0.96 }
-local reminder_border_color = { red = 0.82, green = 0.68, blue = 0.34, alpha = 1 }
-local reminder_text_color = { hex = "#F4F1DE" }
-local reminder_close_color = { hex = "#E9C46A" }
-local font_name = "Monaco"
-local icon_font_name = "Apple Color Emoji"
+local function normalize_mode(value)
+	local mode = tostring(value or "hard"):lower()
 
-local work_timer = nil
-local break_timer = nil
-local friendly_reminder_timer = nil
-local friendly_reminder_popup_timer = nil
-local break_ends_at = nil
-local session_is_inactive = false
-local overlays = {}
-local frontmost_app = nil
-local blocked_event_types = {}
-local schedule_next_break = nil
-local friendly_reminder_canvas = nil
-local style_text = nil
-local destroy_friendly_reminder_popup = nil
-
-for _, name in ipairs(blocked_event_type_names) do
-	local event_type = hs.eventtap.event.types[name]
-
-	if event_type ~= nil then
-		table.insert(blocked_event_types, event_type)
+	if valid_modes[mode] ~= true then
+		log.w(string.format("invalid break mode: %s, fallback to hard", mode))
+		mode = "hard"
 	end
+
+	return mode
+end
+
+local function merged_config(runtime_overrides)
+	local config = shallow_copy(base_config)
+
+	for key, value in pairs(runtime_overrides or {}) do
+		config[key] = value
+	end
+
+	return config
+end
+
+local function normalize_config(config)
+	local mode = normalize_mode(config.mode)
+	local work_seconds = math.max(60, math.floor((tonumber(config.work_minutes) or 30) * 60))
+
+	return {
+		enabled = config.enabled ~= false,
+		show_menubar = config.show_menubar ~= false,
+		menubar_title = tostring(config.menubar_title or default_menubar_title),
+		mode = mode,
+		minimal_display = config.minimal_display == true,
+		work_seconds = work_seconds,
+		rest_seconds = resolve_integer_seconds(config.rest_seconds, 120, 1),
+		friendly_reminder_seconds = resolve_integer_seconds(config.friendly_reminder_seconds, 0, 0),
+		friendly_reminder_duration_seconds = resolve_number(config.friendly_reminder_duration_seconds, 1.5, 0),
+		friendly_reminder_message = tostring(config.friendly_reminder_message or "还有 {{remaining}} 开始休息"),
+		overlay_opacity = clamp_number(
+			resolve_number(config.overlay_opacity, default_overlay_opacity[mode], 0),
+			0,
+			1
+		),
+	}
 end
 
 local function format_seconds(total_seconds)
@@ -135,6 +142,51 @@ local function format_duration(total_seconds)
 	return string.format("%d 秒", seconds)
 end
 
+local function format_minutes(total_seconds)
+	local minutes = total_seconds / 60
+
+	if math.abs(minutes - math.floor(minutes)) < 0.001 then
+		return string.format("%d 分钟", minutes)
+	end
+
+	return string.format("%.1f 分钟", minutes)
+end
+
+local function format_decimal(value)
+	return string.format("%.2f", value)
+end
+
+local function serialize_number(value)
+	if math.abs(value - math.floor(value)) < 0.000001 then
+		return string.format("%d", value)
+	end
+
+	local formatted = string.format("%.4f", value)
+
+	formatted = formatted:gsub("0+$", "")
+	formatted = formatted:gsub("%.$", "")
+
+	return formatted
+end
+
+local function serialize_lua_value(value)
+	local value_type = type(value)
+
+	if value_type == "boolean" then
+		return tostring(value)
+	end
+
+	if value_type == "number" then
+		return serialize_number(value)
+	end
+
+	if value_type == "string" then
+		return string.format("%q", value)
+	end
+
+	error(string.format("unsupported lua value type: %s", value_type))
+end
+
 local function render_template(template, variables)
 	return (template:gsub("{{%s*([%w_]+)%s*}}", function(key)
 		local value = variables[key]
@@ -147,24 +199,476 @@ local function render_template(template, variables)
 	end))
 end
 
+local function mode_label(mode)
+	if mode == "soft" then
+		return "柔性提醒"
+	end
+
+	return "硬性提醒"
+end
+
+local function load_runtime_overrides()
+	local saved = hs.settings.get(settings_key)
+
+	if type(saved) == "table" then
+		return saved
+	end
+
+	return {}
+end
+
+local runtime_overrides = load_runtime_overrides()
+local state = normalize_config(merged_config(runtime_overrides))
+
+local background_color = { red = 0.04, green = 0.05, blue = 0.08 }
+local title_color = { hex = "#F4F1DE" }
+local countdown_color = { hex = "#E9C46A" }
+local description_color = { hex = "#D8DEE9" }
+local hint_color = { hex = "#9AA5B1" }
+local reminder_background_color = { red = 0.10, green = 0.11, blue = 0.15, alpha = 0.96 }
+local reminder_border_color = { red = 0.82, green = 0.68, blue = 0.34, alpha = 1 }
+local reminder_text_color = { hex = "#F4F1DE" }
+local reminder_close_color = { hex = "#E9C46A" }
+local font_name = "Monaco"
+local icon_font_name = "Apple Color Emoji"
+
+local work_timer = nil
+local break_timer = nil
+local friendly_reminder_timer = nil
+local friendly_reminder_popup_timer = nil
+local menubar_status_timer = nil
+local break_ends_at = nil
+local next_break_at = nil
+local work_cycle_started_at = nil
+local session_is_inactive = false
+local overlays = {}
+local frontmost_app = nil
+local blocked_event_types = {}
+local friendly_reminder_canvas = nil
+local menubar_item = nil
+
+local refresh_menubar = function()
+end
+local update_menubar_status = function()
+end
+local schedule_next_break = nil
+local finish_break = nil
+local start_break = nil
+local restart_work_cycle = nil
+local apply_current_configuration = nil
+local update_runtime_overrides = nil
+local clear_runtime_overrides = nil
+local export_current_config_to_file = nil
+local destroy_friendly_reminder_popup = nil
+
+for _, name in ipairs(blocked_event_type_names) do
+	local event_type = hs.eventtap.event.types[name]
+
+	if event_type ~= nil then
+		table.insert(blocked_event_types, event_type)
+	end
+end
+
+local function style_text(text, size, color)
+	return hs.styledtext.new(
+		text,
+		{
+			font = {
+				name = font_name,
+				size = size,
+			},
+			color = color,
+		}
+	)
+end
+
+local function style_icon_text(text, size)
+	return hs.styledtext.new(
+		text,
+		{
+			font = {
+				name = icon_font_name,
+				size = size,
+			},
+		}
+	)
+end
+
+local function append_centered_text(canvas, id, styled_text, y)
+	local size = canvas:minimumTextSize(styled_text)
+	local frame = canvas:frame()
+
+	canvas:appendElements(
+		{
+			id = id,
+			type = "text",
+			text = styled_text,
+			frame = {
+				x = math.floor((frame.w - size.w) / 2),
+				y = y,
+				w = size.w,
+				h = size.h,
+			},
+		}
+	)
+end
+
+local function is_soft_mode()
+	return state.mode == "soft"
+end
+
+local function is_hard_mode()
+	return state.mode == "hard"
+end
+
+local function overlay_background()
+	return {
+		red = background_color.red,
+		green = background_color.green,
+		blue = background_color.blue,
+		alpha = state.overlay_opacity,
+	}
+end
+
+local function overlay_hint()
+	if is_soft_mode() then
+		return "当前为柔性提醒，可继续操作"
+	end
+
+	return "当前为硬性强制，键盘和鼠标已锁定"
+end
+
+local function stop_work_timer()
+	if work_timer == nil then
+		return
+	end
+
+	work_timer:stop()
+	work_timer = nil
+end
+
+local function stop_break_timer()
+	if break_timer == nil then
+		return
+	end
+
+	break_timer:stop()
+	break_timer = nil
+end
+
+local function stop_friendly_reminder_timer()
+	if friendly_reminder_timer == nil then
+		return
+	end
+
+	friendly_reminder_timer:stop()
+	friendly_reminder_timer = nil
+end
+
+local function stop_input_blocker()
+	if _M.input_blocker == nil then
+		return
+	end
+
+	_M.input_blocker:stop()
+end
+
+local function start_input_blocker()
+	if not is_hard_mode() then
+		return
+	end
+
+	if #blocked_event_types == 0 then
+		log.w("blocked event types are empty, skip input blocker")
+		return
+	end
+
+	if _M.input_blocker == nil then
+		_M.input_blocker = hs.eventtap.new(
+			blocked_event_types,
+			function()
+				return true
+			end
+		)
+	end
+
+	_M.input_blocker:start()
+end
+
+destroy_friendly_reminder_popup = function()
+	if friendly_reminder_popup_timer ~= nil then
+		friendly_reminder_popup_timer:stop()
+		friendly_reminder_popup_timer = nil
+	end
+
+	if friendly_reminder_canvas ~= nil then
+		friendly_reminder_canvas:hide(0)
+		friendly_reminder_canvas:delete()
+		friendly_reminder_canvas = nil
+	end
+end
+
+local function destroy_overlays()
+	for _, canvas in pairs(overlays) do
+		canvas:hide(0)
+		canvas:delete()
+	end
+
+	overlays = {}
+end
+
+local function clear_active_runtime(clear_break_cycle)
+	stop_work_timer()
+	stop_break_timer()
+	stop_friendly_reminder_timer()
+	stop_input_blocker()
+	destroy_friendly_reminder_popup()
+	destroy_overlays()
+	frontmost_app = nil
+
+	if clear_break_cycle ~= false then
+		break_ends_at = nil
+		next_break_at = nil
+		work_cycle_started_at = nil
+	end
+end
+
+local function restore_frontmost_app()
+	if not is_soft_mode() or frontmost_app == nil then
+		return
+	end
+
+	hs.timer.doAfter(
+		0,
+		function()
+			if break_ends_at == nil or frontmost_app == nil then
+				return
+			end
+
+			pcall(
+				function()
+					frontmost_app:activate()
+				end
+			)
+		end
+	)
+end
+
+local function create_overlay(screen, remaining_seconds)
+	local frame = screen:fullFrame()
+	local canvas = hs.canvas.new(frame)
+
+	canvas:behaviorAsLabels({
+		"canJoinAllSpaces",
+		"fullScreenAuxiliary",
+		"stationary",
+		"ignoresCycle",
+	})
+	canvas:clickActivating(false)
+	canvas:level(hs.canvas.windowLevels.screenSaver)
+	canvas:appendElements(
+		{
+			id = "background",
+			type = "rectangle",
+			action = "fill",
+			fillColor = overlay_background(),
+			frame = {
+				x = 0,
+				y = 0,
+				w = frame.w,
+				h = frame.h,
+			},
+		}
+	)
+
+	if state.minimal_display then
+		local icon = style_icon_text("☕️", math.floor(math.min(frame.w, frame.h) * 0.22))
+		local icon_height = canvas:minimumTextSize(icon).h
+
+		append_centered_text(canvas, "icon", icon, math.floor((frame.h - icon_height) / 2))
+		canvas:show(0)
+		return canvas
+	end
+
+	local title = style_text("休息时间", 40, title_color)
+	local countdown = style_text(format_seconds(remaining_seconds), 72, countdown_color)
+	local description = style_text(
+		string.format(
+			"你已经连续工作 %s\n请离开屏幕休息 %s",
+			format_duration(state.work_seconds),
+			format_duration(state.rest_seconds)
+		),
+		24,
+		description_color
+	)
+	local hint = style_text(overlay_hint(), 18, hint_color)
+
+	append_centered_text(canvas, "title", title, math.floor(frame.h * 0.24))
+	append_centered_text(canvas, "countdown", countdown, math.floor(frame.h * 0.40))
+	append_centered_text(canvas, "description", description, math.floor(frame.h * 0.58))
+	append_centered_text(canvas, "hint", hint, math.floor(frame.h * 0.74))
+
+	canvas:show(0)
+
+	return canvas
+end
+
+local function render_overlays(remaining_seconds)
+	destroy_overlays()
+
+	for _, screen in ipairs(hs.screen.allScreens()) do
+		table.insert(overlays, create_overlay(screen, remaining_seconds))
+	end
+
+	restore_frontmost_app()
+end
+
+local function update_overlays(remaining_seconds)
+	if next(overlays) == nil then
+		render_overlays(remaining_seconds)
+		return
+	end
+
+	if state.minimal_display then
+		return
+	end
+
+	local countdown = style_text(format_seconds(remaining_seconds), 72, countdown_color)
+
+	for _, canvas in pairs(overlays) do
+		canvas["countdown"].text = countdown
+	end
+end
+
+local function can_resume_after_inactive_session()
+	local session_properties = hs.caffeinate.sessionProperties()
+
+	if session_properties == nil then
+		return true
+	end
+
+	local is_locked = session_properties.CGSSessionScreenIsLocked
+
+	if is_locked == true or is_locked == 1 then
+		return false
+	end
+
+	local is_on_console = session_properties.kCGSSessionOnConsoleKey
+
+	if is_on_console == false or is_on_console == 0 then
+		return false
+	end
+
+	return true
+end
+
+local function current_status()
+	if state.enabled ~= true then
+		return "已关闭", "提醒未启用"
+	end
+
+	if session_is_inactive == true then
+		return "会话未激活", "锁屏或睡眠期间不会累计工作时长"
+	end
+
+	if break_ends_at ~= nil then
+		local remaining_seconds = math.max(0, break_ends_at - os.time())
+
+		return "休息中", string.format("距离结束还有 %s", format_seconds(remaining_seconds))
+	end
+
+	if next_break_at ~= nil then
+		local remaining_seconds = math.max(0, next_break_at - os.time())
+
+		return "工作中", string.format("距离下一次休息还有 %s", format_duration(remaining_seconds))
+	end
+
+	return "待机中", "等待开始新的工作计时"
+end
+
+update_menubar_status = function()
+	if menubar_item == nil then
+		return
+	end
+
+	local status_title, status_detail = current_status()
+
+	menubar_item:setTitle(state.menubar_title)
+	menubar_item:setTooltip(
+		string.format(
+			"Break Reminder\n状态: %s\n%s\n模式: %s | 工作: %s | 休息: %s",
+			status_title,
+			status_detail,
+			mode_label(state.mode),
+			format_minutes(state.work_seconds),
+			format_duration(state.rest_seconds)
+		)
+	)
+end
+
+local function start_menubar_status_timer()
+	if menubar_item == nil or menubar_status_timer ~= nil then
+		return
+	end
+
+	menubar_status_timer = hs.timer.doEvery(
+		1,
+		function()
+			update_menubar_status()
+		end
+	)
+end
+
+local function stop_menubar_status_timer()
+	if menubar_status_timer == nil then
+		return
+	end
+
+	menubar_status_timer:stop()
+	menubar_status_timer = nil
+end
+
+local function persist_runtime_overrides()
+	if table_is_empty(runtime_overrides) then
+		hs.settings.clear(settings_key)
+		return
+	end
+
+	hs.settings.set(settings_key, runtime_overrides)
+end
+
+local function changes_require_schedule_restart(changes)
+	for key, _ in pairs(changes or {}) do
+		if key == "enabled" or key == "work_minutes" or key == "friendly_reminder_seconds" then
+			return true
+		end
+	end
+
+	return false
+end
+
 local function show_friendly_reminder()
-	if friendly_reminder_seconds <= 0 or friendly_reminder_seconds >= work_seconds then
+	if state.enabled ~= true then
+		return
+	end
+
+	if state.friendly_reminder_seconds <= 0 or state.friendly_reminder_seconds >= state.work_seconds then
 		return
 	end
 
 	local message = render_template(
-		friendly_reminder_message,
+		state.friendly_reminder_message,
 		{
-			remaining = format_duration(friendly_reminder_seconds),
-			remaining_seconds = friendly_reminder_seconds,
-			remaining_mmss = format_seconds(friendly_reminder_seconds),
-			rest = format_duration(rest_seconds),
-			rest_seconds = rest_seconds,
-			rest_mmss = format_seconds(rest_seconds),
+			remaining = format_duration(state.friendly_reminder_seconds),
+			remaining_seconds = state.friendly_reminder_seconds,
+			remaining_mmss = format_seconds(state.friendly_reminder_seconds),
+			rest = format_duration(state.rest_seconds),
+			rest_seconds = state.rest_seconds,
+			rest_mmss = format_seconds(state.rest_seconds),
 		}
 	)
 
-	log.i(string.format("friendly reminder shown, remaining_seconds=%d", friendly_reminder_seconds))
+	log.i(string.format("friendly reminder shown, remaining_seconds=%d", state.friendly_reminder_seconds))
 
 	local target_screen = nil
 	local focused_window = hs.window.focusedWindow()
@@ -256,9 +760,9 @@ local function show_friendly_reminder()
 	end)
 	friendly_reminder_canvas:show(0)
 
-	if friendly_reminder_duration_seconds > 0 then
+	if state.friendly_reminder_duration_seconds > 0 then
 		friendly_reminder_popup_timer = hs.timer.doAfter(
-			friendly_reminder_duration_seconds,
+			state.friendly_reminder_duration_seconds,
 			function()
 				destroy_friendly_reminder_popup()
 			end
@@ -266,297 +770,7 @@ local function show_friendly_reminder()
 	end
 end
 
-style_text = function(text, size, color)
-	return hs.styledtext.new(
-		text,
-		{
-			font = {
-				name = font_name,
-				size = size,
-			},
-			color = color,
-		}
-	)
-end
-
-local function style_icon_text(text, size)
-	return hs.styledtext.new(
-		text,
-		{
-			font = {
-				name = icon_font_name,
-				size = size,
-			},
-		}
-	)
-end
-
-local function append_centered_text(canvas, id, styled_text, y)
-	local size = canvas:minimumTextSize(styled_text)
-	local frame = canvas:frame()
-
-	canvas:appendElements(
-		{
-			id = id,
-			type = "text",
-			text = styled_text,
-			frame = {
-				x = math.floor((frame.w - size.w) / 2),
-				y = y,
-				w = size.w,
-				h = size.h,
-			},
-		}
-	)
-end
-
-local function is_soft_mode()
-	return mode == "soft"
-end
-
-local function is_hard_mode()
-	return mode == "hard"
-end
-
-local function overlay_background()
-	return {
-		red = background_color.red,
-		green = background_color.green,
-		blue = background_color.blue,
-		alpha = overlay_opacity,
-	}
-end
-
-local function overlay_hint()
-	if is_soft_mode() then
-		return "当前为柔性提醒，可继续操作"
-	end
-
-	return "当前为硬性强制，键盘和鼠标已锁定"
-end
-
-local function destroy_overlays()
-	for _, canvas in pairs(overlays) do
-		canvas:hide(0)
-		canvas:delete()
-	end
-
-	overlays = {}
-end
-
-local function restore_frontmost_app()
-	if not is_soft_mode() or frontmost_app == nil then
-		return
-	end
-
-	hs.timer.doAfter(
-		0,
-		function()
-			if break_ends_at == nil or frontmost_app == nil then
-				return
-			end
-
-			pcall(
-				function()
-					frontmost_app:activate()
-				end
-			)
-		end
-	)
-end
-
-local function create_overlay(screen, remaining_seconds)
-	local frame = screen:fullFrame()
-	local canvas = hs.canvas.new(frame)
-
-	canvas:behaviorAsLabels({
-		"canJoinAllSpaces",
-		"fullScreenAuxiliary",
-		"stationary",
-		"ignoresCycle",
-	})
-	canvas:clickActivating(false)
-	canvas:level(hs.canvas.windowLevels.screenSaver)
-	canvas:appendElements(
-		{
-			id = "background",
-			type = "rectangle",
-			action = "fill",
-			fillColor = overlay_background(),
-			frame = {
-				x = 0,
-				y = 0,
-				w = frame.w,
-				h = frame.h,
-			},
-		}
-	)
-
-	if minimal_display then
-		local icon = style_icon_text("☕️", math.floor(math.min(frame.w, frame.h) * 0.22))
-		local icon_height = canvas:minimumTextSize(icon).h
-
-		append_centered_text(canvas, "icon", icon, math.floor((frame.h - icon_height) / 2))
-		canvas:show(0)
-		return canvas
-	end
-
-	local title = style_text("休息时间", 40, title_color)
-	local countdown = style_text(format_seconds(remaining_seconds), 72, countdown_color)
-	local description = style_text(
-		string.format(
-			"你已经连续工作 %s\n请离开屏幕休息 %s",
-			format_duration(work_seconds),
-			format_duration(rest_seconds)
-		),
-		24,
-		description_color
-	)
-	local hint = style_text(overlay_hint(), 18, hint_color)
-
-	append_centered_text(canvas, "title", title, math.floor(frame.h * 0.24))
-	append_centered_text(canvas, "countdown", countdown, math.floor(frame.h * 0.40))
-	append_centered_text(canvas, "description", description, math.floor(frame.h * 0.58))
-	append_centered_text(canvas, "hint", hint, math.floor(frame.h * 0.74))
-
-	canvas:show(0)
-
-	return canvas
-end
-
-local function render_overlays(remaining_seconds)
-	destroy_overlays()
-
-	for _, screen in ipairs(hs.screen.allScreens()) do
-		table.insert(overlays, create_overlay(screen, remaining_seconds))
-	end
-
-	restore_frontmost_app()
-end
-
-local function update_overlays(remaining_seconds)
-	if next(overlays) == nil then
-		render_overlays(remaining_seconds)
-		return
-	end
-
-	if minimal_display then
-		return
-	end
-
-	local countdown = style_text(format_seconds(remaining_seconds), 72, countdown_color)
-
-	for _, canvas in pairs(overlays) do
-		canvas["countdown"].text = countdown
-	end
-end
-
-local function stop_input_blocker()
-	if _M.input_blocker == nil then
-		return
-	end
-
-	_M.input_blocker:stop()
-end
-
-local function start_input_blocker()
-	if not is_hard_mode() then
-		return
-	end
-
-	if #blocked_event_types == 0 then
-		log.w("blocked event types are empty, skip input blocker")
-		return
-	end
-
-	if _M.input_blocker == nil then
-		_M.input_blocker = hs.eventtap.new(
-			blocked_event_types,
-			function()
-				return true
-			end
-		)
-	end
-
-	_M.input_blocker:start()
-end
-
-local function stop_break_timer()
-	if break_timer == nil then
-		return
-	end
-
-	break_timer:stop()
-	break_timer = nil
-end
-
-local function stop_friendly_reminder_timer()
-	if friendly_reminder_timer == nil then
-		return
-	end
-
-	friendly_reminder_timer:stop()
-	friendly_reminder_timer = nil
-end
-
-destroy_friendly_reminder_popup = function()
-	if friendly_reminder_popup_timer ~= nil then
-		friendly_reminder_popup_timer:stop()
-		friendly_reminder_popup_timer = nil
-	end
-
-	if friendly_reminder_canvas ~= nil then
-		friendly_reminder_canvas:hide(0)
-		friendly_reminder_canvas:delete()
-		friendly_reminder_canvas = nil
-	end
-end
-
-local function stop_work_timer()
-	if work_timer == nil then
-		return
-	end
-
-	work_timer:stop()
-	work_timer = nil
-end
-
-local function reset_cycle_for_inactive_session(reason)
-	stop_work_timer()
-	stop_friendly_reminder_timer()
-	stop_break_timer()
-	stop_input_blocker()
-	destroy_friendly_reminder_popup()
-	destroy_overlays()
-	break_ends_at = nil
-	frontmost_app = nil
-	session_is_inactive = true
-	log.i(string.format("break timer reset because session became inactive: %s", reason))
-end
-
-local function can_resume_after_inactive_session()
-	local session_properties = hs.caffeinate.sessionProperties()
-
-	if session_properties == nil then
-		return true
-	end
-
-	local is_locked = session_properties.CGSSessionScreenIsLocked
-
-	if is_locked == true or is_locked == 1 then
-		return false
-	end
-
-	local is_on_console = session_properties.kCGSSessionOnConsoleKey
-
-	if is_on_console == false or is_on_console == 0 then
-		return false
-	end
-
-	return true
-end
-
-local function finish_break()
+finish_break = function()
 	stop_break_timer()
 	stop_input_blocker()
 	destroy_friendly_reminder_popup()
@@ -564,22 +778,37 @@ local function finish_break()
 	break_ends_at = nil
 	frontmost_app = nil
 	log.i("break finished")
-	schedule_next_break()
+
+	if state.enabled == true and session_is_inactive ~= true then
+		schedule_next_break("break finished")
+	else
+		next_break_at = nil
+		work_cycle_started_at = nil
+		update_menubar_status()
+	end
 end
 
-local function start_break()
+start_break = function(reason)
+	if state.enabled ~= true then
+		return
+	end
+
+	stop_work_timer()
 	stop_friendly_reminder_timer()
 	destroy_friendly_reminder_popup()
-	break_ends_at = os.time() + rest_seconds
+	next_break_at = nil
+	work_cycle_started_at = nil
+	break_ends_at = os.time() + state.rest_seconds
 	frontmost_app = nil
 
 	if is_soft_mode() then
 		frontmost_app = hs.application.frontmostApplication()
 	end
 
-	log.i(string.format("break started, mode=%s", mode))
-	render_overlays(rest_seconds)
+	log.i(string.format("break started, mode=%s, reason=%s", state.mode, tostring(reason)))
+	render_overlays(state.rest_seconds)
 	start_input_blocker()
+	update_menubar_status()
 
 	stop_break_timer()
 	break_timer = hs.timer.doEvery(
@@ -593,39 +822,809 @@ local function start_break()
 			end
 
 			update_overlays(remaining_seconds)
+			update_menubar_status()
 		end
 	)
 end
 
-schedule_next_break = function()
+schedule_next_break = function(reason)
+	if state.enabled ~= true or session_is_inactive == true then
+		return
+	end
+
 	stop_work_timer()
+	stop_break_timer()
+	stop_input_blocker()
 	stop_friendly_reminder_timer()
 	destroy_friendly_reminder_popup()
+	destroy_overlays()
+	break_ends_at = nil
+	frontmost_app = nil
+	work_cycle_started_at = os.time()
+	next_break_at = work_cycle_started_at + state.work_seconds
 
-	if friendly_reminder_seconds > 0 and friendly_reminder_seconds < work_seconds then
+	if state.friendly_reminder_seconds > 0 and state.friendly_reminder_seconds < state.work_seconds then
 		friendly_reminder_timer = hs.timer.doAfter(
-			work_seconds - friendly_reminder_seconds,
+			state.work_seconds - state.friendly_reminder_seconds,
 			function()
 				friendly_reminder_timer = nil
 
-				if break_ends_at ~= nil then
+				if break_ends_at ~= nil or state.enabled ~= true then
 					return
 				end
 
 				show_friendly_reminder()
 			end
 		)
-	elseif friendly_reminder_seconds >= work_seconds then
+	elseif state.friendly_reminder_seconds >= state.work_seconds then
 		log.w("friendly reminder is not scheduled because it is greater than or equal to work duration")
 	end
 
 	work_timer = hs.timer.doAfter(
-		work_seconds,
+		state.work_seconds,
 		function()
 			work_timer = nil
-			start_break()
+			next_break_at = nil
+			start_break(reason or "work timer reached")
 		end
 	)
+
+	log.i(string.format("break scheduled in %d seconds, reason=%s", state.work_seconds, tostring(reason)))
+	update_menubar_status()
+end
+
+restart_work_cycle = function(reason)
+	if state.enabled ~= true then
+		clear_active_runtime(true)
+		update_menubar_status()
+		return
+	end
+
+	if session_is_inactive == true then
+		clear_active_runtime(true)
+		update_menubar_status()
+		return
+	end
+
+	schedule_next_break(reason or "manual reset")
+end
+
+local function reset_cycle_for_inactive_session(reason)
+	clear_active_runtime(true)
+	session_is_inactive = true
+	log.i(string.format("break timer reset because session became inactive: %s", reason))
+	update_menubar_status()
+end
+
+apply_current_configuration = function(reason, schedule_should_restart)
+	state = normalize_config(merged_config(runtime_overrides))
+	refresh_menubar()
+
+	if state.enabled ~= true then
+		clear_active_runtime(true)
+		update_menubar_status()
+		return
+	end
+
+	if session_is_inactive == true then
+		clear_active_runtime(true)
+		update_menubar_status()
+		return
+	end
+
+	if break_ends_at ~= nil then
+		local remaining_seconds = break_ends_at - os.time()
+
+		if remaining_seconds <= 0 then
+			finish_break()
+			return
+		end
+
+		if is_hard_mode() then
+			start_input_blocker()
+		else
+			stop_input_blocker()
+		end
+
+		render_overlays(remaining_seconds)
+		update_menubar_status()
+		log.i(string.format("break configuration reapplied during active break, reason=%s", tostring(reason)))
+		return
+	end
+
+	if schedule_should_restart == true or next_break_at == nil then
+		schedule_next_break(reason or "configuration updated")
+	else
+		update_menubar_status()
+	end
+end
+
+update_runtime_overrides = function(changes, reason)
+	local schedule_should_restart = changes_require_schedule_restart(changes)
+
+	for key, value in pairs(changes or {}) do
+		if base_config[key] == value then
+			runtime_overrides[key] = nil
+		else
+			runtime_overrides[key] = value
+		end
+	end
+
+	persist_runtime_overrides()
+	apply_current_configuration(reason, schedule_should_restart)
+end
+
+clear_runtime_overrides = function(reason)
+	runtime_overrides = {}
+	persist_runtime_overrides()
+	apply_current_configuration(reason or "runtime overrides cleared", true)
+end
+
+local function show_message(message)
+	hs.alert.show(message)
+end
+
+local function read_file(path)
+	local file, open_error = io.open(path, "r")
+
+	if file == nil then
+		return nil, open_error
+	end
+
+	local content = file:read("*a")
+
+	file:close()
+
+	return content
+end
+
+local function write_file(path, content)
+	local file, open_error = io.open(path, "w")
+
+	if file == nil then
+		return nil, open_error
+	end
+
+	local _, write_error = file:write(content)
+
+	file:close()
+
+	if write_error ~= nil then
+		return nil, write_error
+	end
+
+	return true
+end
+
+local function keybindings_config_path()
+	local path = package.searchpath("keybindings_config", package.path)
+
+	if path ~= nil then
+		return path
+	end
+
+	if hs.configdir ~= nil then
+		return hs.configdir .. "/keybindings_config.lua"
+	end
+
+	return nil
+end
+
+local function exportable_config()
+	return {
+		enabled = state.enabled,
+		show_menubar = state.show_menubar,
+		mode = state.mode,
+		overlay_opacity = state.overlay_opacity,
+		minimal_display = state.minimal_display,
+		friendly_reminder_message = state.friendly_reminder_message,
+		friendly_reminder_duration_seconds = state.friendly_reminder_duration_seconds,
+		friendly_reminder_seconds = state.friendly_reminder_seconds,
+		work_minutes = state.work_seconds / 60,
+		rest_seconds = state.rest_seconds,
+	}
+end
+
+local function render_break_reminder_config_block(config)
+	return table.concat(
+		{
+			"_M.break_reminder = {",
+			"\tenabled = " .. serialize_lua_value(config.enabled) .. ",",
+			"\t-- 是否显示菜单栏图标, 可通过菜单直接调整提醒配置",
+			"\tshow_menubar = " .. serialize_lua_value(config.show_menubar) .. ",",
+			"\t-- 可选: \"soft\" 或 \"hard\"",
+			"\t-- soft: 显示半透明遮罩但不抢占鼠标和键盘",
+			"\t-- hard: 显示遮罩并明确拦截鼠标和键盘",
+			"\tmode = " .. serialize_lua_value(config.mode) .. ",",
+			"\t-- 遮罩透明度, 范围 0~1",
+			"\t-- 默认值: soft=0.32, hard=0.96",
+			"\toverlay_opacity = " .. serialize_lua_value(config.overlay_opacity) .. ",",
+			"\t-- true 时仅显示简洁图标，不显示倒计时和说明文字",
+			"\tminimal_display = " .. serialize_lua_value(config.minimal_display) .. ",",
+			"\t-- 友好提示文案模板",
+			"\t-- 可用占位符: {{remaining}} {{remaining_seconds}} {{remaining_mmss}} {{rest}} {{rest_seconds}} {{rest_mmss}}",
+			"\tfriendly_reminder_message = " .. serialize_lua_value(config.friendly_reminder_message) .. ",",
+			"\t-- 友好提示默认停留秒数, 0 表示不自动关闭, 只允许手动点 x 关闭",
+			"\tfriendly_reminder_duration_seconds = " .. serialize_lua_value(config.friendly_reminder_duration_seconds) .. ",",
+			"\t-- 距离休息还有多少秒时做一次友好提示, 0 为禁用",
+			"\tfriendly_reminder_seconds = " .. serialize_lua_value(config.friendly_reminder_seconds) .. ",",
+			"\t-- 单位: 分钟",
+			"\twork_minutes = " .. serialize_lua_value(config.work_minutes) .. ",",
+			"\t-- 单位: 秒",
+			"\trest_seconds = " .. serialize_lua_value(config.rest_seconds) .. ",",
+			"}",
+		},
+		"\n"
+	)
+end
+
+local function prompt_text(message, informative_text, default_value)
+	local button, value = hs.dialog.textPrompt(
+		message,
+		informative_text,
+		default_value or "",
+		"保存",
+		"取消",
+		false
+	)
+
+	if button ~= "保存" then
+		return nil
+	end
+
+	return value
+end
+
+local function prompt_number(message, informative_text, default_value, minimum_value, maximum_value)
+	local raw_value = prompt_text(message, informative_text, tostring(default_value or ""))
+
+	if raw_value == nil then
+		return nil
+	end
+
+	local number = tonumber(raw_value)
+
+	if number == nil then
+		show_message("请输入有效数字")
+		return nil
+	end
+
+	if minimum_value ~= nil and number < minimum_value then
+		show_message(string.format("请输入不小于 %s 的数值", tostring(minimum_value)))
+		return nil
+	end
+
+	if maximum_value ~= nil and number > maximum_value then
+		show_message(string.format("请输入不大于 %s 的数值", tostring(maximum_value)))
+		return nil
+	end
+
+	return number
+end
+
+export_current_config_to_file = function()
+	local config_path = keybindings_config_path()
+
+	if config_path == nil then
+		show_message("未找到 keybindings_config.lua")
+		return
+	end
+
+	local content, read_error = read_file(config_path)
+
+	if content == nil then
+		show_message(string.format("读取配置文件失败: %s", tostring(read_error)))
+		return
+	end
+
+	local replacement = render_break_reminder_config_block(exportable_config())
+	local updated_content, replaced_count = content:gsub(
+		"_M%.break_reminder%s*=%s*%b{}",
+		function()
+			return replacement
+		end,
+		1
+	)
+
+	if replaced_count ~= 1 then
+		show_message("导出失败: 未找到 _M.break_reminder 配置块")
+		return
+	end
+
+	local _, write_error = write_file(config_path, updated_content)
+
+	if write_error ~= nil then
+		show_message(string.format("写入配置文件失败: %s", tostring(write_error)))
+		return
+	end
+
+	runtime_overrides = {}
+	hs.settings.clear(settings_key)
+	show_message("已导出到 keybindings_config.lua，正在重载配置")
+	hs.timer.doAfter(
+		0.3,
+		function()
+			hs.reload()
+		end
+	)
+end
+
+local function menu_item_set_work_minutes(minutes)
+	update_runtime_overrides(
+		{
+			work_minutes = minutes,
+		},
+		string.format("工作时长已更新为 %s", format_minutes(math.floor(minutes * 60)))
+	)
+end
+
+local function menu_item_set_rest_seconds(seconds)
+	update_runtime_overrides(
+		{
+			rest_seconds = seconds,
+		},
+		string.format("休息时长已更新为 %s", format_duration(seconds))
+	)
+end
+
+local function menu_item_set_friendly_reminder_seconds(seconds)
+	update_runtime_overrides(
+		{
+			friendly_reminder_seconds = seconds,
+		},
+		seconds <= 0 and "已关闭友好提醒" or string.format("友好提醒已调整为提前 %s", format_duration(seconds))
+	)
+end
+
+local function menu_item_set_friendly_reminder_duration(seconds)
+	update_runtime_overrides(
+		{
+			friendly_reminder_duration_seconds = seconds,
+		},
+		seconds <= 0 and "友好提醒已改为手动关闭" or string.format("友好提醒停留时长已更新为 %s", format_duration(seconds))
+	)
+end
+
+local function menu_item_set_overlay_opacity(opacity)
+	update_runtime_overrides(
+		{
+			overlay_opacity = opacity,
+		},
+		string.format("遮罩透明度已更新为 %s", format_decimal(opacity))
+	)
+end
+
+local function build_work_duration_menu()
+	local current_minutes = state.work_seconds / 60
+	local menu = {
+		{ title = string.format("当前: %s", format_minutes(state.work_seconds)), disabled = true },
+	}
+	local presets = { 25, 28, 30, 45, 50 }
+
+	for _, minutes in ipairs(presets) do
+		table.insert(
+			menu,
+			{
+				title = string.format("%s", format_minutes(minutes * 60)),
+				checked = math.abs(current_minutes - minutes) < 0.001,
+				fn = function()
+					menu_item_set_work_minutes(minutes)
+				end,
+			}
+		)
+	end
+
+	table.insert(
+		menu,
+		{
+			title = "自定义...",
+			fn = function()
+				local minutes = prompt_number(
+					"工作时长",
+					"请输入工作时长，单位为分钟，可输入小数，例如 28.5",
+					format_decimal(current_minutes),
+					1,
+					nil
+				)
+
+				if minutes == nil then
+					return
+				end
+
+				menu_item_set_work_minutes(minutes)
+			end,
+		}
+	)
+
+	return menu
+end
+
+local function build_rest_duration_menu()
+	local menu = {
+		{ title = string.format("当前: %s", format_duration(state.rest_seconds)), disabled = true },
+	}
+	local presets = { 60, 120, 300, 600 }
+
+	for _, seconds in ipairs(presets) do
+		table.insert(
+			menu,
+			{
+				title = format_duration(seconds),
+				checked = state.rest_seconds == seconds,
+				fn = function()
+					menu_item_set_rest_seconds(seconds)
+				end,
+			}
+		)
+	end
+
+	table.insert(
+		menu,
+		{
+			title = "自定义...",
+			fn = function()
+				local seconds = prompt_number(
+					"休息时长",
+					"请输入休息时长，单位为秒",
+					state.rest_seconds,
+					1,
+					nil
+				)
+
+				if seconds == nil then
+					return
+				end
+
+				menu_item_set_rest_seconds(math.floor(seconds))
+			end,
+		}
+	)
+
+	return menu
+end
+
+local function build_overlay_menu()
+	local menu = {
+		{
+			title = state.minimal_display and "当前显示: 极简图标" or "当前显示: 完整信息",
+			disabled = true,
+		},
+		{
+			title = "仅显示咖啡图标",
+			checked = state.minimal_display,
+			fn = function()
+				update_runtime_overrides(
+					{
+						minimal_display = not state.minimal_display,
+					},
+					state.minimal_display and "已切换为完整提醒视图" or "已切换为极简提醒视图"
+				)
+			end,
+		},
+		{ title = "-" },
+		{
+			title = string.format("当前透明度: %s", format_decimal(state.overlay_opacity)),
+			disabled = true,
+		},
+	}
+	local presets = { 0.20, 0.32, 0.50, 0.80, 0.96 }
+
+	for _, opacity in ipairs(presets) do
+		table.insert(
+			menu,
+			{
+				title = format_decimal(opacity),
+				checked = math.abs(state.overlay_opacity - opacity) < 0.001,
+				fn = function()
+					menu_item_set_overlay_opacity(opacity)
+				end,
+			}
+		)
+	end
+
+	table.insert(
+		menu,
+		{
+			title = "自定义透明度...",
+			fn = function()
+				local opacity = prompt_number(
+					"遮罩透明度",
+					"请输入 0 到 1 之间的数值，例如 0.32",
+					format_decimal(state.overlay_opacity),
+					0,
+					1
+				)
+
+				if opacity == nil then
+					return
+				end
+
+				menu_item_set_overlay_opacity(opacity)
+			end,
+		}
+	)
+
+	return menu
+end
+
+local function build_friendly_reminder_menu()
+	local current_duration = state.friendly_reminder_duration_seconds
+	local duration_label = current_duration <= 0 and "手动关闭" or format_duration(current_duration)
+	local menu = {
+		{
+			title = state.friendly_reminder_seconds <= 0
+				and "当前提前提醒: 已关闭"
+				or string.format("当前提前提醒: %s", format_duration(state.friendly_reminder_seconds)),
+			disabled = true,
+		},
+	}
+	local reminder_presets = { 0, 60, 120, 300 }
+
+	for _, seconds in ipairs(reminder_presets) do
+		local title = seconds == 0 and "关闭提前提醒" or string.format("提前 %s", format_duration(seconds))
+
+		table.insert(
+			menu,
+			{
+				title = title,
+				checked = state.friendly_reminder_seconds == seconds,
+				fn = function()
+					menu_item_set_friendly_reminder_seconds(seconds)
+				end,
+			}
+		)
+	end
+
+	table.insert(
+		menu,
+		{
+			title = "自定义提前提醒...",
+			fn = function()
+				local seconds = prompt_number(
+					"友好提醒",
+					"请输入距离休息开始前多少秒显示友好提醒，0 表示关闭",
+					state.friendly_reminder_seconds,
+					0,
+					nil
+				)
+
+				if seconds == nil then
+					return
+				end
+
+				menu_item_set_friendly_reminder_seconds(math.floor(seconds))
+			end,
+		}
+	)
+
+	table.insert(menu, { title = "-" })
+	table.insert(
+		menu,
+		{
+			title = string.format("当前停留时长: %s", duration_label),
+			disabled = true,
+		}
+	)
+
+	local duration_presets = { 0, 5, 10, 15 }
+
+	for _, seconds in ipairs(duration_presets) do
+		local title = seconds == 0 and "手动关闭" or format_duration(seconds)
+
+		table.insert(
+			menu,
+			{
+				title = title,
+				checked = math.abs(current_duration - seconds) < 0.001,
+				fn = function()
+					menu_item_set_friendly_reminder_duration(seconds)
+				end,
+			}
+		)
+	end
+
+	table.insert(
+		menu,
+		{
+			title = "自定义停留时长...",
+			fn = function()
+				local seconds = prompt_number(
+					"友好提醒停留时长",
+					"请输入提醒弹窗显示秒数，0 表示不自动关闭",
+					current_duration,
+					0,
+					nil
+				)
+
+				if seconds == nil then
+					return
+				end
+
+				menu_item_set_friendly_reminder_duration(seconds)
+			end,
+		}
+	)
+
+	table.insert(menu, { title = "-" })
+	table.insert(
+		menu,
+		{
+			title = "编辑提示文案...",
+			fn = function()
+				local message = prompt_text(
+					"友好提醒文案",
+					"可用占位符: {{remaining}} {{remaining_seconds}} {{remaining_mmss}} {{rest}} {{rest_seconds}} {{rest_mmss}}",
+					state.friendly_reminder_message
+				)
+
+				if message == nil then
+					return
+				end
+
+				if message == "" then
+					show_message("提示文案不能为空")
+					return
+				end
+
+				update_runtime_overrides(
+					{
+						friendly_reminder_message = message,
+					},
+					"友好提醒文案已更新"
+				)
+			end,
+		}
+	)
+
+	return menu
+end
+
+local function build_mode_menu()
+	return {
+		{
+			title = "柔性提醒",
+			checked = state.mode == "soft",
+			fn = function()
+				update_runtime_overrides(
+					{
+						mode = "soft",
+					},
+					"已切换为柔性提醒模式"
+				)
+			end,
+		},
+		{
+			title = "硬性提醒",
+			checked = state.mode == "hard",
+			fn = function()
+				update_runtime_overrides(
+					{
+						mode = "hard",
+					},
+					"已切换为硬性提醒模式"
+				)
+			end,
+		},
+	}
+end
+
+local function build_menu()
+	local status_title, status_detail = current_status()
+
+	return {
+		{ title = string.format("状态: %s", status_title), disabled = true },
+		{ title = status_detail, disabled = true },
+		{
+			title = string.format(
+				"模式: %s | 工作: %s | 休息: %s",
+				mode_label(state.mode),
+				format_minutes(state.work_seconds),
+				format_duration(state.rest_seconds)
+			),
+			disabled = true,
+		},
+		{
+			title = table_is_empty(runtime_overrides) and "当前使用文件配置" or "当前使用文件配置 + 菜单覆盖配置",
+			disabled = true,
+		},
+		{ title = "-" },
+		{
+			title = "启用提醒",
+			checked = state.enabled,
+			fn = function()
+				local enabled = not state.enabled
+
+				update_runtime_overrides(
+					{
+						enabled = enabled,
+					},
+					enabled and "已启用休息提醒" or "已关闭休息提醒"
+				)
+			end,
+		},
+		{
+			title = "提醒模式",
+			disabled = state.enabled ~= true,
+			menu = build_mode_menu(),
+		},
+		{
+			title = "工作时长",
+			disabled = state.enabled ~= true,
+			menu = build_work_duration_menu(),
+		},
+		{
+			title = "休息时长",
+			disabled = state.enabled ~= true,
+			menu = build_rest_duration_menu(),
+		},
+		{
+			title = "界面显示",
+			disabled = state.enabled ~= true,
+			menu = build_overlay_menu(),
+		},
+		{
+			title = "友好提醒",
+			disabled = state.enabled ~= true,
+			menu = build_friendly_reminder_menu(),
+		},
+		{ title = "-" },
+		{
+			title = "立即开始休息",
+			disabled = state.enabled ~= true or break_ends_at ~= nil,
+			fn = function()
+				start_break("manual start from menubar")
+				show_message("已立即开始休息")
+			end,
+		},
+		{
+			title = "重置工作计时",
+			disabled = state.enabled ~= true,
+			fn = function()
+				restart_work_cycle("manual reset from menubar")
+				show_message("已重新开始工作计时")
+			end,
+		},
+		{
+			title = "恢复文件配置",
+			disabled = table_is_empty(runtime_overrides),
+			fn = function()
+				clear_runtime_overrides("restore base config")
+				show_message("已恢复为 keybindings_config.lua 中的配置")
+			end,
+		},
+		{
+			title = "导出当前配置到文件",
+			fn = function()
+				export_current_config_to_file()
+			end,
+		},
+	}
+end
+
+refresh_menubar = function()
+	if state.show_menubar ~= true then
+		stop_menubar_status_timer()
+
+		if menubar_item ~= nil then
+			menubar_item:delete()
+			menubar_item = nil
+		end
+
+		return
+	end
+
+	if menubar_item == nil then
+		menubar_item = hs.menubar.new()
+
+		if menubar_item == nil then
+			log.e("failed to create break reminder menubar item")
+			return
+		end
+	end
+
+	menubar_item:setMenu(build_menu)
+	update_menubar_status()
+	start_menubar_status_timer()
 end
 
 _M.screen_watcher = hs.screen.watcher.new(
@@ -642,6 +1641,7 @@ _M.screen_watcher = hs.screen.watcher.new(
 		end
 
 		render_overlays(remaining_seconds)
+		update_menubar_status()
 	end
 )
 
@@ -673,12 +1673,63 @@ _M.caffeinate_watcher = hs.caffeinate.watcher.new(
 
 		session_is_inactive = false
 		log.i("break timer restarted after wake/unlock")
-		schedule_next_break()
+
+		if state.enabled == true then
+			schedule_next_break("resume after inactive session")
+		else
+			update_menubar_status()
+		end
 	end
 )
 
 _M.caffeinate_watcher:start()
 
-schedule_next_break()
+_M.start_break_now = function()
+	start_break("manual api start")
+end
+
+_M.reset_cycle = function()
+	restart_work_cycle("manual api reset")
+end
+
+_M.clear_runtime_overrides = function()
+	clear_runtime_overrides("manual api clear")
+end
+
+_M.export_current_config_to_file = function()
+	export_current_config_to_file()
+end
+
+_M.get_state = function()
+	return {
+		enabled = state.enabled,
+		show_menubar = state.show_menubar,
+		mode = state.mode,
+		minimal_display = state.minimal_display,
+		work_seconds = state.work_seconds,
+		rest_seconds = state.rest_seconds,
+		friendly_reminder_seconds = state.friendly_reminder_seconds,
+		friendly_reminder_duration_seconds = state.friendly_reminder_duration_seconds,
+		friendly_reminder_message = state.friendly_reminder_message,
+		overlay_opacity = state.overlay_opacity,
+		break_ends_at = break_ends_at,
+		next_break_at = next_break_at,
+		work_cycle_started_at = work_cycle_started_at,
+		session_is_inactive = session_is_inactive,
+		runtime_overrides = shallow_copy(runtime_overrides),
+	}
+end
+
+if can_resume_after_inactive_session() ~= true then
+	session_is_inactive = true
+end
+
+refresh_menubar()
+
+if state.enabled == true and session_is_inactive ~= true then
+	schedule_next_break("module init")
+else
+	update_menubar_status()
+end
 
 return _M
