@@ -10,20 +10,32 @@ local log = hs.logger.new("input")
 local pop_msg = false
 
 local function applicationWatcher(appName, eventType, appObject)
+    if eventType ~= hs.application.watcher.activated then
+        return
+    end
+
+    if appObject == nil then
+        log.d("skip input method switch because appObject is nil")
+        return
+    end
+
     local bundleID = appObject:bundleID()
 
-    if eventType == hs.application.watcher.activated then
-        local input_method = auto_input_methods[bundleID]
+    if bundleID == nil then
+        log.d(string.format("skip input method switch because bundleID is nil for '%s'", tostring(appName)))
+        return
+    end
 
-        if input_method ~= nil then
-            hs.keycodes.currentSourceID(input_method)
+    local input_method = auto_input_methods[bundleID]
 
-            if pop_msg then
-                hs.alert.show(input_method, 0.5)
-            end
+    if input_method ~= nil then
+        hs.keycodes.currentSourceID(input_method)
 
-            log.d(string.format("app '%s' switched to '%s'", appName, input_method))
+        if pop_msg then
+            hs.alert.show(input_method, 0.5)
         end
+
+        log.d(string.format("app '%s' switched to '%s'", tostring(appName or bundleID), input_method))
     end
 end
 
