@@ -285,6 +285,9 @@ _M.break_reminder = {
 	-- soft: 显示半透明遮罩但不抢占鼠标和键盘
 	-- hard: 显示遮罩并明确拦截鼠标和键盘
 	mode = "hard",
+	-- 遮罩透明度, 范围 0~1
+	-- 默认值: soft=0.32, hard=0.96
+	overlay_opacity = 0.96,
 	-- true 时仅显示简洁图标，不显示倒计时和说明文字
 	minimal_display = true,
 	-- 友好提示文案模板

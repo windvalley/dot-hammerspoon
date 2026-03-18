@@ -54,6 +54,10 @@ local function resolve_number(value, default_value, minimum_value)
 	return math.max(minimum_value, number)
 end
 
+local function clamp_number(value, minimum_value, maximum_value)
+	return math.min(maximum_value, math.max(minimum_value, value))
+end
+
 local work_seconds = math.max(60, math.floor((tonumber(config.work_minutes) or 30) * 60))
 local rest_seconds = resolve_integer_seconds(config.rest_seconds, 120, 1)
 local mode = tostring(config.mode or "hard"):lower()
@@ -66,6 +70,12 @@ if valid_modes[mode] ~= true then
 	log.w(string.format("invalid break mode: %s, fallback to hard", mode))
 	mode = "hard"
 end
+
+local overlay_opacity = clamp_number(
+	resolve_number(config.overlay_opacity, mode == "soft" and 0.32 or 0.96, 0),
+	0,
+	1
+)
 
 local background_color = { red = 0.04, green = 0.05, blue = 0.08 }
 local title_color = { hex = "#F4F1DE" }
@@ -309,17 +319,11 @@ local function is_hard_mode()
 end
 
 local function overlay_background()
-	local alpha = 0.96
-
-	if is_soft_mode() then
-		alpha = 0.32
-	end
-
 	return {
 		red = background_color.red,
 		green = background_color.green,
 		blue = background_color.blue,
-		alpha = alpha,
+		alpha = overlay_opacity,
 	}
 end
 
