@@ -12,6 +12,8 @@ local default_overlay_opacity = {
 	soft = 0.32,
 	hard = 0.96,
 }
+local menubar_icon_size = 18
+local menubar_canvas_size = 36
 local valid_modes = {
 	soft = true,
 	hard = true,
@@ -102,6 +104,7 @@ local function normalize_config(config)
 	return {
 		enabled = config.enabled ~= false,
 		show_menubar = config.show_menubar ~= false,
+		show_progress_in_menubar = config.show_progress_in_menubar ~= false,
 		menubar_title = tostring(config.menubar_title or default_menubar_title),
 		mode = mode,
 		minimal_display = config.minimal_display == true,
@@ -187,6 +190,17 @@ local function serialize_lua_value(value)
 	error(string.format("unsupported lua value type: %s", value_type))
 end
 
+local function interpolate_color(from_color, to_color, ratio)
+	ratio = clamp_number(ratio, 0, 1)
+
+	return {
+		red = (from_color.red or 0) + ((to_color.red or 0) - (from_color.red or 0)) * ratio,
+		green = (from_color.green or 0) + ((to_color.green or 0) - (from_color.green or 0)) * ratio,
+		blue = (from_color.blue or 0) + ((to_color.blue or 0) - (from_color.blue or 0)) * ratio,
+		alpha = (from_color.alpha or 1) + ((to_color.alpha or 1) - (from_color.alpha or 1)) * ratio,
+	}
+end
+
 local function render_template(template, variables)
 	return (template:gsub("{{%s*([%w_]+)%s*}}", function(key)
 		local value = variables[key]
@@ -229,6 +243,13 @@ local reminder_background_color = { red = 0.10, green = 0.11, blue = 0.15, alpha
 local reminder_border_color = { red = 0.82, green = 0.68, blue = 0.34, alpha = 1 }
 local reminder_text_color = { hex = "#F4F1DE" }
 local reminder_close_color = { hex = "#E9C46A" }
+local menubar_disabled_color = { red = 0.52, green = 0.56, blue = 0.60, alpha = 1 }
+local menubar_paused_color = { red = 0.56, green = 0.65, blue = 0.75, alpha = 1 }
+local menubar_work_start_color = { red = 0.31, green = 0.78, blue = 0.54, alpha = 1 }
+local menubar_work_mid_color = { red = 0.91, green = 0.70, blue = 0.21, alpha = 1 }
+local menubar_work_end_color = { red = 0.91, green = 0.42, blue = 0.20, alpha = 1 }
+local menubar_break_color = { red = 0.90, green = 0.33, blue = 0.24, alpha = 1 }
+local menubar_track_color = { white = 1, alpha = 0.18 }
 local font_name = "Monaco"
 local icon_font_name = "Apple Color Emoji"
 
@@ -586,14 +607,217 @@ local function current_status()
 	return "待机中", "等待开始新的工作计时"
 end
 
+local function menubar_visual_state()
+	if state.enabled ~= true then
+		return {
+			progress = nil,
+			progress_color = menubar_disabled_color,
+			icon_color = menubar_disabled_color,
+		}
+	end
+
+	if session_is_inactive == true then
+		return {
+			progress = nil,
+			progress_color = menubar_paused_color,
+			icon_color = menubar_paused_color,
+		}
+	end
+
+	if break_ends_at ~= nil then
+		local remaining_seconds = math.max(0, break_ends_at - os.time())
+		local progress = 0
+
+		if state.rest_seconds > 0 then
+			progress = clamp_number(remaining_seconds / state.rest_seconds, 0, 1)
+		end
+
+		return {
+			progress = state.show_progress_in_menubar and progress or nil,
+			progress_color = menubar_break_color,
+			icon_color = menubar_break_color,
+		}
+	end
+
+	if next_break_at ~= nil and work_cycle_started_at ~= nil and state.work_seconds > 0 then
+		local elapsed_seconds = clamp_number(os.time() - work_cycle_started_at, 0, state.work_seconds)
+		local progress = clamp_number(elapsed_seconds / state.work_seconds, 0, 1)
+		local progress_color = nil
+
+		if progress < 0.7 then
+			progress_color = interpolate_color(menubar_work_start_color, menubar_work_mid_color, progress / 0.7)
+		else
+			progress_color = interpolate_color(menubar_work_mid_color, menubar_work_end_color, (progress - 0.7) / 0.3)
+		end
+
+		return {
+			progress = state.show_progress_in_menubar and progress or nil,
+			progress_color = progress_color,
+			icon_color = progress_color,
+		}
+	end
+
+	return {
+		progress = nil,
+		progress_color = menubar_work_start_color,
+		icon_color = menubar_work_start_color,
+	}
+end
+
+local function circle_path_coordinates(progress, center_x, center_y, radius)
+	if progress == nil or progress <= 0 then
+		return nil
+	end
+
+	local steps = math.max(8, math.ceil(56 * progress))
+	local coordinates = {}
+	local start_radians = -math.pi / 2
+	local end_radians = start_radians + (math.pi * 2 * progress)
+
+	for index = 0, steps do
+		local ratio = index / steps
+		local angle = start_radians + ((end_radians - start_radians) * ratio)
+
+		table.insert(
+			coordinates,
+			{
+				x = center_x + (math.cos(angle) * radius),
+				y = center_y + (math.sin(angle) * radius),
+			}
+		)
+	end
+
+	return coordinates
+end
+
+local function build_menubar_icon()
+	local visual_state = menubar_visual_state()
+	local canvas = hs.canvas.new({
+		x = 0,
+		y = 0,
+		w = menubar_canvas_size,
+		h = menubar_canvas_size,
+	})
+	local center_x = menubar_canvas_size / 2
+	local center_y = menubar_canvas_size / 2
+	local ring_radius = 14.2
+	local ring_width = 3.0
+
+	canvas:appendElements(
+		{
+			type = "circle",
+			action = "stroke",
+			center = { x = center_x, y = center_y },
+			radius = ring_radius,
+			strokeWidth = ring_width,
+			strokeColor = menubar_track_color,
+		},
+		{
+			type = "rectangle",
+			action = "fill",
+			roundedRectRadii = { xRadius = 2.2, yRadius = 2.2 },
+			fillColor = visual_state.icon_color,
+			frame = {
+				x = 10.2,
+				y = 17.0,
+				w = 12.6,
+				h = 8.4,
+			},
+		},
+		{
+			type = "oval",
+			action = "stroke",
+			strokeWidth = 2.2,
+			strokeColor = visual_state.icon_color,
+			frame = {
+				x = 21.2,
+				y = 18.2,
+				w = 5.4,
+				h = 5.8,
+			},
+		},
+		{
+			type = "rectangle",
+			action = "fill",
+			roundedRectRadii = { xRadius = 1.4, yRadius = 1.4 },
+			fillColor = visual_state.icon_color,
+			frame = {
+				x = 9.5,
+				y = 27.4,
+				w = 16.8,
+				h = 2.2,
+			},
+		},
+		{
+			type = "rectangle",
+			action = "fill",
+			roundedRectRadii = { xRadius = 0.8, yRadius = 0.8 },
+			fillColor = visual_state.icon_color,
+			frame = {
+				x = 12.4,
+				y = 9.0,
+				w = 1.9,
+				h = 6.0,
+			},
+		},
+		{
+			type = "rectangle",
+			action = "fill",
+			roundedRectRadii = { xRadius = 0.8, yRadius = 0.8 },
+			fillColor = visual_state.icon_color,
+			frame = {
+				x = 17.2,
+				y = 7.7,
+				w = 1.9,
+				h = 7.4,
+			},
+		}
+	)
+
+	if visual_state.progress ~= nil and visual_state.progress > 0 then
+		canvas:appendElements(
+			{
+				type = "segments",
+				action = "stroke",
+				closed = false,
+				strokeWidth = ring_width,
+				strokeCapStyle = "round",
+				strokeColor = visual_state.progress_color,
+				coordinates = circle_path_coordinates(visual_state.progress, center_x, center_y, ring_radius),
+			}
+		)
+	end
+
+	local icon = canvas:imageFromCanvas()
+
+	canvas:delete()
+
+	if icon == nil then
+		return nil
+	end
+
+	icon:size({ w = menubar_icon_size, h = menubar_icon_size }, true)
+
+	return icon
+end
+
 update_menubar_status = function()
 	if menubar_item == nil then
 		return
 	end
 
 	local status_title, status_detail = current_status()
+	local icon = build_menubar_icon()
 
-	menubar_item:setTitle(state.menubar_title)
+	menubar_item:setTitle(nil)
+
+	if icon ~= nil then
+		menubar_item:setIcon(icon, false)
+	else
+		menubar_item:setIcon(nil)
+		menubar_item:setTitle(state.menubar_title)
+	end
+
 	menubar_item:setTooltip(
 		string.format(
 			"Break Reminder\n状态: %s\n%s\n模式: %s | 工作: %s | 休息: %s",
@@ -1014,6 +1238,7 @@ local function exportable_config()
 	return {
 		enabled = state.enabled,
 		show_menubar = state.show_menubar,
+		show_progress_in_menubar = state.show_progress_in_menubar,
 		mode = state.mode,
 		overlay_opacity = state.overlay_opacity,
 		minimal_display = state.minimal_display,
@@ -1032,6 +1257,8 @@ local function render_break_reminder_config_block(config)
 			"\tenabled = " .. serialize_lua_value(config.enabled) .. ",",
 			"\t-- 是否显示菜单栏图标, 可通过菜单直接调整提醒配置",
 			"\tshow_menubar = " .. serialize_lua_value(config.show_menubar) .. ",",
+			"\t-- 是否在菜单栏图标中直接显示进度",
+			"\tshow_progress_in_menubar = " .. serialize_lua_value(config.show_progress_in_menubar) .. ",",
 			"\t-- 可选: \"soft\" 或 \"hard\"",
 			"\t-- soft: 显示半透明遮罩但不抢占鼠标和键盘",
 			"\t-- hard: 显示遮罩并明确拦截鼠标和键盘",
@@ -1528,9 +1755,9 @@ local function build_menu()
 			disabled = true,
 		},
 		{ title = "-" },
-		{
-			title = "启用提醒",
-			checked = state.enabled,
+			{
+				title = "启用提醒",
+				checked = state.enabled,
 			fn = function()
 				local enabled = not state.enabled
 
@@ -1540,11 +1767,24 @@ local function build_menu()
 					},
 					enabled and "已启用休息提醒" or "已关闭休息提醒"
 				)
-			end,
-		},
-		{
-			title = "提醒模式",
-			disabled = state.enabled ~= true,
+				end,
+			},
+			{
+				title = "图标显示进度",
+				checked = state.show_progress_in_menubar,
+				disabled = state.show_menubar ~= true,
+				fn = function()
+					update_runtime_overrides(
+						{
+							show_progress_in_menubar = not state.show_progress_in_menubar,
+						},
+						state.show_progress_in_menubar and "已关闭图标进度显示" or "已开启图标进度显示"
+					)
+				end,
+			},
+			{
+				title = "提醒模式",
+				disabled = state.enabled ~= true,
 			menu = build_mode_menu(),
 		},
 		{
@@ -1704,6 +1944,7 @@ _M.get_state = function()
 	return {
 		enabled = state.enabled,
 		show_menubar = state.show_menubar,
+		show_progress_in_menubar = state.show_progress_in_menubar,
 		mode = state.mode,
 		minimal_display = state.minimal_display,
 		work_seconds = state.work_seconds,

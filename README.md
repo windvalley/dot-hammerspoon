@@ -89,6 +89,7 @@ The configuration will enforce scheduled breaks on all screens based on your con
 - `soft`: show a translucent fullscreen overlay, keep the current app usable.
 - `hard`: show the overlay and block keyboard/mouse input during the break.
 - `show_menubar`: show the menubar icon for quick actions and UI-based configuration.
+- `show_progress_in_menubar`: show progress directly in the menubar icon. It renders a progress ring while working and a remaining-time ring while resting.
 - `overlay_opacity`: overlay opacity in the range `0` to `1`. Defaults to `0.32` in `soft` mode and `0.96` in `hard` mode.
 - `minimal_display`: when enabled, the overlay only shows a coffee icon `☕️`.
 - `friendly_reminder_message`: customize the reminder message template.
@@ -114,6 +115,7 @@ You can change or disable it in `~/.hammerspoon/keybindings_config.lua`:
 _M.break_reminder = {
 	enabled = true,
 	show_menubar = true,
+	show_progress_in_menubar = true,
 	mode = "hard",
 	overlay_opacity = 0.96,
 	minimal_display = true,

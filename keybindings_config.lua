@@ -283,6 +283,9 @@ _M.break_reminder = {
 	enabled = true,
 	-- 是否显示菜单栏图标, 可通过菜单直接调整提醒配置
 	show_menubar = true,
+	-- 是否在菜单栏图标中直接显示当前进度
+	-- 工作阶段显示进度环, 休息阶段显示剩余倒计时环
+	show_progress_in_menubar = true,
 	-- 可选: "soft" 或 "hard"
 	-- soft: 显示半透明遮罩但不抢占鼠标和键盘
 	-- hard: 显示遮罩并明确拦截鼠标和键盘
