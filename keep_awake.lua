@@ -73,7 +73,6 @@ local state = {
 	hotkey_key = nil,
 }
 
-local persisted_enabled = hs.settings.get(enabled_settings_key)
 local persisted_keep_display_awake = hs.settings.get(display_settings_key)
 local persisted_hotkey_modifiers = hs.settings.get(hotkey_modifiers_settings_key)
 local persisted_hotkey_key = hs.settings.get(hotkey_key_settings_key)
@@ -235,10 +234,6 @@ default_hotkey_key = normalize_hotkey_key(default_hotkey_key)
 state.hotkey_modifiers = copy_list(default_hotkey_modifiers)
 state.hotkey_key = default_hotkey_key
 
-if type(persisted_enabled) == "boolean" then
-	state.enabled = persisted_enabled
-end
-
 if type(persisted_keep_display_awake) == "boolean" then
 	state.keep_display_awake = persisted_keep_display_awake
 end
@@ -258,12 +253,8 @@ if persisted_hotkey_modifiers ~= nil or persisted_hotkey_key ~= nil then
 end
 
 local function persist_enabled_state()
-	if state.enabled == default_enabled then
-		hs.settings.clear(enabled_settings_key)
-		return
-	end
-
-	hs.settings.set(enabled_settings_key, state.enabled)
+	-- 防休眠开关在重载后回到配置文件默认值，不沿用运行时状态。
+	hs.settings.clear(enabled_settings_key)
 end
 
 local function persist_keep_display_awake_state()
@@ -291,11 +282,15 @@ local function status_title()
 		return "已关闭"
 	end
 
+	return "已开启"
+end
+
+local function mode_label()
 	if state.keep_display_awake == true then
-		return "已开启, 屏幕常亮"
+		return "系统与屏幕常亮"
 	end
 
-	return "已开启, 仅阻止系统休眠"
+	return "仅阻止系统休眠"
 end
 
 local function status_detail()
@@ -348,9 +343,15 @@ local function build_menubar_icon()
 	local center_x = menubar_canvas_size / 2
 	local center_y = menubar_canvas_size / 2
 	local power_icon_alpha = state.enabled == true and 1 or 0.34
-	local accent_alpha = state.enabled == true and 0.84 or 0.18
 	local power_color = icon_color(power_icon_alpha)
-	local accent_color = icon_color(accent_alpha)
+	local outer_ring_alpha = 0.18
+
+	if state.enabled == true then
+		outer_ring_alpha = state.keep_display_awake == true and 1 or 0.72
+	end
+
+	local outer_ring_color = icon_color(outer_ring_alpha)
+	local outer_ring_stroke_width = state.keep_display_awake == true and 3.0 or 1.7
 
 	canvas:appendElements(
 		{
@@ -378,36 +379,18 @@ local function build_menubar_icon()
 		}
 	)
 
-	if state.keep_display_awake == true then
-		canvas:appendElements(
-			{
-				type = "segments",
-				action = "stroke",
-				closed = false,
-				strokeWidth = 1.8,
-				strokeCapStyle = "round",
-				strokeJoinStyle = "round",
-				strokeColor = accent_color,
-				coordinates = circle_path_coordinates(0, math.rad(359), center_x, center_y, 13.6),
-			}
-		)
-	else
-		canvas:appendElements(
-			{
-				type = "segments",
-				action = "stroke",
-				closed = false,
-				strokeWidth = 1.8,
-				strokeCapStyle = "round",
-				strokeJoinStyle = "round",
-				strokeColor = accent_color,
-				coordinates = {
-					{ x = 12.4, y = 28.1 },
-					{ x = 23.6, y = 28.1 },
-				},
-			}
-		)
-	end
+	canvas:appendElements(
+		{
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = outer_ring_stroke_width,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = outer_ring_color,
+			coordinates = circle_path_coordinates(0, math.rad(359), center_x, center_y, 13.6),
+		}
+	)
 
 	local icon = canvas:imageFromCanvas()
 
@@ -454,8 +437,9 @@ local function refresh_menubar()
 
 	menubar_item:setTooltip(
 		string.format(
-			"防休眠\n状态: %s\n%s\n快捷键: %s",
+			"防休眠\n状态: %s\n模式: %s\n%s\n快捷键: %s",
 			status_title(),
+			mode_label(),
 			status_detail(),
 			format_hotkey(state.hotkey_modifiers, state.hotkey_key)
 		)
@@ -642,6 +626,7 @@ build_menu = function()
 	return {
 		{ title = "防休眠", disabled = true },
 		{ title = "状态: " .. status_title(), disabled = true },
+		{ title = "已选模式: " .. mode_label(), disabled = true },
 		{ title = status_detail(), disabled = true },
 		{ title = "-" },
 		{
