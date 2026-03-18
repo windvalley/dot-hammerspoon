@@ -1651,6 +1651,19 @@ local function menu_item_set_overlay_opacity(opacity)
 	)
 end
 
+local function menu_item_set_minimal_display(minimal_display)
+	if state.minimal_display == minimal_display then
+		return
+	end
+
+	update_runtime_overrides(
+		{
+			minimal_display = minimal_display,
+		},
+		minimal_display and "已切换为仅显示咖啡图标" or "已切换为显示丰富信息"
+	)
+end
+
 local function build_work_duration_menu()
 	local current_minutes = state.work_seconds / 60
 	local menu = {
@@ -1743,19 +1756,21 @@ end
 local function build_overlay_menu()
 	local menu = {
 		{
-			title = state.minimal_display and "当前显示: 极简图标" or "当前显示: 完整信息",
+			title = state.minimal_display and "当前样式: 仅显示咖啡图标" or "当前样式: 丰富信息",
 			disabled = true,
+		},
+		{
+			title = "显示丰富信息",
+			checked = not state.minimal_display,
+			fn = function()
+				menu_item_set_minimal_display(false)
+			end,
 		},
 		{
 			title = "仅显示咖啡图标",
 			checked = state.minimal_display,
 			fn = function()
-				update_runtime_overrides(
-					{
-						minimal_display = not state.minimal_display,
-					},
-					state.minimal_display and "已切换为完整提醒视图" or "已切换为极简提醒视图"
-				)
+				menu_item_set_minimal_display(true)
 			end,
 		},
 		{ title = "-" },
@@ -2099,7 +2114,7 @@ local function build_menu()
 			menu = build_rest_duration_menu(),
 		},
 		{
-			title = "界面显示",
+			title = "遮罩样式",
 			disabled = state.enabled ~= true,
 			menu = build_overlay_menu(),
 		},
