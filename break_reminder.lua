@@ -291,6 +291,7 @@ local break_timer = nil
 local friendly_reminder_timer = nil
 local friendly_reminder_popup_timer = nil
 local menubar_status_timer = nil
+local inactive_resume_timer = nil
 local break_ends_at = nil
 local next_break_at = nil
 local work_cycle_started_at = nil
@@ -307,6 +308,9 @@ local refresh_menubar = function()
 end
 local update_menubar_status = function()
 end
+local try_resume_after_inactive_session = nil
+local start_inactive_resume_timer = nil
+local stop_inactive_resume_timer = nil
 local schedule_next_break = nil
 local finish_break = nil
 local start_break = nil
@@ -693,6 +697,34 @@ local function can_resume_after_inactive_session()
 	end
 
 	return true
+end
+
+stop_inactive_resume_timer = function()
+	if inactive_resume_timer == nil then
+		return
+	end
+
+	inactive_resume_timer:stop()
+	inactive_resume_timer = nil
+end
+
+start_inactive_resume_timer = function()
+	if inactive_resume_timer ~= nil then
+		return
+	end
+
+	inactive_resume_timer = hs.timer.doEvery(
+		1,
+		function()
+			if try_resume_after_inactive_session ~= nil then
+				try_resume_after_inactive_session("inactive resume retry timer")
+			end
+
+			if session_is_inactive ~= true then
+				stop_inactive_resume_timer()
+			end
+		end
+	)
 end
 
 local function current_status()
@@ -1307,6 +1339,29 @@ schedule_next_break = function(reason)
 	update_menubar_status()
 end
 
+try_resume_after_inactive_session = function(reason)
+	if session_is_inactive ~= true then
+		stop_inactive_resume_timer()
+		return false
+	end
+
+	if can_resume_after_inactive_session() ~= true then
+		return false
+	end
+
+	session_is_inactive = false
+	stop_inactive_resume_timer()
+	log.i(string.format("break timer restarted after wake/unlock, reason=%s", tostring(reason)))
+
+	if state.enabled == true then
+		schedule_next_break(reason or "resume after inactive session")
+	else
+		update_menubar_status()
+	end
+
+	return true
+end
+
 restart_work_cycle = function(reason)
 	if state.enabled ~= true then
 		clear_active_runtime(true)
@@ -1326,6 +1381,7 @@ end
 local function reset_cycle_for_inactive_session(reason)
 	clear_active_runtime(true)
 	session_is_inactive = true
+	start_inactive_resume_timer()
 	log.i(string.format("break timer reset because session became inactive: %s", reason))
 	update_menubar_status()
 end
@@ -2222,18 +2278,9 @@ _M.caffeinate_watcher = hs.caffeinate.watcher.new(
 			return
 		end
 
-		if can_resume_after_inactive_session() ~= true then
-			log.i("session is still locked/inactive after wake, waiting before restarting break timer")
+		if try_resume_after_inactive_session("caffeinate watcher resume event") ~= true then
+			log.i("session is still locked/inactive after wake, waiting for a later retry")
 			return
-		end
-
-		session_is_inactive = false
-		log.i("break timer restarted after wake/unlock")
-
-		if state.enabled == true then
-			schedule_next_break("resume after inactive session")
-		else
-			update_menubar_status()
 		end
 	end
 )
@@ -2281,6 +2328,7 @@ end
 
 if can_resume_after_inactive_session() ~= true then
 	session_is_inactive = true
+	start_inactive_resume_timer()
 end
 
 refresh_menubar()
