@@ -20,6 +20,7 @@
 - Toggle the keybindings cheatsheet.
 - Keep the desktop wallpaper the same as the bing daily picture.
 - Force a configurable break reminder, with support for soft or hard mode.
+- Gamify break reminders with daily focus stats, streaks, skip penalties, and skinnable menubar icons.
 - Auto reload configuration when lua files changes.
 - The code structure is clear and easy to customize into your own configuration.
 
@@ -112,6 +113,15 @@ The configuration will enforce scheduled breaks on all screens based on your con
 - `friendly_reminder_message`: customize the reminder message template.
 - `friendly_reminder_duration_seconds`: how long the reminder stays visible. Set `0` to keep it open until manually closed with `×`.
 - `friendly_reminder_seconds`: how many seconds before the break to show a light reminder. Set `0` to disable it.
+- Track daily focus time, completed breaks, skipped breaks, streak days, and a simple score directly from the menubar menu.
+- `menubar_skin`: switch between `coffee`, `hourglass`, and `bars`.
+- `focus_goal_minutes`: the daily focus goal used for streak tracking.
+- `break_goal_count`: the daily break goal for completed breaks. Set `0` to disable it.
+- Break adherence is shown as completed breaks divided by completed plus skipped breaks.
+- `strict_mode_after_skips`: after skipping this many breaks in a day, reminders are automatically upgraded to `hard` mode. Set `0` to disable.
+- `rest_penalty_seconds_per_skip`: extra rest time added to every later break after each skip.
+- `max_rest_penalty_seconds`: cap for the accumulated skip penalty.
+- The menubar menu provides `Skip Current Break`, which immediately ends the current break and applies the configured penalties.
 - `rest_seconds`: break duration in seconds.
 - Changes made from the menubar are persisted via `hs.settings`. They override the file config until you choose "Restore File Config" from the menu.
 - The menubar also provides "Export Current Config to File", which writes the current effective reminder config back to `keybindings_config.lua` and clears the runtime overrides.
@@ -133,10 +143,16 @@ _M.break_reminder = {
 	enabled = true,
 	show_menubar = true,
 	show_progress_in_menubar = true,
+	menubar_skin = "coffee",
 	start_next_cycle = "auto",
 	mode = "hard",
 	overlay_opacity = 0.96,
 	minimal_display = true,
+	focus_goal_minutes = 120,
+	break_goal_count = 4,
+	strict_mode_after_skips = 2,
+	rest_penalty_seconds_per_skip = 30,
+	max_rest_penalty_seconds = 300,
 	friendly_reminder_message = "还有 {{remaining}} 开始休息",
 	friendly_reminder_duration_seconds = 10,
 	friendly_reminder_seconds = 120,

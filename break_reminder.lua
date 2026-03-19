@@ -7,6 +7,7 @@ local base_config = require("keybindings_config").break_reminder or {}
 
 local log = hs.logger.new("break")
 local settings_key = "break_reminder.runtime_overrides"
+local metrics_settings_key = "break_reminder.gamification_metrics"
 local default_menubar_title = "☕"
 local default_overlay_opacity = {
 	soft = 0.32,
@@ -21,6 +22,11 @@ local valid_modes = {
 local valid_start_next_cycle_modes = {
 	auto = true,
 	on_input = true,
+}
+local valid_menubar_skins = {
+	coffee = true,
+	hourglass = true,
+	bars = true,
 }
 local blocked_event_type_names = {
 	"keyDown",
@@ -115,6 +121,17 @@ local function normalize_start_next_cycle_mode(value)
 	return mode
 end
 
+local function normalize_menubar_skin(value)
+	local skin = tostring(value or "coffee"):lower()
+
+	if valid_menubar_skins[skin] ~= true then
+		log.w(string.format("invalid menubar skin: %s, fallback to coffee", skin))
+		skin = "coffee"
+	end
+
+	return skin
+end
+
 local function merged_config(runtime_overrides)
 	local config = shallow_copy(base_config)
 
@@ -128,17 +145,31 @@ end
 local function normalize_config(config)
 	local mode = normalize_mode(config.mode)
 	local work_seconds = math.max(60, math.floor((tonumber(config.work_minutes) or 30) * 60))
+	local focus_goal_minutes = tonumber(config.focus_goal_minutes)
+
+	if focus_goal_minutes == nil then
+		focus_goal_minutes = tonumber(config.daily_goal_minutes)
+	end
+
+	local focus_goal_seconds = math.max(60, math.floor((focus_goal_minutes or 120) * 60))
+	local break_goal_count = math.max(0, math.floor(tonumber(config.break_goal_count) or 4))
 
 	return {
 		enabled = config.enabled ~= false,
 		show_menubar = config.show_menubar ~= false,
 		show_progress_in_menubar = config.show_progress_in_menubar ~= false,
 		menubar_title = tostring(config.menubar_title or default_menubar_title),
+		menubar_skin = normalize_menubar_skin(config.menubar_skin),
 		start_next_cycle = normalize_start_next_cycle_mode(config.start_next_cycle),
 		mode = mode,
 		minimal_display = config.minimal_display == true,
 		work_seconds = work_seconds,
 		rest_seconds = resolve_integer_seconds(config.rest_seconds, 120, 1),
+		focus_goal_seconds = focus_goal_seconds,
+		break_goal_count = break_goal_count,
+		strict_mode_after_skips = math.max(0, math.floor(tonumber(config.strict_mode_after_skips) or 2)),
+		rest_penalty_seconds_per_skip = resolve_integer_seconds(config.rest_penalty_seconds_per_skip, 30, 0),
+		max_rest_penalty_seconds = resolve_integer_seconds(config.max_rest_penalty_seconds, 300, 0),
 		friendly_reminder_seconds = resolve_integer_seconds(config.friendly_reminder_seconds, 0, 0),
 		friendly_reminder_duration_seconds = resolve_number(config.friendly_reminder_duration_seconds, 1.5, 0),
 		friendly_reminder_message = tostring(config.friendly_reminder_message or "还有 {{remaining}} 开始休息"),
@@ -266,6 +297,92 @@ local function load_runtime_overrides()
 	return {}
 end
 
+local function current_day_key()
+	return os.date("%Y-%m-%d")
+end
+
+local function shift_day_key(day_key, offset_days)
+	local year, month, day = tostring(day_key or ""):match("^(%d+)%-(%d+)%-(%d+)$")
+
+	if year == nil then
+		return nil
+	end
+
+	local timestamp = os.time({
+		year = tonumber(year),
+		month = tonumber(month),
+		day = tonumber(day),
+		hour = 12,
+	})
+
+	if timestamp == nil then
+		return nil
+	end
+
+	return os.date("%Y-%m-%d", timestamp + ((offset_days or 0) * 24 * 60 * 60))
+end
+
+local function normalize_day_key(value)
+	local day_key = tostring(value or "")
+
+	if day_key:match("^%d+%-%d+%-%d+$") ~= nil then
+		return day_key
+	end
+
+	return current_day_key()
+end
+
+local function load_gamification_metrics()
+	local saved = hs.settings.get(metrics_settings_key)
+	local last_goal_day_key = nil
+
+	if type(saved) ~= "table" then
+		saved = {}
+	end
+
+	if saved.last_goal_day_key ~= nil then
+		local candidate = tostring(saved.last_goal_day_key)
+
+		if candidate:match("^%d+%-%d+%-%d+$") ~= nil then
+			last_goal_day_key = candidate
+		end
+	end
+
+	return {
+		day_key = normalize_day_key(saved.day_key),
+		today_focus_seconds = resolve_integer_seconds(saved.today_focus_seconds, 0, 0),
+		today_completed_breaks = resolve_integer_seconds(saved.today_completed_breaks, 0, 0),
+		today_skipped_breaks = resolve_integer_seconds(saved.today_skipped_breaks, 0, 0),
+		today_goal_reached = saved.today_goal_reached == true,
+		streak_days = resolve_integer_seconds(saved.streak_days, 0, 0),
+		best_streak_days = resolve_integer_seconds(saved.best_streak_days, 0, 0),
+		last_goal_day_key = last_goal_day_key,
+	}
+end
+
+local gamification_metrics = load_gamification_metrics()
+
+local function persist_gamification_metrics()
+	hs.settings.set(metrics_settings_key, gamification_metrics)
+end
+
+local function ensure_gamification_metrics_current()
+	local today = current_day_key()
+
+	if gamification_metrics.day_key == today then
+		return false
+	end
+
+	gamification_metrics.day_key = today
+	gamification_metrics.today_focus_seconds = 0
+	gamification_metrics.today_completed_breaks = 0
+	gamification_metrics.today_skipped_breaks = 0
+	gamification_metrics.today_goal_reached = false
+	persist_gamification_metrics()
+
+	return true
+end
+
 local runtime_overrides = load_runtime_overrides()
 local state = normalize_config(merged_config(runtime_overrides))
 
@@ -295,6 +412,9 @@ local inactive_resume_timer = nil
 local break_ends_at = nil
 local next_break_at = nil
 local work_cycle_started_at = nil
+local current_work_cycle_duration_seconds = nil
+local current_break_duration_seconds = nil
+local last_work_session_seconds = nil
 local session_is_inactive = false
 local waiting_for_resume_input = false
 local overlays = {}
@@ -314,12 +434,14 @@ local stop_inactive_resume_timer = nil
 local schedule_next_break = nil
 local finish_break = nil
 local start_break = nil
+local skip_break = nil
 local restart_work_cycle = nil
 local apply_current_configuration = nil
 local update_runtime_overrides = nil
 local clear_runtime_overrides = nil
 local export_current_config_to_file = nil
 local destroy_friendly_reminder_popup = nil
+local show_message = nil
 
 for _, name in ipairs(blocked_event_type_names) do
 	local event_type = hs.eventtap.event.types[name]
@@ -381,14 +503,6 @@ local function append_centered_text(canvas, id, styled_text, y)
 	)
 end
 
-local function is_soft_mode()
-	return state.mode == "soft"
-end
-
-local function is_hard_mode()
-	return state.mode == "hard"
-end
-
 local function start_next_cycle_label(mode)
 	if mode == "on_input" then
 		return "首次输入后开始"
@@ -413,6 +527,261 @@ local function short_mode_label(mode)
 	return "硬性"
 end
 
+local function menubar_skin_label(skin)
+	if skin == "hourglass" then
+		return "沙漏"
+	end
+
+	if skin == "bars" then
+		return "律动条"
+	end
+
+	return "咖啡杯"
+end
+
+local function current_streak_days()
+	ensure_gamification_metrics_current()
+
+	local today = current_day_key()
+	local yesterday = shift_day_key(today, -1)
+
+	if gamification_metrics.last_goal_day_key == today or gamification_metrics.last_goal_day_key == yesterday then
+		return gamification_metrics.streak_days
+	end
+
+	return 0
+end
+
+local function current_skip_penalty_seconds()
+	ensure_gamification_metrics_current()
+
+	if state.rest_penalty_seconds_per_skip <= 0 or gamification_metrics.today_skipped_breaks <= 0 then
+		return 0
+	end
+
+	return math.min(
+		state.max_rest_penalty_seconds,
+		gamification_metrics.today_skipped_breaks * state.rest_penalty_seconds_per_skip
+	)
+end
+
+local function effective_rest_seconds()
+	return state.rest_seconds + current_skip_penalty_seconds()
+end
+
+local function effective_mode()
+	ensure_gamification_metrics_current()
+
+	if state.strict_mode_after_skips > 0 and gamification_metrics.today_skipped_breaks >= state.strict_mode_after_skips then
+		return "hard", true
+	end
+
+	return state.mode, false
+end
+
+local function is_soft_mode()
+	local mode = effective_mode()
+
+	return mode == "soft"
+end
+
+local function is_hard_mode()
+	local mode = effective_mode()
+
+	return mode == "hard"
+end
+
+local function effective_mode_label()
+	local mode, enforced = effective_mode()
+
+	if enforced == true then
+		return "硬性提醒（跳过惩罚生效）"
+	end
+
+	return mode_label(mode)
+end
+
+local function rest_duration_label()
+	local penalty_seconds = current_skip_penalty_seconds()
+
+	if penalty_seconds <= 0 then
+		return format_duration(state.rest_seconds)
+	end
+
+	return string.format("%s（+%s 惩罚）", format_duration(effective_rest_seconds()), format_duration(penalty_seconds))
+end
+
+local function gamification_points()
+	ensure_gamification_metrics_current()
+
+	local focus_points = math.floor(gamification_metrics.today_focus_seconds / 60)
+	local break_points = gamification_metrics.today_completed_breaks * 18
+	local goal_bonus = gamification_metrics.today_goal_reached == true and 40 or 0
+	local streak_bonus = math.min(40, current_streak_days() * 5)
+	local skip_penalty = gamification_metrics.today_skipped_breaks * 25
+
+	return focus_points + break_points + goal_bonus + streak_bonus - skip_penalty
+end
+
+local function break_goal_reached()
+	ensure_gamification_metrics_current()
+
+	if state.break_goal_count <= 0 then
+		return false
+	end
+
+	return gamification_metrics.today_completed_breaks >= state.break_goal_count
+end
+
+local function current_break_completion_rate()
+	ensure_gamification_metrics_current()
+
+	local opportunities = gamification_metrics.today_completed_breaks + gamification_metrics.today_skipped_breaks
+
+	if opportunities <= 0 then
+		return nil, opportunities
+	end
+
+	return clamp_number(gamification_metrics.today_completed_breaks / opportunities, 0, 1), opportunities
+end
+
+local function break_completion_rate_label()
+	local rate, opportunities = current_break_completion_rate()
+
+	if opportunities <= 0 or rate == nil then
+		return "暂无数据"
+	end
+
+	return string.format("%d%%（%d/%d）", math.floor((rate * 100) + 0.5), gamification_metrics.today_completed_breaks, opportunities)
+end
+
+local function gamification_rank_label()
+	local points = gamification_points()
+
+	if points >= 220 then
+		return "休息大师"
+	end
+
+	if points >= 140 then
+		return "节奏稳定"
+	end
+
+	if points >= 80 then
+		return "渐入佳境"
+	end
+
+	if points >= 20 then
+		return "开始热身"
+	end
+
+	return "等待起步"
+end
+
+local function maybe_unlock_focus_goal_reward()
+	ensure_gamification_metrics_current()
+
+	if gamification_metrics.today_goal_reached == true then
+		return
+	end
+
+	if gamification_metrics.today_focus_seconds < state.focus_goal_seconds then
+		return
+	end
+
+	local today = current_day_key()
+	local yesterday = shift_day_key(today, -1)
+
+	if gamification_metrics.last_goal_day_key == yesterday then
+		gamification_metrics.streak_days = gamification_metrics.streak_days + 1
+	else
+		gamification_metrics.streak_days = 1
+	end
+
+	gamification_metrics.today_goal_reached = true
+	gamification_metrics.last_goal_day_key = today
+	gamification_metrics.best_streak_days = math.max(
+		gamification_metrics.best_streak_days,
+		gamification_metrics.streak_days
+	)
+	persist_gamification_metrics()
+	show_message(
+		string.format(
+			"今日专注目标达成，连续达标 %d 天",
+			current_streak_days()
+		)
+	)
+end
+
+local function add_today_focus_seconds(seconds, reason)
+	local focus_seconds = math.max(0, math.floor(seconds or 0))
+
+	if focus_seconds <= 0 then
+		return 0
+	end
+
+	ensure_gamification_metrics_current()
+	gamification_metrics.today_focus_seconds = gamification_metrics.today_focus_seconds + focus_seconds
+	persist_gamification_metrics()
+	log.i(string.format("focus time added: %d seconds, reason=%s", focus_seconds, tostring(reason)))
+	maybe_unlock_focus_goal_reward()
+
+	return focus_seconds
+end
+
+local function record_completed_break()
+	ensure_gamification_metrics_current()
+	gamification_metrics.today_completed_breaks = gamification_metrics.today_completed_breaks + 1
+	persist_gamification_metrics()
+
+	local rewards = {
+		[1] = "完成第 1 次休息，今天已经进入节奏",
+		[3] = "完成第 3 次休息，节奏很稳",
+		[5] = "完成第 5 次休息，今天的自控力很强",
+	}
+	local message = rewards[gamification_metrics.today_completed_breaks]
+
+	if message ~= nil then
+		show_message(message)
+		return
+	end
+
+	if break_goal_reached() == true and gamification_metrics.today_completed_breaks == state.break_goal_count then
+		show_message(string.format("今日休息目标达成，已完成 %d 次休息", state.break_goal_count))
+	end
+end
+
+local function record_skipped_break()
+	ensure_gamification_metrics_current()
+	gamification_metrics.today_skipped_breaks = gamification_metrics.today_skipped_breaks + 1
+	persist_gamification_metrics()
+end
+
+local function commit_active_work_progress(reason)
+	if work_cycle_started_at == nil then
+		return 0
+	end
+
+	if break_ends_at ~= nil or waiting_for_resume_input == true or session_is_inactive == true then
+		work_cycle_started_at = nil
+		next_break_at = nil
+		current_work_cycle_duration_seconds = nil
+		return 0
+	end
+
+	local cycle_duration = current_work_cycle_duration_seconds or state.work_seconds
+	local elapsed_seconds = clamp_number(os.time() - work_cycle_started_at, 0, cycle_duration)
+
+	work_cycle_started_at = nil
+	next_break_at = nil
+	current_work_cycle_duration_seconds = nil
+
+	if elapsed_seconds <= 0 then
+		return 0
+	end
+
+	return add_today_focus_seconds(elapsed_seconds, reason or "work cycle committed")
+end
+
 local function overlay_background()
 	return {
 		red = background_color.red,
@@ -425,6 +794,12 @@ end
 local function overlay_hint()
 	if is_soft_mode() then
 		return "当前为柔性提醒，可继续操作"
+	end
+
+	local _, enforced = effective_mode()
+
+	if enforced == true then
+		return "今日跳过休息过多，已升级为硬性强制"
 	end
 
 	return "当前为硬性强制，键盘和鼠标已锁定"
@@ -553,6 +928,10 @@ local function destroy_overlays()
 end
 
 local function clear_active_runtime(clear_break_cycle)
+	if clear_break_cycle ~= false then
+		commit_active_work_progress("active runtime cleared")
+	end
+
 	stop_work_timer()
 	stop_break_timer()
 	stop_friendly_reminder_timer()
@@ -567,6 +946,9 @@ local function clear_active_runtime(clear_break_cycle)
 		break_ends_at = nil
 		next_break_at = nil
 		work_cycle_started_at = nil
+		current_work_cycle_duration_seconds = nil
+		current_break_duration_seconds = nil
+		last_work_session_seconds = nil
 	end
 end
 
@@ -629,11 +1011,13 @@ local function create_overlay(screen, remaining_seconds)
 
 	local title = style_text("休息时间", 40, title_color)
 	local countdown = style_text(format_seconds(remaining_seconds), 72, countdown_color)
+	local worked_seconds = last_work_session_seconds or state.work_seconds
+	local rest_seconds = current_break_duration_seconds or effective_rest_seconds()
 	local description = style_text(
 		string.format(
 			"你已经连续工作 %s\n请离开屏幕休息 %s",
-			format_duration(state.work_seconds),
-			format_duration(state.rest_seconds)
+			format_duration(worked_seconds),
+			format_duration(rest_seconds)
 		),
 		24,
 		description_color
@@ -743,7 +1127,7 @@ local function current_status()
 	if break_ends_at ~= nil then
 		local remaining_seconds = math.max(0, break_ends_at - os.time())
 
-		return "休息中", string.format("距离结束还有 %s", format_seconds(remaining_seconds))
+		return "休息中", string.format("距离结束还有 %s，当前休息目标 %s", format_seconds(remaining_seconds), format_duration(current_break_duration_seconds or effective_rest_seconds()))
 	end
 
 	if next_break_at ~= nil then
@@ -782,10 +1166,11 @@ local function menubar_visual_state()
 
 	if break_ends_at ~= nil then
 		local remaining_seconds = math.max(0, break_ends_at - os.time())
+		local rest_seconds = current_break_duration_seconds or effective_rest_seconds()
 		local progress = 0
 
-		if state.rest_seconds > 0 then
-			progress = clamp_number(remaining_seconds / state.rest_seconds, 0, 1)
+		if rest_seconds > 0 then
+			progress = clamp_number(remaining_seconds / rest_seconds, 0, 1)
 		end
 
 		return {
@@ -795,9 +1180,10 @@ local function menubar_visual_state()
 		}
 	end
 
-	if next_break_at ~= nil and work_cycle_started_at ~= nil and state.work_seconds > 0 then
-		local elapsed_seconds = clamp_number(os.time() - work_cycle_started_at, 0, state.work_seconds)
-		local progress = clamp_number(elapsed_seconds / state.work_seconds, 0, 1)
+	if next_break_at ~= nil and work_cycle_started_at ~= nil then
+		local work_seconds = current_work_cycle_duration_seconds or state.work_seconds
+		local elapsed_seconds = clamp_number(os.time() - work_cycle_started_at, 0, work_seconds)
+		local progress = clamp_number(elapsed_seconds / work_seconds, 0, 1)
 
 		return {
 			progress = state.show_progress_in_menubar and progress or nil,
@@ -852,27 +1238,7 @@ local function build_menubar_icon()
 	local ring_radius = 15.0
 	local ring_width = 1.9
 	local show_progress_ring = state.show_progress_in_menubar == true
-	local cup_color = visual_state.icon_color
-	local icon_scale = show_progress_ring and 1.08 or 1.24
-	local icon_offset_x = show_progress_ring and 0 or 0.2
-	local icon_offset_y = show_progress_ring and 0.15 or 0.35
-
-	local function transform_coordinates(coordinates)
-		local transformed = {}
-
-		for _, point in ipairs(coordinates) do
-			table.insert(
-				transformed,
-				{
-					x = center_x + ((point.x - center_x) * icon_scale) + icon_offset_x,
-					y = center_y + ((point.y - center_y) * icon_scale) + icon_offset_y,
-				}
-			)
-		end
-
-		return transformed
-	end
-
+	local icon_color = visual_state.icon_color
 	local elements = {}
 
 	if show_progress_ring == true then
@@ -889,8 +1255,32 @@ local function build_menubar_icon()
 		)
 	end
 
-	table.insert(
-		elements,
+	local function transform_coordinates(coordinates, scale, offset_x, offset_y)
+		local transformed = {}
+
+		for _, point in ipairs(coordinates) do
+			table.insert(
+				transformed,
+				{
+					x = center_x + ((point.x - center_x) * scale) + offset_x,
+					y = center_y + ((point.y - center_y) * scale) + offset_y,
+				}
+			)
+		end
+
+		return transformed
+	end
+
+	local function append_coffee_skin()
+		local icon_scale = show_progress_ring and 1.08 or 1.24
+		local icon_offset_x = show_progress_ring and 0 or 0.2
+		local icon_offset_y = show_progress_ring and 0.15 or 0.35
+		local transform = function(coordinates)
+			return transform_coordinates(coordinates, icon_scale, icon_offset_x, icon_offset_y)
+		end
+
+		table.insert(
+			elements,
 			{
 				type = "segments",
 				action = "stroke",
@@ -898,104 +1288,227 @@ local function build_menubar_icon()
 				strokeWidth = show_progress_ring and 1.85 or 1.95,
 				strokeCapStyle = "round",
 				strokeJoinStyle = "round",
-				strokeColor = cup_color,
-			coordinates = transform_coordinates({
-				{ x = 11.6, y = 16.6 },
-				{ x = 11.6, y = 23.3 },
-				{ x = 13.1, y = 25.1 },
-				{ x = 20.8, y = 25.1 },
-				{ x = 22.3, y = 23.3 },
-				{ x = 22.3, y = 16.6 },
-			}),
+				strokeColor = icon_color,
+				coordinates = transform({
+					{ x = 11.6, y = 16.6 },
+					{ x = 11.6, y = 23.3 },
+					{ x = 13.1, y = 25.1 },
+					{ x = 20.8, y = 25.1 },
+					{ x = 22.3, y = 23.3 },
+					{ x = 22.3, y = 16.6 },
+				}),
+			}
+		)
+		table.insert(
+			elements,
+			{
+				type = "segments",
+				action = "stroke",
+				closed = false,
+				strokeWidth = show_progress_ring and 1.75 or 1.85,
+				strokeCapStyle = "round",
+				strokeJoinStyle = "round",
+				strokeColor = icon_color,
+				coordinates = transform({
+					{ x = 12.5, y = 16.3 },
+					{ x = 21.4, y = 16.3 },
+				}),
+			}
+		)
+		table.insert(
+			elements,
+			{
+				type = "segments",
+				action = "stroke",
+				closed = false,
+				strokeWidth = show_progress_ring and 1.85 or 1.95,
+				strokeCapStyle = "round",
+				strokeJoinStyle = "round",
+				strokeColor = icon_color,
+				coordinates = transform({
+					{ x = 22.2, y = 17.9 },
+					{ x = 24.9, y = 18.1 },
+					{ x = 25.5, y = 20.7 },
+					{ x = 24.9, y = 23.2 },
+					{ x = 22.1, y = 23.4 },
+				}),
+			}
+		)
+		table.insert(
+			elements,
+			{
+				type = "segments",
+				action = "stroke",
+				closed = false,
+				strokeWidth = show_progress_ring and 1.45 or 1.55,
+				strokeCapStyle = "round",
+				strokeJoinStyle = "round",
+				strokeColor = icon_color,
+				coordinates = transform({
+					{ x = 14.2, y = 12.8 },
+					{ x = 13.3, y = 11.2 },
+					{ x = 14.4, y = 9.8 },
+					{ x = 13.8, y = 8.5 },
+				}),
+			}
+		)
+		table.insert(
+			elements,
+			{
+				type = "segments",
+				action = "stroke",
+				closed = false,
+				strokeWidth = show_progress_ring and 1.45 or 1.55,
+				strokeCapStyle = "round",
+				strokeJoinStyle = "round",
+				strokeColor = icon_color,
+				coordinates = transform({
+					{ x = 18.9, y = 12.5 },
+					{ x = 18.0, y = 10.9 },
+					{ x = 19.0, y = 9.5 },
+					{ x = 18.5, y = 8.2 },
+				}),
+			}
+		)
+		table.insert(
+			elements,
+			{
+				type = "segments",
+				action = "stroke",
+				closed = false,
+				strokeWidth = show_progress_ring and 1.6 or 1.75,
+				strokeCapStyle = "round",
+				strokeJoinStyle = "round",
+				strokeColor = icon_color,
+				coordinates = transform({
+					{ x = 10.4, y = 27.9 },
+					{ x = 24.3, y = 27.9 },
+				}),
+			}
+		)
+	end
+
+	local function append_hourglass_skin()
+		local icon_scale = show_progress_ring and 1.05 or 1.18
+		local icon_offset_x = 0
+		local icon_offset_y = show_progress_ring and 0 or 0.3
+		local transform = function(coordinates)
+			return transform_coordinates(coordinates, icon_scale, icon_offset_x, icon_offset_y)
+		end
+		local stroke_width = show_progress_ring and 1.75 or 1.95
+
+		table.insert(
+			elements,
+			{
+				type = "segments",
+				action = "stroke",
+				closed = false,
+				strokeWidth = stroke_width,
+				strokeCapStyle = "round",
+				strokeJoinStyle = "round",
+				strokeColor = icon_color,
+				coordinates = transform({
+					{ x = 11.7, y = 8.9 },
+					{ x = 24.3, y = 8.9 },
+				}),
+			}
+		)
+		table.insert(
+			elements,
+			{
+				type = "segments",
+				action = "stroke",
+				closed = false,
+				strokeWidth = stroke_width,
+				strokeCapStyle = "round",
+				strokeJoinStyle = "round",
+				strokeColor = icon_color,
+				coordinates = transform({
+					{ x = 11.7, y = 27.1 },
+					{ x = 24.3, y = 27.1 },
+				}),
+			}
+		)
+		table.insert(
+			elements,
+			{
+				type = "segments",
+				action = "stroke",
+				closed = false,
+				strokeWidth = stroke_width,
+				strokeCapStyle = "round",
+				strokeJoinStyle = "round",
+				strokeColor = icon_color,
+				coordinates = transform({
+					{ x = 12.8, y = 10.8 },
+					{ x = 21.8, y = 10.8 },
+					{ x = 18.0, y = 17.6 },
+					{ x = 14.2, y = 24.9 },
+					{ x = 23.2, y = 24.9 },
+				}),
+			}
+		)
+		table.insert(
+			elements,
+			{
+				type = "segments",
+				action = "stroke",
+				closed = false,
+				strokeWidth = show_progress_ring and 1.35 or 1.5,
+				strokeCapStyle = "round",
+				strokeJoinStyle = "round",
+				strokeColor = icon_color,
+				coordinates = transform({
+					{ x = 18.0, y = 17.6 },
+					{ x = 18.0, y = 18.9 },
+				}),
+			}
+		)
+	end
+
+	local function append_bars_skin()
+		local icon_scale = show_progress_ring and 1 or 1.1
+		local icon_offset_y = show_progress_ring and 0 or 0.2
+		local progress = clamp_number(visual_state.progress or 0.58, 0.18, 1)
+		local heights = {
+			8 + (progress * 8),
+			12 + (progress * 10),
+			6 + (progress * 12),
 		}
-	)
-	table.insert(
-		elements,
-		{
-			type = "segments",
-			action = "stroke",
-			closed = false,
-			strokeWidth = show_progress_ring and 1.75 or 1.85,
-			strokeCapStyle = "round",
-			strokeJoinStyle = "round",
-			strokeColor = cup_color,
-			coordinates = transform_coordinates({
-				{ x = 12.5, y = 16.3 },
-				{ x = 21.4, y = 16.3 },
-			}),
+		local bars = {
+			{ x = 10.8, width = 4.2, height = heights[1] },
+			{ x = 16.0, width = 4.2, height = heights[2] },
+			{ x = 21.2, width = 4.2, height = heights[3] },
 		}
-	)
-	table.insert(
-		elements,
-		{
-			type = "segments",
-			action = "stroke",
-			closed = false,
-			strokeWidth = show_progress_ring and 1.85 or 1.95,
-			strokeCapStyle = "round",
-			strokeJoinStyle = "round",
-			strokeColor = cup_color,
-			coordinates = transform_coordinates({
-				{ x = 22.2, y = 17.9 },
-				{ x = 24.9, y = 18.1 },
-				{ x = 25.5, y = 20.7 },
-				{ x = 24.9, y = 23.2 },
-				{ x = 22.1, y = 23.4 },
-			}),
-		}
-	)
-	table.insert(
-		elements,
-		{
-			type = "segments",
-			action = "stroke",
-			closed = false,
-			strokeWidth = show_progress_ring and 1.45 or 1.55,
-			strokeCapStyle = "round",
-			strokeJoinStyle = "round",
-			strokeColor = cup_color,
-			coordinates = transform_coordinates({
-				{ x = 14.2, y = 12.8 },
-				{ x = 13.3, y = 11.2 },
-				{ x = 14.4, y = 9.8 },
-				{ x = 13.8, y = 8.5 },
-			}),
-		}
-	)
-	table.insert(
-		elements,
-		{
-			type = "segments",
-			action = "stroke",
-			closed = false,
-			strokeWidth = show_progress_ring and 1.45 or 1.55,
-			strokeCapStyle = "round",
-			strokeJoinStyle = "round",
-			strokeColor = cup_color,
-			coordinates = transform_coordinates({
-				{ x = 18.9, y = 12.5 },
-				{ x = 18.0, y = 10.9 },
-				{ x = 19.0, y = 9.5 },
-				{ x = 18.5, y = 8.2 },
-			}),
-		}
-	)
-	table.insert(
-		elements,
-		{
-			type = "segments",
-			action = "stroke",
-			closed = false,
-			strokeWidth = show_progress_ring and 1.6 or 1.75,
-			strokeCapStyle = "round",
-			strokeJoinStyle = "round",
-			strokeColor = cup_color,
-			coordinates = transform_coordinates({
-				{ x = 10.4, y = 27.9 },
-				{ x = 24.3, y = 27.9 },
-			}),
-		}
-	)
+
+		for _, bar in ipairs(bars) do
+			local scaled_height = bar.height * icon_scale
+
+			table.insert(
+				elements,
+				{
+					type = "rectangle",
+					action = "fill",
+					fillColor = icon_color,
+					roundedRectRadii = { xRadius = 1.4, yRadius = 1.4 },
+					frame = {
+						x = bar.x,
+						y = 27.4 - scaled_height + icon_offset_y,
+						w = bar.width,
+						h = scaled_height,
+					},
+				}
+			)
+		end
+	end
+
+	if state.menubar_skin == "hourglass" then
+		append_hourglass_skin()
+	elseif state.menubar_skin == "bars" then
+		append_bars_skin()
+	else
+		append_coffee_skin()
+	end
 
 	canvas:appendElements(table.unpack(elements))
 
@@ -1031,6 +1544,8 @@ update_menubar_status = function()
 		return
 	end
 
+	ensure_gamification_metrics_current()
+
 	local status_title, status_detail = current_status()
 	local icon = build_menubar_icon()
 
@@ -1045,13 +1560,24 @@ update_menubar_status = function()
 
 	menubar_item:setTooltip(
 		string.format(
-			"Break Reminder\n状态: %s\n%s\n模式: %s | 工作: %s | 休息: %s | 下一轮: %s",
+			"Break Reminder\n状态: %s\n%s\n模式: %s | 工作: %s | 休息: %s | 下一轮: %s\n今日专注: %s / %s | 完成休息: %d | 跳过: %d\n休息目标: %s | 休息完成率: %s\n连续达标: %d 天 | 今日积分: %d (%s) | 皮肤: %s",
 			status_title,
 			status_detail,
-			mode_label(state.mode),
+			effective_mode_label(),
 			format_minutes(state.work_seconds),
-			format_duration(state.rest_seconds),
-			start_next_cycle_label(state.start_next_cycle)
+			rest_duration_label(),
+			start_next_cycle_label(state.start_next_cycle),
+			format_duration(gamification_metrics.today_focus_seconds),
+			format_duration(state.focus_goal_seconds),
+			gamification_metrics.today_completed_breaks,
+			gamification_metrics.today_skipped_breaks,
+			state.break_goal_count <= 0 and "未启用"
+				or string.format("%d/%d%s", gamification_metrics.today_completed_breaks, state.break_goal_count, break_goal_reached() == true and "（已达成）" or ""),
+			break_completion_rate_label(),
+			current_streak_days(),
+			gamification_points(),
+			gamification_rank_label(),
+			menubar_skin_label(state.menubar_skin)
 		)
 	)
 end
@@ -1102,7 +1628,10 @@ local function show_friendly_reminder()
 		return
 	end
 
-	if state.friendly_reminder_seconds <= 0 or state.friendly_reminder_seconds >= state.work_seconds then
+	local work_seconds = current_work_cycle_duration_seconds or state.work_seconds
+	local rest_seconds = effective_rest_seconds()
+
+	if state.friendly_reminder_seconds <= 0 or state.friendly_reminder_seconds >= work_seconds then
 		return
 	end
 
@@ -1112,9 +1641,9 @@ local function show_friendly_reminder()
 			remaining = format_duration(state.friendly_reminder_seconds),
 			remaining_seconds = state.friendly_reminder_seconds,
 			remaining_mmss = format_seconds(state.friendly_reminder_seconds),
-			rest = format_duration(state.rest_seconds),
-			rest_seconds = state.rest_seconds,
-			rest_mmss = format_seconds(state.rest_seconds),
+			rest = format_duration(rest_seconds),
+			rest_seconds = rest_seconds,
+			rest_mmss = format_seconds(rest_seconds),
 		}
 	)
 
@@ -1225,7 +1754,9 @@ finish_break = function()
 	stop_input_blocker()
 	destroy_friendly_reminder_popup()
 	destroy_overlays()
+	record_completed_break()
 	break_ends_at = nil
+	current_break_duration_seconds = nil
 	frontmost_app = nil
 	log.i("break finished")
 
@@ -1246,6 +1777,7 @@ finish_break = function()
 	else
 		next_break_at = nil
 		work_cycle_started_at = nil
+		current_work_cycle_duration_seconds = nil
 		update_menubar_status()
 	end
 end
@@ -1259,18 +1791,28 @@ start_break = function(reason)
 	stop_resume_input_watcher()
 	stop_friendly_reminder_timer()
 	destroy_friendly_reminder_popup()
+	last_work_session_seconds = commit_active_work_progress("break started")
 	waiting_for_resume_input = false
 	next_break_at = nil
 	work_cycle_started_at = nil
-	break_ends_at = os.time() + state.rest_seconds
+	current_work_cycle_duration_seconds = nil
+	current_break_duration_seconds = effective_rest_seconds()
+	break_ends_at = os.time() + current_break_duration_seconds
 	frontmost_app = nil
 
 	if is_soft_mode() then
 		frontmost_app = hs.application.frontmostApplication()
 	end
 
-	log.i(string.format("break started, mode=%s, reason=%s", state.mode, tostring(reason)))
-	render_overlays(state.rest_seconds)
+	log.i(
+		string.format(
+			"break started, mode=%s, rest_seconds=%d, reason=%s",
+			select(1, effective_mode()),
+			current_break_duration_seconds,
+			tostring(reason)
+		)
+	)
+	render_overlays(current_break_duration_seconds)
 	start_input_blocker()
 	update_menubar_status()
 
@@ -1291,10 +1833,60 @@ start_break = function(reason)
 	)
 end
 
+skip_break = function(reason)
+	if break_ends_at == nil then
+		return false
+	end
+
+	stop_break_timer()
+	stop_input_blocker()
+	destroy_friendly_reminder_popup()
+	destroy_overlays()
+	break_ends_at = nil
+	current_break_duration_seconds = nil
+	frontmost_app = nil
+	waiting_for_resume_input = false
+	record_skipped_break()
+
+	local penalty_seconds = current_skip_penalty_seconds()
+	local _, enforced = effective_mode()
+	local penalty_message = penalty_seconds > 0
+			and ("后续休息增加 " .. format_duration(penalty_seconds))
+		or "未增加额外休息时长"
+
+	log.i(
+		string.format(
+			"break skipped, skipped_today=%d, penalty_seconds=%d, reason=%s",
+			gamification_metrics.today_skipped_breaks,
+			penalty_seconds,
+			tostring(reason)
+		)
+	)
+
+	if state.enabled == true and session_is_inactive ~= true then
+		schedule_next_break(reason or "break skipped")
+	else
+		update_menubar_status()
+	end
+
+	show_message(
+		string.format(
+			"已跳过本次休息，今日已跳过 %d 次。%s%s",
+			gamification_metrics.today_skipped_breaks,
+			penalty_message,
+			enforced == true and "，并升级为硬性提醒" or ""
+		)
+	)
+
+	return true
+end
+
 schedule_next_break = function(reason)
 	if state.enabled ~= true or session_is_inactive == true then
 		return
 	end
+
+	commit_active_work_progress(reason or "reschedule work cycle")
 
 	stop_work_timer()
 	stop_break_timer()
@@ -1304,14 +1896,17 @@ schedule_next_break = function(reason)
 	destroy_friendly_reminder_popup()
 	destroy_overlays()
 	break_ends_at = nil
+	current_break_duration_seconds = nil
 	frontmost_app = nil
 	waiting_for_resume_input = false
+	last_work_session_seconds = nil
 	work_cycle_started_at = os.time()
-	next_break_at = work_cycle_started_at + state.work_seconds
+	current_work_cycle_duration_seconds = state.work_seconds
+	next_break_at = work_cycle_started_at + current_work_cycle_duration_seconds
 
-	if state.friendly_reminder_seconds > 0 and state.friendly_reminder_seconds < state.work_seconds then
+	if state.friendly_reminder_seconds > 0 and state.friendly_reminder_seconds < current_work_cycle_duration_seconds then
 		friendly_reminder_timer = hs.timer.doAfter(
-			state.work_seconds - state.friendly_reminder_seconds,
+			current_work_cycle_duration_seconds - state.friendly_reminder_seconds,
 			function()
 				friendly_reminder_timer = nil
 
@@ -1322,12 +1917,12 @@ schedule_next_break = function(reason)
 				show_friendly_reminder()
 			end
 		)
-	elseif state.friendly_reminder_seconds >= state.work_seconds then
+	elseif state.friendly_reminder_seconds >= current_work_cycle_duration_seconds then
 		log.w("friendly reminder is not scheduled because it is greater than or equal to work duration")
 	end
 
 	work_timer = hs.timer.doAfter(
-		state.work_seconds,
+		current_work_cycle_duration_seconds,
 		function()
 			work_timer = nil
 			next_break_at = nil
@@ -1335,7 +1930,7 @@ schedule_next_break = function(reason)
 		end
 	)
 
-	log.i(string.format("break scheduled in %d seconds, reason=%s", state.work_seconds, tostring(reason)))
+	log.i(string.format("break scheduled in %d seconds, reason=%s", current_work_cycle_duration_seconds, tostring(reason)))
 	update_menubar_status()
 end
 
@@ -1467,7 +2062,7 @@ clear_runtime_overrides = function(reason)
 	apply_current_configuration(reason or "runtime overrides cleared", true)
 end
 
-local function show_message(message)
+show_message = function(message)
 	hs.alert.show(message)
 end
 
@@ -1522,10 +2117,16 @@ local function exportable_config()
 		enabled = state.enabled,
 		show_menubar = state.show_menubar,
 		show_progress_in_menubar = state.show_progress_in_menubar,
+		menubar_skin = state.menubar_skin,
 		start_next_cycle = state.start_next_cycle,
 		mode = state.mode,
 		overlay_opacity = state.overlay_opacity,
 		minimal_display = state.minimal_display,
+		focus_goal_minutes = state.focus_goal_seconds / 60,
+		break_goal_count = state.break_goal_count,
+		strict_mode_after_skips = state.strict_mode_after_skips,
+		rest_penalty_seconds_per_skip = state.rest_penalty_seconds_per_skip,
+		max_rest_penalty_seconds = state.max_rest_penalty_seconds,
 		friendly_reminder_message = state.friendly_reminder_message,
 		friendly_reminder_duration_seconds = state.friendly_reminder_duration_seconds,
 		friendly_reminder_seconds = state.friendly_reminder_seconds,
@@ -1543,6 +2144,8 @@ local function render_break_reminder_config_block(config)
 			"\tshow_menubar = " .. serialize_lua_value(config.show_menubar) .. ",",
 			"\t-- 是否在菜单栏图标中直接显示进度",
 			"\tshow_progress_in_menubar = " .. serialize_lua_value(config.show_progress_in_menubar) .. ",",
+			"\t-- 菜单栏图标皮肤: \"coffee\" \"hourglass\" \"bars\"",
+			"\tmenubar_skin = " .. serialize_lua_value(config.menubar_skin) .. ",",
 			"\t-- 休息结束后如何开始下一轮工作计时: \"auto\" 或 \"on_input\"",
 			"\tstart_next_cycle = " .. serialize_lua_value(config.start_next_cycle) .. ",",
 			"\t-- 可选: \"soft\" 或 \"hard\"",
@@ -1554,6 +2157,16 @@ local function render_break_reminder_config_block(config)
 			"\toverlay_opacity = " .. serialize_lua_value(config.overlay_opacity) .. ",",
 			"\t-- true 时仅显示简洁图标，不显示倒计时和说明文字",
 			"\tminimal_display = " .. serialize_lua_value(config.minimal_display) .. ",",
+			"\t-- 每日专注目标，达到后计入连续达标天数",
+			"\tfocus_goal_minutes = " .. serialize_lua_value(config.focus_goal_minutes) .. ",",
+			"\t-- 每日完成多少次休息算达到休息目标；0 表示禁用",
+			"\tbreak_goal_count = " .. serialize_lua_value(config.break_goal_count) .. ",",
+			"\t-- 当日跳过休息达到该次数后，自动切换为硬性提醒；设为 0 可禁用",
+			"\tstrict_mode_after_skips = " .. serialize_lua_value(config.strict_mode_after_skips) .. ",",
+			"\t-- 每跳过一次休息，为后续每次休息额外增加的惩罚秒数",
+			"\trest_penalty_seconds_per_skip = " .. serialize_lua_value(config.rest_penalty_seconds_per_skip) .. ",",
+			"\t-- 跳过惩罚累计上限，单位为秒",
+			"\tmax_rest_penalty_seconds = " .. serialize_lua_value(config.max_rest_penalty_seconds) .. ",",
 			"\t-- 友好提示文案模板",
 			"\t-- 可用占位符: {{remaining}} {{remaining_seconds}} {{remaining_mmss}} {{rest}} {{rest_seconds}} {{rest_mmss}}",
 			"\tfriendly_reminder_message = " .. serialize_lua_value(config.friendly_reminder_message) .. ",",
@@ -1720,6 +2333,64 @@ local function menu_item_set_minimal_display(minimal_display)
 	)
 end
 
+local function menu_item_set_focus_goal_minutes(minutes)
+	update_runtime_overrides(
+		{
+			focus_goal_minutes = minutes,
+		},
+		string.format("每日专注目标已更新为 %s", format_minutes(math.floor(minutes * 60)))
+	)
+end
+
+local function menu_item_set_break_goal_count(count)
+	update_runtime_overrides(
+		{
+			break_goal_count = count,
+		},
+		count <= 0 and "已关闭每日休息目标" or string.format("每日休息目标已更新为 %d 次", count)
+	)
+end
+
+local function menu_item_set_menubar_skin(skin)
+	if state.menubar_skin == skin then
+		return
+	end
+
+	update_runtime_overrides(
+		{
+			menubar_skin = skin,
+		},
+		string.format("菜单栏图标已切换为%s", menubar_skin_label(skin))
+	)
+end
+
+local function menu_item_set_strict_mode_after_skips(count)
+	update_runtime_overrides(
+		{
+			strict_mode_after_skips = count,
+		},
+		count <= 0 and "已关闭跳过后自动升级硬性提醒" or string.format("跳过 %d 次后将升级为硬性提醒", count)
+	)
+end
+
+local function menu_item_set_rest_penalty_seconds_per_skip(seconds)
+	update_runtime_overrides(
+		{
+			rest_penalty_seconds_per_skip = seconds,
+		},
+		seconds <= 0 and "已关闭跳过休息的时长惩罚" or string.format("每次跳过将额外增加 %s 休息惩罚", format_duration(seconds))
+	)
+end
+
+local function menu_item_set_max_rest_penalty_seconds(seconds)
+	update_runtime_overrides(
+		{
+			max_rest_penalty_seconds = seconds,
+		},
+		string.format("跳过休息惩罚上限已更新为 %s", format_duration(seconds))
+	)
+end
+
 local function build_work_duration_menu()
 	local current_minutes = state.work_seconds / 60
 	local menu = {
@@ -1805,6 +2476,170 @@ local function build_rest_duration_menu()
 			end,
 		}
 	)
+
+	return menu
+end
+
+local function build_focus_goal_menu()
+	local current_minutes = state.focus_goal_seconds / 60
+	local menu = {
+		{
+			title = string.format("当前: %s", format_minutes(state.focus_goal_seconds)),
+			disabled = true,
+		},
+	}
+	local presets = { 60, 90, 120, 180, 240 }
+
+	for _, minutes in ipairs(presets) do
+		table.insert(
+			menu,
+			{
+				title = format_minutes(minutes * 60),
+				checked = math.abs(current_minutes - minutes) < 0.001,
+				fn = function()
+					menu_item_set_focus_goal_minutes(minutes)
+				end,
+			}
+		)
+	end
+
+	table.insert(
+		menu,
+		{
+			title = "自定义...",
+			fn = function()
+				local minutes = prompt_number(
+					"每日专注目标",
+					"请输入每日专注目标，单位为分钟",
+					format_decimal(current_minutes),
+					1,
+					nil
+				)
+
+				if minutes == nil then
+					return
+				end
+
+				menu_item_set_focus_goal_minutes(minutes)
+			end,
+		}
+	)
+
+	return menu
+end
+
+local function build_break_goal_menu()
+	local menu = {
+		{
+			title = state.break_goal_count <= 0
+					and "当前: 已关闭"
+				or string.format("当前: %d 次", state.break_goal_count),
+			disabled = true,
+		},
+	}
+
+	for _, count in ipairs({ 0, 2, 3, 4, 6 }) do
+		table.insert(
+			menu,
+			{
+				title = count == 0 and "关闭休息目标" or string.format("%d 次", count),
+				checked = state.break_goal_count == count,
+				fn = function()
+					menu_item_set_break_goal_count(count)
+				end,
+			}
+		)
+	end
+
+	return menu
+end
+
+local function build_menubar_skin_menu()
+	return {
+		{ title = "当前皮肤: " .. menubar_skin_label(state.menubar_skin), disabled = true },
+		{
+			title = "咖啡杯",
+			checked = state.menubar_skin == "coffee",
+			fn = function()
+				menu_item_set_menubar_skin("coffee")
+			end,
+		},
+		{
+			title = "沙漏",
+			checked = state.menubar_skin == "hourglass",
+			fn = function()
+				menu_item_set_menubar_skin("hourglass")
+			end,
+		},
+		{
+			title = "律动条",
+			checked = state.menubar_skin == "bars",
+			fn = function()
+				menu_item_set_menubar_skin("bars")
+			end,
+		},
+	}
+end
+
+local function build_skip_punishment_menu()
+	local menu = {
+		{
+			title = string.format("当前累计惩罚: %s", format_duration(current_skip_penalty_seconds())),
+			disabled = true,
+		},
+	}
+	local strict_presets = { 0, 1, 2, 3 }
+
+	table.insert(menu, { title = "跳过多少次后升级硬性提醒", disabled = true })
+
+	for _, count in ipairs(strict_presets) do
+		local title = count == 0 and "禁用自动升级" or string.format("%d 次", count)
+
+		table.insert(
+			menu,
+			{
+				title = title,
+				checked = state.strict_mode_after_skips == count,
+				fn = function()
+					menu_item_set_strict_mode_after_skips(count)
+				end,
+			}
+		)
+	end
+
+	table.insert(menu, { title = "-" })
+	table.insert(menu, { title = "每次跳过追加时长", disabled = true })
+
+	for _, seconds in ipairs({ 0, 30, 60, 120 }) do
+		local title = seconds == 0 and "禁用时长惩罚" or format_duration(seconds)
+
+		table.insert(
+			menu,
+			{
+				title = title,
+				checked = state.rest_penalty_seconds_per_skip == seconds,
+				fn = function()
+					menu_item_set_rest_penalty_seconds_per_skip(seconds)
+				end,
+			}
+		)
+	end
+
+	table.insert(menu, { title = "-" })
+	table.insert(menu, { title = "惩罚上限", disabled = true })
+
+	for _, seconds in ipairs({ 60, 180, 300, 600 }) do
+		table.insert(
+			menu,
+			{
+				title = format_duration(seconds),
+				checked = state.max_rest_penalty_seconds == seconds,
+				fn = function()
+					menu_item_set_max_rest_penalty_seconds(seconds)
+				end,
+			}
+		)
+	end
 
 	return menu
 end
@@ -2007,8 +2842,76 @@ local function build_friendly_reminder_menu()
 	return menu
 end
 
-local function build_mode_menu()
+local function build_gamification_menu()
+	ensure_gamification_metrics_current()
+
 	return {
+		{
+			title = string.format("今日专注: %s", format_duration(gamification_metrics.today_focus_seconds)),
+			disabled = true,
+		},
+		{
+			title = string.format("今日完成休息: %d 次", gamification_metrics.today_completed_breaks),
+			disabled = true,
+		},
+		{
+			title = string.format("今日跳过休息: %d 次", gamification_metrics.today_skipped_breaks),
+			disabled = true,
+		},
+		{
+			title = string.format(
+				"专注目标: %s%s",
+				format_duration(state.focus_goal_seconds),
+				gamification_metrics.today_goal_reached == true and "（已达成）" or ""
+			),
+			disabled = true,
+		},
+		{
+			title = state.break_goal_count <= 0
+					and "休息目标: 未启用"
+				or string.format(
+					"休息目标: %d/%d%s",
+					gamification_metrics.today_completed_breaks,
+					state.break_goal_count,
+					break_goal_reached() == true and "（已达成）" or ""
+				),
+			disabled = true,
+		},
+		{
+			title = "休息完成率: " .. break_completion_rate_label(),
+			disabled = true,
+		},
+		{
+			title = string.format("连续达标: %d 天 | 最佳: %d 天", current_streak_days(), gamification_metrics.best_streak_days),
+			disabled = true,
+		},
+		{
+			title = string.format("今日积分: %d | 称号: %s", gamification_points(), gamification_rank_label()),
+			disabled = true,
+		},
+			{ title = "-" },
+			{
+				title = "专注目标",
+				menu = build_focus_goal_menu(),
+			},
+			{
+				title = "休息目标",
+				menu = build_break_goal_menu(),
+			},
+			{
+				title = "跳过惩罚",
+			menu = build_skip_punishment_menu(),
+		},
+	}
+end
+
+local function build_mode_menu()
+	local _, enforced = effective_mode()
+	local menu = {
+		{
+			title = enforced == true and "当前已因跳过休息过多而强制升级为硬性提醒" or "当前按基础模式执行",
+			disabled = true,
+		},
 		{
 			title = "柔性提醒",
 			checked = state.mode == "soft",
@@ -2034,6 +2937,8 @@ local function build_mode_menu()
 			end,
 		},
 	}
+
+	return menu
 end
 
 local function build_start_next_cycle_menu()
@@ -2079,7 +2984,11 @@ local function menu_status_detail()
 	end
 
 	if break_ends_at ~= nil then
-		return string.format("休息剩余: %s", format_seconds(math.max(0, break_ends_at - os.time())))
+		return string.format(
+			"休息剩余: %s | 当前休息: %s",
+			format_seconds(math.max(0, break_ends_at - os.time())),
+			format_compact_duration(current_break_duration_seconds or effective_rest_seconds())
+		)
 	end
 
 	if next_break_at ~= nil then
@@ -2090,11 +2999,14 @@ local function menu_status_detail()
 end
 
 local function menu_config_summary()
+	local penalty_seconds = current_skip_penalty_seconds()
+
 	return string.format(
-		"%s | 工%s | 休%s",
-		short_mode_label(state.mode),
+		"%s | 工%s | 休%s%s",
+		short_mode_label(select(1, effective_mode())),
 		format_compact_duration(state.work_seconds),
-		format_compact_duration(state.rest_seconds)
+		format_compact_duration(state.rest_seconds),
+		penalty_seconds > 0 and ("+" .. format_compact_duration(penalty_seconds)) or ""
 	)
 end
 
@@ -2107,6 +3019,8 @@ local function menu_config_source_label()
 end
 
 local function build_menu()
+	ensure_gamification_metrics_current()
+
 	local status_title, status_detail = current_status()
 
 	return {
@@ -2119,13 +3033,22 @@ local function build_menu()
 		},
 		{ title = "下一轮: " .. short_start_next_cycle_label(state.start_next_cycle), disabled = true },
 		{
+			title = string.format(
+				"今日专注 %s | 连胜 %d 天 | 跳过 %d 次",
+				format_compact_duration(gamification_metrics.today_focus_seconds),
+				current_streak_days(),
+				gamification_metrics.today_skipped_breaks
+			),
+			disabled = true,
+		},
+		{
 			title = menu_config_source_label(),
 			disabled = true,
 		},
 		{ title = "-" },
-			{
-				title = "启用提醒",
-				checked = state.enabled,
+		{
+			title = "启用提醒",
+			checked = state.enabled,
 			fn = function()
 				local enabled = not state.enabled
 
@@ -2135,29 +3058,38 @@ local function build_menu()
 					},
 					enabled and "已启用休息提醒" or "已关闭休息提醒"
 				)
-				end,
-			},
-			{
-				title = "显示进度环",
-				checked = state.show_progress_in_menubar,
-				disabled = state.show_menubar ~= true,
-				fn = function()
-					update_runtime_overrides(
-						{
-							show_progress_in_menubar = not state.show_progress_in_menubar,
-						},
-						state.show_progress_in_menubar and "已关闭图标进度显示" or "已开启图标进度显示"
-					)
-				end,
-			},
-			{
-				title = "下一轮启动",
-				disabled = state.enabled ~= true,
-				menu = build_start_next_cycle_menu(),
-			},
-			{
-				title = "提醒模式",
-				disabled = state.enabled ~= true,
+			end,
+		},
+		{
+			title = "显示进度环",
+			checked = state.show_progress_in_menubar,
+			disabled = state.show_menubar ~= true,
+			fn = function()
+				update_runtime_overrides(
+					{
+						show_progress_in_menubar = not state.show_progress_in_menubar,
+					},
+					state.show_progress_in_menubar and "已关闭图标进度显示" or "已开启图标进度显示"
+				)
+			end,
+		},
+		{
+			title = "图标皮肤",
+			disabled = state.show_menubar ~= true,
+			menu = build_menubar_skin_menu(),
+		},
+		{
+			title = "行为反馈",
+			menu = build_gamification_menu(),
+		},
+		{
+			title = "下一轮启动",
+			disabled = state.enabled ~= true,
+			menu = build_start_next_cycle_menu(),
+		},
+		{
+			title = "提醒模式",
+			disabled = state.enabled ~= true,
 			menu = build_mode_menu(),
 		},
 		{
@@ -2187,6 +3119,13 @@ local function build_menu()
 			fn = function()
 				start_break("manual start from menubar")
 				show_message("已立即开始休息")
+			end,
+		},
+		{
+			title = "跳过本次休息",
+			disabled = break_ends_at == nil,
+			fn = function()
+				skip_break("manual skip from menubar")
 			end,
 		},
 		{
@@ -2292,6 +3231,10 @@ _M.start_break_now = function()
 	start_break("manual api start")
 end
 
+_M.skip_break_now = function()
+	return skip_break("manual api skip")
+end
+
 _M.reset_cycle = function()
 	restart_work_cycle("manual api reset")
 end
@@ -2305,15 +3248,25 @@ _M.export_current_config_to_file = function()
 end
 
 _M.get_state = function()
+	local break_completion_rate, break_completion_opportunities = current_break_completion_rate()
+
 	return {
 		enabled = state.enabled,
 		show_menubar = state.show_menubar,
 		show_progress_in_menubar = state.show_progress_in_menubar,
+		menubar_skin = state.menubar_skin,
 		start_next_cycle = state.start_next_cycle,
 		mode = state.mode,
+		effective_mode = select(1, effective_mode()),
 		minimal_display = state.minimal_display,
 		work_seconds = state.work_seconds,
 		rest_seconds = state.rest_seconds,
+		effective_rest_seconds = effective_rest_seconds(),
+		focus_goal_seconds = state.focus_goal_seconds,
+		break_goal_count = state.break_goal_count,
+		strict_mode_after_skips = state.strict_mode_after_skips,
+		rest_penalty_seconds_per_skip = state.rest_penalty_seconds_per_skip,
+		max_rest_penalty_seconds = state.max_rest_penalty_seconds,
 		friendly_reminder_seconds = state.friendly_reminder_seconds,
 		friendly_reminder_duration_seconds = state.friendly_reminder_duration_seconds,
 		friendly_reminder_message = state.friendly_reminder_message,
@@ -2321,8 +3274,19 @@ _M.get_state = function()
 		break_ends_at = break_ends_at,
 		next_break_at = next_break_at,
 		work_cycle_started_at = work_cycle_started_at,
+		current_work_cycle_duration_seconds = current_work_cycle_duration_seconds,
+		current_break_duration_seconds = current_break_duration_seconds,
+		last_work_session_seconds = last_work_session_seconds,
 		session_is_inactive = session_is_inactive,
 		waiting_for_resume_input = waiting_for_resume_input,
+		gamification = shallow_copy(gamification_metrics),
+		current_streak_days = current_streak_days(),
+		break_goal_reached = break_goal_reached(),
+		break_completion_rate = break_completion_rate,
+		break_completion_opportunities = break_completion_opportunities,
+		break_completion_rate_label = break_completion_rate_label(),
+		gamification_points = gamification_points(),
+		gamification_rank = gamification_rank_label(),
 		runtime_overrides = shallow_copy(runtime_overrides),
 	}
 end
@@ -2331,6 +3295,8 @@ if can_resume_after_inactive_session() ~= true then
 	session_is_inactive = true
 	start_inactive_resume_timer()
 end
+
+ensure_gamification_metrics_current()
 
 refresh_menubar()
 

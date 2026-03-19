@@ -298,6 +298,8 @@ _M.break_reminder = {
 	-- 关闭后切换为更简洁的纯图标版, 不显示外环
 	-- 开启后工作阶段显示进度环, 休息阶段显示剩余倒计时环
 	show_progress_in_menubar = true,
+	-- 菜单栏图标皮肤: coffee / hourglass / bars
+	menubar_skin = "coffee",
 	-- 休息结束后如何开始下一轮工作计时
 	-- auto: 休息结束立即开始
 	-- on_input: 等待首次键盘或鼠标输入后开始
@@ -311,6 +313,16 @@ _M.break_reminder = {
 	overlay_opacity = 0.96,
 	-- true 时仅显示简洁图标，不显示倒计时和说明文字
 	minimal_display = true,
+	-- 每日专注目标, 达到后计入连续达标天数
+	focus_goal_minutes = 120,
+	-- 每日完成多少次休息算达到休息目标; 0 表示禁用
+	break_goal_count = 4,
+	-- 当日跳过休息达到该次数后, 自动切换为硬性提醒; 0 表示禁用
+	strict_mode_after_skips = 2,
+	-- 每跳过一次休息, 为后续每次休息额外增加的惩罚秒数
+	rest_penalty_seconds_per_skip = 30,
+	-- 跳过惩罚累计上限, 单位为秒
+	max_rest_penalty_seconds = 300,
 	-- 友好提示文案模板
 	-- 可用占位符: {{remaining}} {{remaining_seconds}} {{remaining_mmss}} {{rest}} {{rest_seconds}} {{rest_mmss}}
 	friendly_reminder_message = "还有 {{remaining}} 开始休息",
