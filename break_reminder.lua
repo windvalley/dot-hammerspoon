@@ -2110,6 +2110,7 @@ local function build_menu()
 	local status_title, status_detail = current_status()
 
 	return {
+		{ title = "休息提醒", disabled = true },
 		{ title = string.format("状态: %s", status_title), disabled = true },
 		{ title = menu_status_detail(), disabled = true },
 		{
