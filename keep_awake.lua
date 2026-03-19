@@ -501,6 +501,28 @@ local function set_keep_display_awake(keep_display_awake, reason)
 	end
 end
 
+local function set_show_menubar(show_menubar, reason)
+	if state.show_menubar == show_menubar then
+		return
+	end
+
+	state.show_menubar = show_menubar
+	log.i(
+		string.format(
+			"keep awake menubar visibility updated (%s): show_menubar=%s",
+			reason or "unknown",
+			tostring(state.show_menubar)
+		)
+	)
+	refresh_menubar()
+
+	if state.show_menubar == true then
+		hs.alert.show("已显示防休眠菜单栏图标")
+	else
+		hs.alert.show("已隐藏防休眠菜单栏图标，重载后会回到配置默认值")
+	end
+end
+
 local function create_hotkey_binding(modifiers, key)
 	if key == nil then
 		return true, nil
@@ -658,7 +680,25 @@ build_menu = function()
 			title = "设置快捷键",
 			fn = prompt_hotkey_configuration,
 		},
+		{
+			title = "隐藏菜单栏图标",
+			fn = function()
+				set_show_menubar(false, "menubar hide item")
+			end,
+		},
 	}
+end
+
+_M.show_menubar = function()
+	set_show_menubar(true, "manual api show menubar")
+end
+
+_M.hide_menubar = function()
+	set_show_menubar(false, "manual api hide menubar")
+end
+
+_M.toggle_menubar_visibility = function()
+	set_show_menubar(not state.show_menubar, "manual api toggle menubar")
 end
 
 refresh_menubar()

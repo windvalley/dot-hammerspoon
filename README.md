@@ -67,6 +67,8 @@ Use the menubar icon or <kbd>⌥</kbd> + <kbd>A</kbd> to prevent idle sleep duri
 - `keep_display_awake`: when `true`, prevent both system sleep and display sleep. When `false`, only prevent system idle sleep so the display can still turn off.
 - The menubar menu can switch `keep_display_awake` at runtime.
 - The menubar menu can also update the toggle hotkey at runtime.
+- The menubar menu can temporarily hide the menubar icon for the current Hammerspoon session. After `hs.reload()`, it returns to the config default.
+- You can also restore or toggle it from the Hammerspoon console with `package.loaded.keep_awake.show_menubar()` or `package.loaded.keep_awake.toggle_menubar_visibility()`.
 - The current on/off state resets to the config default after Hammerspoon reloads.
 - `keep_display_awake` mode and the toggle hotkey are still restored after Hammerspoon reloads via `hs.settings`.
 
