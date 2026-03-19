@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.8.0] - 2026-03-19
+
+### Added
+- Comprehensive Break Reminder overhaul featuring a gamified experience with statistics, skins, and pre-break notifications.
+- Menubar integration for reminders including a real-time progress ring, persistence, and session state transition handling.
+- New "Keep-Awake" module with system sleep prevention capabilities and dedicated status icon control.
+- Flexible display options for break overlays, including a new minimal mode and customizable opacity.
+- Enhanced session management with resumption retry logic and input-triggered restart functionality.
+
+### Changed
+- Optimized display selection logic for break overlays to improve multi-monitor behavior.
+- Refined global configuration for hotkeys and reminder settings.
+- Improved Keep-Awake module behavior to automatically reset state on application reload.
+
+### Fixed
+- Resolved window movement issues by enforcing the use of visible frames for coordinate calculations.
+- Improved application watcher robustness for more reliable input detection.
+- Fixed cheatsheet alignment to ensure the canvas centers correctly on the active screen.
+
+
 ## [0.7.0] - 2026-03-17
 
 ### Added
