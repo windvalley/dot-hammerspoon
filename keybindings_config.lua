@@ -302,8 +302,6 @@ _M.clipboard = {
 	-- 图片历史缓存目录，支持 ~/ 开头、绝对路径，或相对 hs.configdir 的路径
 	-- 留空时自动使用 ~/Library/Caches/<当前 Hammerspoon bundle id>/clipboard_center_images
 	image_cache_dir = "",
-	-- chooser 中图片缩略图边长
-	image_thumbnail_size = 80,
 	-- 菜单历史子菜单中图片缩略图边长
 	image_menu_thumbnail_size = 80,
 	-- chooser 打开时是否显示预览面板，兼容旧键名 image_preview_enabled
@@ -325,17 +323,6 @@ _M.clipboard = {
 			title = "日报同步",
 			description = "简短同步当前进度",
 			content = "进展同步：当前已完成核心部分，剩余收尾和验证，预计今天内交付。",
-		},
-		{
-			group = "代码模板",
-			title = "Lua Module",
-			description = "Hammerspoon/Lua 模块骨架",
-			content = [[local _M = {}
-
-_M.name = ""
-_M.description = ""
-
-return _M]],
 		},
 		{
 			group = "常用 Prompt",

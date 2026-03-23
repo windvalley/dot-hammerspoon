@@ -15,7 +15,7 @@ local default_history_size = math.max(10, math.floor(tonumber(clipboard.history_
 local default_menu_history_size = math.max(5, math.floor(tonumber(clipboard.menu_history_size) or 12))
 local default_max_item_length = math.max(200, math.floor(tonumber(clipboard.max_item_length) or 30000))
 local default_capture_images = clipboard.capture_images ~= false
-local default_thumbnail_size = math.max(24, math.floor(tonumber(clipboard.image_thumbnail_size) or 40))
+local chooser_inline_thumbnail_size = 28
 local default_menu_thumbnail_size = math.max(14, math.floor(tonumber(clipboard.image_menu_thumbnail_size) or 18))
 local preview_enabled_config = clipboard.preview_enabled
 local preview_width_config = clipboard.preview_width
@@ -51,6 +51,7 @@ local menu_preview_length = 40
 local tooltip_preview_length = 220
 local duplicate_suppression_seconds = 3
 local image_cache_dir = nil
+local history_id_counter = 0
 
 local state = {
 	show_menubar = clipboard.show_menubar ~= false,
@@ -111,6 +112,17 @@ local function normalize_number(value, fallback, minimum)
 	end
 
 	return math.max(minimum, math.floor(number))
+end
+
+local function next_history_id()
+	history_id_counter = history_id_counter + 1
+
+	return string.format(
+		"history-%d-%d-%d",
+		os.time(),
+		math.floor(tonumber(hs.timer.absoluteTime()) or 0),
+		history_id_counter
+	)
 end
 
 local function copy_list(items)
@@ -634,6 +646,7 @@ local function build_text_history_item(text, timestamp)
 	end
 
 	return {
+		id = next_history_id(),
 		kind = "text",
 		content = sanitized,
 		stored_at = timestamp or os.time(),
@@ -693,6 +706,7 @@ local function build_image_history_item(image, timestamp)
 	local size = image:size() or {}
 
 	return {
+		id = next_history_id(),
 		kind = "image",
 		fingerprint = fingerprint,
 		image_path = path,
@@ -713,6 +727,12 @@ local function normalize_history_item(item)
 		return nil
 	end
 
+	local item_id = trim(tostring(item.id or ""))
+
+	if item_id == "" then
+		item_id = next_history_id()
+	end
+
 	if type(item.stored_at) == "number" then
 		stored_at = item.stored_at
 	end
@@ -726,6 +746,7 @@ local function normalize_history_item(item)
 		end
 
 		return {
+			id = item_id,
 			kind = "image",
 			image_path = image_path,
 			fingerprint = fingerprint,
@@ -735,7 +756,13 @@ local function normalize_history_item(item)
 		}
 	end
 
-	return build_text_history_item(item.content, stored_at)
+	local normalized = build_text_history_item(item.content, stored_at)
+
+	if normalized ~= nil then
+		normalized.id = item_id
+	end
+
+	return normalized
 end
 
 local function add_history_item(item, reason)
@@ -881,6 +908,7 @@ local function choice_to_history_item(choice)
 		end
 
 		return {
+			id = next_history_id(),
 			kind = "image",
 			image_path = image_path,
 			fingerprint = fingerprint,
@@ -916,7 +944,7 @@ local function resized_thumbnail(item, size)
 end
 
 local function chooser_thumbnail(item)
-	return resized_thumbnail(item, default_thumbnail_size)
+	return resized_thumbnail(item, chooser_inline_thumbnail_size)
 end
 
 local function menu_thumbnail(item)
@@ -1334,6 +1362,7 @@ local function history_choice(item, index)
 			preview_detail = string.format("历史 #%d · %s · %s", index, format_timestamp(item.stored_at), image_dimensions(item)),
 			image = chooser_thumbnail(item),
 			source = "history",
+			history_id = item.id,
 			kind = "image",
 			image_path = item.image_path,
 			fingerprint = item.fingerprint,
@@ -1354,6 +1383,7 @@ local function history_choice(item, index)
 		preview_title = compact_preview(item.content, 48),
 		preview_detail = string.format("历史 #%d · %s · 文本 · %s", index, format_timestamp(item.stored_at), describe_text(item.content)),
 		source = "history",
+		history_id = item.id,
 		kind = "text",
 		content = item.content,
 	}
@@ -1392,6 +1422,153 @@ local function build_chooser_choices()
 	return choices
 end
 
+local function refresh_chooser_choices(preserve_query, selected_row)
+	if state.chooser == nil then
+		return
+	end
+
+	local chooser_visible = state.chooser:isVisible() == true
+	local query = nil
+
+	if preserve_query == true then
+		query = state.chooser:query()
+	end
+
+	local choices = build_chooser_choices()
+
+	state.chooser:choices(choices)
+
+	if preserve_query == true then
+		state.chooser:query(query)
+	else
+		state.chooser:query(nil)
+	end
+
+	if chooser_visible ~= true then
+		pcall(function()
+			state.chooser:selectedRow(0)
+		end)
+		hide_preview()
+		return
+	end
+
+	if #choices > 0 and type(selected_row) == "number" and selected_row > 0 then
+		pcall(function()
+			state.chooser:selectedRow(math.min(selected_row, #choices))
+		end)
+		update_preview()
+		return
+	end
+
+	pcall(function()
+		state.chooser:selectedRow(0)
+	end)
+	hide_preview()
+end
+
+local function delete_history_item_by_id(history_id)
+	local normalized_id = trim(tostring(history_id or ""))
+
+	if normalized_id == "" then
+		return false, nil
+	end
+
+	local next_history = {}
+	local removed_item = nil
+
+	for _, item in ipairs(state.history) do
+		if removed_item == nil and item.id == normalized_id then
+			removed_item = item
+		else
+			table.insert(next_history, item)
+		end
+	end
+
+	if removed_item == nil then
+		return false, nil
+	end
+
+	replace_history(next_history)
+
+	return true, removed_item
+end
+
+local function delete_history_choice(choice, options)
+	options = options or {}
+
+	if type(choice) ~= "table" or choice.source ~= "history" then
+		hs.alert.show("只有历史记录支持删除")
+		return false
+	end
+
+	local selected_row = options.selected_row
+
+	if state.chooser ~= nil and (type(selected_row) ~= "number" or selected_row < 1) then
+		selected_row = state.chooser:selectedRow() or 0
+	end
+
+	local ok = delete_history_item_by_id(choice.history_id)
+
+	if ok ~= true then
+		hs.alert.show("删除历史记录失败")
+		return false
+	end
+
+	refresh_chooser_choices(true, selected_row)
+	hs.alert.show("已删除这条历史")
+
+	return true
+end
+
+local function popup_context_menu(menu, point)
+	if type(menu) ~= "table" or #menu == 0 then
+		return
+	end
+
+	local popup = hs.menubar.new(false)
+
+	if popup == nil then
+		return
+	end
+
+	popup:setMenu(menu)
+	popup:popupMenu(point or hs.mouse.absolutePosition())
+	popup:delete()
+end
+
+local function show_chooser_context_menu(row)
+	if state.chooser == nil or type(row) ~= "number" or row < 1 then
+		return
+	end
+
+	pcall(function()
+		state.chooser:selectedRow(row)
+	end)
+
+	local choice = state.chooser:selectedRowContents(row)
+
+	if type(choice) ~= "table" or next(choice) == nil then
+		return
+	end
+
+	if choice.source == "history" and trim(tostring(choice.history_id or "")) ~= "" then
+		popup_context_menu({
+			{
+				title = "删除这条历史",
+				fn = function()
+					delete_history_choice(choice, { selected_row = row })
+				end,
+			},
+		})
+
+		return
+	end
+
+	popup_context_menu({
+		{ title = "该项不支持删除", disabled = true },
+	})
+end
+
 local function history_menu_title(item)
 	if item.kind == "image" then
 		return "[图片] " .. image_dimensions(item)
@@ -1415,6 +1592,7 @@ local function history_menu_choice(item)
 	if item.kind == "image" then
 		return {
 			source = "history",
+			history_id = item.id,
 			kind = "image",
 			image_path = item.image_path,
 			fingerprint = item.fingerprint,
@@ -1425,6 +1603,7 @@ local function history_menu_choice(item)
 
 	return {
 		source = "history",
+		history_id = item.id,
 		kind = "text",
 		content = item.content,
 	}
@@ -1441,6 +1620,9 @@ local function build_history_menu()
 		}
 	end
 
+	table.insert(menu, { title = "点击恢复，按住 ⌘ 点击可删除", disabled = true })
+	table.insert(menu, { title = "-" })
+
 	for index = 1, count do
 		local item = state.history[index]
 		local choice = history_menu_choice(item)
@@ -1451,7 +1633,12 @@ local function build_history_menu()
 				title = history_menu_title(item),
 				tooltip = history_menu_tooltip(item),
 				image = menu_thumbnail(item),
-				fn = function()
+				fn = function(modifiers)
+					if type(modifiers) == "table" and modifiers.cmd == true then
+						delete_history_choice(choice)
+						return
+					end
+
 					activate_choice(choice)
 				end,
 			}
@@ -1687,7 +1874,7 @@ local function setup_chooser()
 	state.chooser:searchSubText(true)
 	state.chooser:rows(normalize_number(clipboard.chooser_rows, 12, 6))
 	state.chooser:width(normalize_number(clipboard.chooser_width, 40, 20))
-	state.chooser:placeholderText("搜索历史复制、图片、文本片段、代码模板、常用 Prompt")
+	state.chooser:placeholderText("搜索历史拷贝、Snippets，右键历史拷贝项可删除")
 	state.chooser:showCallback(function()
 		local selected_row = state.chooser:selectedRow() or 0
 
@@ -1705,6 +1892,9 @@ local function setup_chooser()
 	end)
 	state.chooser:queryChangedCallback(function()
 		update_preview()
+	end)
+	state.chooser:rightClickCallback(function(row)
+		show_chooser_context_menu(row)
 	end)
 end
 
