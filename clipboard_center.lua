@@ -11,8 +11,9 @@ local utf8sub = require("utils_lib").utf8sub
 local log = hs.logger.new("clipboard")
 
 local history_settings_key = "clipboard_center.history"
+local menu_history_size_settings_key = "clipboard_center.menu_history_size"
 local default_history_size = math.max(10, math.floor(tonumber(clipboard.history_size) or 80))
-local default_menu_history_size = math.max(5, math.floor(tonumber(clipboard.menu_history_size) or 12))
+local default_menu_history_size = math.max(1, math.floor(tonumber(clipboard.menu_history_size) or 12))
 local default_max_item_length = math.max(200, math.floor(tonumber(clipboard.max_item_length) or 30000))
 local default_capture_images = clipboard.capture_images ~= false
 local chooser_inline_thumbnail_size = 28
@@ -56,6 +57,7 @@ local menubar_icon_size = 18
 local state = {
 	show_menubar = clipboard.show_menubar ~= false,
 	history = {},
+	menu_history_size = default_menu_history_size,
 	watcher = nil,
 	chooser = nil,
 	menubar = nil,
@@ -112,6 +114,37 @@ local function normalize_number(value, fallback, minimum)
 	end
 
 	return math.max(minimum, math.floor(number))
+end
+
+local function normalize_menu_history_size(value, fallback)
+	local number = tonumber(value)
+
+	if number == nil then
+		number = fallback
+	end
+
+	if number == nil then
+		return nil
+	end
+
+	return math.max(1, math.floor(number))
+end
+
+local function prompt_text(message, informative_text, default_value)
+	local button, value = hs.dialog.textPrompt(
+		message,
+		informative_text,
+		default_value or "",
+		"保存",
+		"取消",
+		false
+	)
+
+	if button ~= "保存" then
+		return nil
+	end
+
+	return value
 end
 
 local function next_history_id()
@@ -579,6 +612,15 @@ local function persist_history()
 	hs.settings.set(history_settings_key, state.history)
 end
 
+local function persist_menu_history_size()
+	if state.menu_history_size == default_menu_history_size then
+		hs.settings.clear(menu_history_size_settings_key)
+		return
+	end
+
+	hs.settings.set(menu_history_size_settings_key, state.menu_history_size)
+end
+
 local function cleanup_removed_image_files(previous_history, next_history)
 	local referenced_paths = {}
 
@@ -599,6 +641,34 @@ end
 
 local refresh_menubar = nil
 local refresh_chooser_choices = nil
+
+local function set_menu_history_size(value, options)
+	options = options or {}
+
+	local normalized = normalize_menu_history_size(value, nil)
+
+	if normalized == nil then
+		return false
+	end
+
+	if state.menu_history_size == normalized then
+		persist_menu_history_size()
+		return true
+	end
+
+	state.menu_history_size = normalized
+	persist_menu_history_size()
+
+	if refresh_menubar ~= nil then
+		refresh_menubar()
+	end
+
+	if options.show_alert ~= false then
+		hs.alert.show(string.format("菜单显示数量已更新为 %d", normalized))
+	end
+
+	return true
+end
 
 local function replace_history(next_history)
 	local previous_history = state.history
@@ -1578,19 +1648,107 @@ local function history_menu_choice(item)
 	}
 end
 
-local function build_history_menu()
-	local menu = {}
-	local menu_history_size = normalize_number(clipboard.menu_history_size, default_menu_history_size, 1)
-	local count = math.min(#state.history, menu_history_size)
+local function build_menu_history_size_menu()
+	local current = state.menu_history_size or default_menu_history_size
+	local values = {}
+	local seen = {}
+
+	local function add_value(value)
+		local normalized = normalize_menu_history_size(value, nil)
+
+		if normalized == nil or seen[normalized] == true then
+			return
+		end
+
+		seen[normalized] = true
+		table.insert(values, normalized)
+	end
+
+	for _, value in ipairs({ 1, 3, 5, 8, 12, 16, 20 }) do
+		add_value(value)
+	end
+
+	add_value(default_menu_history_size)
+	add_value(current)
+
+	table.sort(values)
+
+	local menu = {
+		{ title = string.format("当前: %d", current), disabled = true },
+	}
+
+	for _, value in ipairs(values) do
+		table.insert(
+			menu,
+			{
+				title = string.format("%d 条", value),
+				checked = current == value,
+				fn = function()
+					set_menu_history_size(value)
+				end,
+			}
+		)
+	end
+
+	table.insert(
+		menu,
+		{
+			title = "自定义...",
+			fn = function()
+				local raw_value = prompt_text(
+					"最近历史显示数量",
+					"请输入菜单栏主菜单中直接显示的最近历史条数，最小为 1。",
+					tostring(current)
+				)
+
+				if raw_value == nil then
+					return
+				end
+
+				local normalized = normalize_menu_history_size(raw_value, nil)
+
+				if normalized == nil then
+					hs.alert.show("请输入有效数字")
+					return
+				end
+
+				set_menu_history_size(normalized)
+			end,
+		}
+	)
+
+	table.insert(menu, { title = "-" })
+	table.insert(
+		menu,
+		{
+			title = string.format("恢复默认 (%d)", default_menu_history_size),
+			disabled = current == default_menu_history_size,
+			fn = function()
+				set_menu_history_size(default_menu_history_size)
+			end,
+		}
+	)
+
+	return menu
+end
+
+local function append_history_menu_items(menu)
+	local count = math.min(#state.history, state.menu_history_size or default_menu_history_size)
+
+	table.insert(
+		menu,
+		{
+			title = string.format("最近历史 (%d/%d)", count, #state.history),
+			disabled = true,
+		}
+	)
 
 	if count == 0 then
-		return {
-			{ title = "暂无历史", disabled = true },
-		}
+		table.insert(menu, { title = "暂无历史", disabled = true })
+		return
 	end
 
 	table.insert(menu, { title = "点击恢复，按住 ⌘ 点击可删除", disabled = true })
-	table.insert(menu, { title = "-" })
 
 	for index = 1, count do
 		local item = state.history[index]
@@ -1613,8 +1771,6 @@ local function build_history_menu()
 			}
 		)
 	end
-
-	return menu
 end
 
 local function show_chooser()
@@ -1683,7 +1839,7 @@ refresh_menubar = function()
 
 	state.menubar:setTooltip(tooltip_text(hotkey_label))
 	state.menubar:setMenu(function()
-		return {
+		local menu = {
 			{ title = "剪贴板中心", disabled = true },
 			{
 				title = string.format("历史: %d (文本 %d / 图片 %d)", #state.history, text_count, image_count),
@@ -1709,12 +1865,16 @@ refresh_menubar = function()
 				disabled = #state.history == 0,
 				fn = clear_history,
 			},
-			{ title = "-" },
 			{
-				title = string.format("最近历史 (%d)", #state.history),
-				menu = build_history_menu(),
+				title = string.format("最近历史显示数量: %d", state.menu_history_size or default_menu_history_size),
+				menu = build_menu_history_size_menu(),
 			},
+			{ title = "-" },
 		}
+
+		append_history_menu_items(menu)
+
+		return menu
 	end)
 end
 
@@ -1835,6 +1995,22 @@ local function sync_current_clipboard()
 
 	if item ~= nil then
 		add_history_item(item, "startup sync")
+	end
+end
+
+do
+	local persisted_menu_history_size = hs.settings.get(menu_history_size_settings_key)
+
+	if persisted_menu_history_size ~= nil then
+		local normalized = normalize_menu_history_size(persisted_menu_history_size, nil)
+
+		if normalized == nil then
+			log.w("ignore invalid persisted menu history size: " .. tostring(persisted_menu_history_size))
+			hs.settings.clear(menu_history_size_settings_key)
+		else
+			state.menu_history_size = normalized
+			persist_menu_history_size()
+		end
 	end
 end
 

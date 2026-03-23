@@ -116,7 +116,9 @@ When a chooser item is highlighted, Clipboard Center will show a larger preview 
 
 Image thumbnails inside `hs.chooser` use a fixed small icon size because the native chooser row height is effectively fixed. If you need a larger view, use the preview panel on the right.
 
-History items can be removed individually: right click a history row in the chooser, or hold `⌘` while clicking an item under the menubar's `最近历史` submenu.
+History items can be removed individually: right click a history row in the chooser, or hold `⌘` while clicking an item shown directly in the menubar menu.
+
+`menu_history_size` controls how many recent history items are shown directly in the menubar menu. You can also change it at runtime from the menubar via `最近历史显示数量`, and the override will be persisted via `hs.settings`.
 
 ### Application Launch or Hide
 

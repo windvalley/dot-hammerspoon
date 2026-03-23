@@ -293,7 +293,7 @@ _M.clipboard = {
 	show_menubar = true,
 	-- 历史记录保留条数
 	history_size = 80,
-	-- 菜单栏里显示多少条最近历史
+	-- 菜单栏主菜单里直接显示多少条最近历史，也可在菜单栏里运行时修改
 	menu_history_size = 12,
 	-- 超过该字节数的文本不纳入历史，避免把超大块内容塞进 hs.settings
 	max_item_length = 30000,
@@ -302,7 +302,7 @@ _M.clipboard = {
 	-- 图片历史缓存目录，支持 ~/ 开头、绝对路径，或相对 hs.configdir 的路径
 	-- 留空时自动使用 ~/Library/Caches/<当前 Hammerspoon bundle id>/clipboard_center_images
 	image_cache_dir = "",
-	-- 菜单历史子菜单中图片缩略图边长
+	-- 菜单栏历史项中图片缩略图边长
 	image_menu_thumbnail_size = 80,
 	-- chooser 打开时是否显示预览面板，兼容旧键名 image_preview_enabled
 	preview_enabled = true,
