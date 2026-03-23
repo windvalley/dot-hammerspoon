@@ -17,7 +17,7 @@
 - Auto switch input method according to the application.
 - Switch to the specified input method.
 - Open the specified website directly.
-- Clipboard history + snippets with a menubar and chooser UI.
+- Clipboard history with a menubar and chooser UI.
 - Toggle the keybindings cheatsheet.
 - Keep the desktop wallpaper the same as the bing daily picture.
 - Force a configurable break reminder, with support for soft or hard mode.
@@ -86,8 +86,6 @@ Use the menubar item or <kbd>⌥</kbd><kbd>⇧</kbd> + <kbd>V</kbd> to open a se
 
 - Clipboard history
 - Clipboard images
-- Text snippets
-- Reusable prompts
 
 You can customize it in `~/.hammerspoon/keybindings_config.lua`:
 
@@ -107,10 +105,6 @@ _M.clipboard = {
 	prefix = { "Option", "Shift" },
 	key = "V",
 	message = "Clipboard Center",
-	snippets = {
-		{ group = "常用文本", title = "日报同步", content = "进展同步：当前已完成核心部分..." },
-		{ group = "常用 Prompt", title = "代码评审", content = "请以代码评审视角回答..." },
-	},
 }
 ```
 

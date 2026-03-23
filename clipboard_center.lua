@@ -1,7 +1,7 @@
 local _M = {}
 
 _M.name = "clipboard_center"
-_M.description = "剪贴板历史 + Snippets"
+_M.description = "剪贴板历史"
 
 local clipboard = require("keybindings_config").clipboard or {}
 local trim = require("utils_lib").trim
@@ -46,17 +46,16 @@ local default_preview_poll_interval = math.max(0.05, tonumber(preview_poll_inter
 local default_preview_gap = 24
 local default_preview_margin = 28
 local history_preview_length = 72
-local snippet_preview_length = 84
 local menu_preview_length = 40
 local tooltip_preview_length = 220
 local duplicate_suppression_seconds = 3
 local image_cache_dir = nil
 local history_id_counter = 0
+local menubar_icon_size = 18
 
 local state = {
 	show_menubar = clipboard.show_menubar ~= false,
 	history = {},
-	snippets = {},
 	watcher = nil,
 	chooser = nil,
 	menubar = nil,
@@ -69,6 +68,7 @@ local state = {
 	chooser_screen_frame = nil,
 	suppressed_signature = nil,
 	suppressed_at = nil,
+	menubar_icon = nil,
 }
 
 local modifier_aliases = {
@@ -598,6 +598,7 @@ local function cleanup_removed_image_files(previous_history, next_history)
 end
 
 local refresh_menubar = nil
+local refresh_chooser_choices = nil
 
 local function replace_history(next_history)
 	local previous_history = state.history
@@ -611,29 +612,74 @@ local function replace_history(next_history)
 	end
 end
 
-local function menubar_title()
-	local count = #state.history
-
-	if count <= 0 then
-		return "📋"
+local function build_menubar_icon()
+	if state.menubar_icon ~= nil then
+		return state.menubar_icon
 	end
 
-	if count > 99 then
-		return "📋99+"
+	local canvas = hs.canvas.new({ x = 0, y = 0, w = 18, h = 18 })
+
+	if canvas == nil then
+		return nil
 	end
 
-	return string.format("📋%d", count)
+	local icon_color = { red = 0, green = 0, blue = 0, alpha = 1 }
+
+	canvas:appendElements(
+		{
+			type = "rectangle",
+			action = "stroke",
+			strokeColor = icon_color,
+			strokeWidth = 1.35,
+			roundedRectRadii = { xRadius = 2.2, yRadius = 2.2 },
+			frame = { x = 4.2, y = 4.9, w = 9.6, h = 9.8 },
+		},
+		{
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = 1.35,
+			strokeCapStyle = "round",
+			strokeColor = icon_color,
+			coordinates = {
+				{ x = 7.0, y = 5.0 },
+				{ x = 7.0, y = 4.2 },
+				{ x = 11.0, y = 4.2 },
+				{ x = 11.0, y = 5.0 },
+			},
+		},
+		{
+			type = "rectangle",
+			action = "fill",
+			fillColor = icon_color,
+			roundedRectRadii = { xRadius = 1.6, yRadius = 1.6 },
+			frame = { x = 6.3, y = 2.3, w = 5.4, h = 2.7 },
+		}
+	)
+
+	local icon = canvas:imageFromCanvas()
+
+	canvas:delete()
+
+	if icon == nil then
+		return nil
+	end
+
+	icon:size({ w = menubar_icon_size, h = menubar_icon_size }, true)
+	icon:template(true)
+	state.menubar_icon = icon
+
+	return state.menubar_icon
 end
 
 local function tooltip_text(hotkey_label)
 	local text_count, image_count = history_counts()
 
 	return string.format(
-		"剪贴板中心\n历史条数: %d (文本 %d / 图片 %d)\nSnippets: %d\n快捷键: %s",
+		"剪贴板中心\n历史条数: %d (文本 %d / 图片 %d)\n快捷键: %s",
 		#state.history,
 		text_count,
 		image_count,
-		#state.snippets,
 		hotkey_label
 	)
 end
@@ -840,58 +886,6 @@ local function load_history()
 	end
 
 	state.history = loaded
-end
-
-local function normalize_snippets()
-	local normalized = {}
-
-	for _, item in ipairs(clipboard.snippets or {}) do
-		if type(item) == "table" then
-			local content = sanitize_text(item.content)
-
-			if content ~= nil then
-				local title = trim(tostring(item.title or ""))
-				local group = trim(tostring(item.group or "Snippets"))
-				local description = trim(tostring(item.description or ""))
-
-				if title == "" then
-					title = compact_preview(content, 32)
-				end
-
-				if group == "" then
-					group = "Snippets"
-				end
-
-				table.insert(
-					normalized,
-					{
-						title = title,
-						group = group,
-						content = content,
-						description = description,
-					}
-				)
-			end
-		end
-	end
-
-	state.snippets = normalized
-end
-
-local function grouped_snippets()
-	local groups = {}
-	local order = {}
-
-	for _, snippet in ipairs(state.snippets) do
-		if groups[snippet.group] == nil then
-			groups[snippet.group] = {}
-			table.insert(order, snippet.group)
-		end
-
-		table.insert(groups[snippet.group], snippet)
-	end
-
-	return groups, order
 end
 
 local function choice_to_history_item(choice)
@@ -1340,9 +1334,7 @@ local function activate_choice(choice)
 
 	add_history_item(item, choice.source or "chooser select")
 
-	if choice.source == "snippet" then
-		hs.alert.show("Snippet 已放入剪贴板")
-	elseif item.kind == "image" then
+	if item.kind == "image" then
 		hs.alert.show("已恢复图片到剪贴板")
 	else
 		hs.alert.show("已恢复历史剪贴板内容")
@@ -1389,25 +1381,6 @@ local function history_choice(item, index)
 	}
 end
 
-local function snippet_choice(item)
-	local detail = item.description
-
-	if detail == "" then
-		detail = compact_preview(item.content, snippet_preview_length)
-	end
-
-	return {
-		text = item.title,
-		subText = string.format("%s · %s · %s", item.group, describe_text(item.content), detail),
-		preview_title = item.title,
-		preview_detail = string.format("%s · %s%s", item.group, describe_text(item.content), item.description ~= "" and (" · " .. item.description) or ""),
-		preview_group = item.group,
-		source = "snippet",
-		kind = "text",
-		content = item.content,
-	}
-end
-
 local function build_chooser_choices()
 	local choices = {}
 
@@ -1415,14 +1388,10 @@ local function build_chooser_choices()
 		table.insert(choices, history_choice(item, index))
 	end
 
-	for _, item in ipairs(state.snippets) do
-		table.insert(choices, snippet_choice(item))
-	end
-
 	return choices
 end
 
-local function refresh_chooser_choices(preserve_query, selected_row)
+refresh_chooser_choices = function(preserve_query, selected_row)
 	if state.chooser == nil then
 		return
 	end
@@ -1648,48 +1617,6 @@ local function build_history_menu()
 	return menu
 end
 
-local function build_snippet_menu()
-	local groups, order = grouped_snippets()
-	local menu = {}
-
-	if #state.snippets == 0 then
-		return {
-			{ title = "暂无 Snippets", disabled = true },
-		}
-	end
-
-	for _, group in ipairs(order) do
-		local items = {}
-
-		for _, snippet in ipairs(groups[group]) do
-			table.insert(
-				items,
-				{
-					title = snippet.title,
-					tooltip = truncate_text(snippet.content, tooltip_preview_length),
-					fn = function()
-						activate_choice({
-							source = "snippet",
-							kind = "text",
-							content = snippet.content,
-						})
-					end,
-				}
-			)
-		end
-
-		table.insert(
-			menu,
-			{
-				title = string.format("%s (%d)", group, #items),
-				menu = items,
-			}
-		)
-	end
-
-	return menu
-end
-
 local function show_chooser()
 	if state.chooser == nil then
 		return
@@ -1744,7 +1671,16 @@ refresh_menubar = function()
 
 	hotkey_label = format_hotkey(display_modifiers, display_key)
 
-	state.menubar:setTitle(menubar_title())
+	local menubar_icon = build_menubar_icon()
+
+	if menubar_icon ~= nil then
+		state.menubar:setIcon(menubar_icon, true)
+		state.menubar:setTitle(nil)
+	else
+		state.menubar:setIcon(nil)
+		state.menubar:setTitle("📋")
+	end
+
 	state.menubar:setTooltip(tooltip_text(hotkey_label))
 	state.menubar:setMenu(function()
 		return {
@@ -1777,10 +1713,6 @@ refresh_menubar = function()
 			{
 				title = string.format("最近历史 (%d)", #state.history),
 				menu = build_history_menu(),
-			},
-			{
-				title = string.format("Snippets (%d)", #state.snippets),
-				menu = build_snippet_menu(),
 			},
 		}
 	end)
@@ -1874,7 +1806,7 @@ local function setup_chooser()
 	state.chooser:searchSubText(true)
 	state.chooser:rows(normalize_number(clipboard.chooser_rows, 12, 6))
 	state.chooser:width(normalize_number(clipboard.chooser_width, 40, 20))
-	state.chooser:placeholderText("搜索历史拷贝、Snippets，右键历史拷贝项可删除")
+	state.chooser:placeholderText("搜索历史拷贝，右键历史拷贝项可删除")
 	state.chooser:showCallback(function()
 		local selected_row = state.chooser:selectedRow() or 0
 
@@ -1914,7 +1846,6 @@ end
 image_cache_dir = resolve_cache_dir()
 
 load_history()
-normalize_snippets()
 setup_chooser()
 bind_hotkey()
 refresh_menubar()

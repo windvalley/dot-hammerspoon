@@ -286,7 +286,7 @@ _M.window_monitor = {
 	},
 }
 
--- 剪贴板历史 + Snippets
+-- 剪贴板历史
 _M.clipboard = {
 	enabled = true,
 	-- 是否显示菜单栏图标
@@ -317,33 +317,6 @@ _M.clipboard = {
 	prefix = { "Option", "Shift" },
 	key = "V",
 	message = "Clipboard Center",
-	snippets = {
-		{
-			group = "常用文本",
-			title = "日报同步",
-			description = "简短同步当前进度",
-			content = "进展同步：当前已完成核心部分，剩余收尾和验证，预计今天内交付。",
-		},
-		{
-			group = "常用 Prompt",
-			title = "代码评审",
-			description = "让模型按风险优先级做 review",
-			content = [[请以代码评审视角回答，优先指出：
-1. 明确的 bug
-2. 行为回归风险
-3. 边界条件遗漏
-4. 缺失的测试
-
-如果没有明显问题，请直接说明 residual risk 和 testing gap。]],
-		},
-		{
-			group = "常用 Prompt",
-			title = "需求拆解",
-			description = "先澄清边界再给方案",
-			content = [[请先拆解目标、约束、输入输出和边界条件，再给出实现方案。
-如果存在关键不确定项，请先列出需要确认的问题。]],
-		},
-	},
 }
 
 -- 强制休息提醒
