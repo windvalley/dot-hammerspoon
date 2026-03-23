@@ -17,6 +17,7 @@
 - Auto switch input method according to the application.
 - Switch to the specified input method.
 - Open the specified website directly.
+- Clipboard history + snippets with a menubar and chooser UI.
 - Toggle the keybindings cheatsheet.
 - Keep the desktop wallpaper the same as the bing daily picture.
 - Force a configurable break reminder, with support for soft or hard mode.
@@ -78,6 +79,48 @@ Use the menubar icon or <kbd>⌥</kbd> + <kbd>A</kbd> to prevent idle sleep duri
 - <kbd>⌥</kbd> + <kbd>8</kbd>: github.com
 - <kbd>⌥</kbd> + <kbd>9</kbd>: google.com
 - <kbd>⌥</kbd> + <kbd>7</kbd>: bing.com
+
+### Clipboard Center
+
+Use the menubar item or <kbd>⌥</kbd><kbd>⇧</kbd> + <kbd>V</kbd> to open a searchable chooser for:
+
+- Clipboard history
+- Clipboard images
+- Text snippets
+- Code templates
+- Reusable prompts
+
+You can customize it in `~/.hammerspoon/keybindings_config.lua`:
+
+```lua
+_M.clipboard = {
+	enabled = true,
+	show_menubar = true,
+	history_size = 80,
+	menu_history_size = 12,
+	max_item_length = 30000,
+	capture_images = true,
+	image_cache_dir = "",
+	preview_enabled = true,
+	preview_width = 420,
+	preview_height = 320,
+	image_menu_thumbnail_size = 18,
+	prefix = { "Option", "Shift" },
+	key = "V",
+	message = "Clipboard Center",
+	snippets = {
+		{ group = "常用文本", title = "日报同步", content = "进展同步：当前已完成核心部分..." },
+		{ group = "代码模板", title = "Lua Module", content = "local _M = {}" },
+		{ group = "常用 Prompt", title = "代码评审", content = "请以代码评审视角回答..." },
+	},
+}
+```
+
+When `image_cache_dir` is empty, Clipboard Center will automatically use:
+
+`~/Library/Caches/<current Hammerspoon bundle id>/clipboard_center_images`
+
+When a chooser item is highlighted, Clipboard Center will show a larger preview panel next to the chooser. You can tune it with `preview_enabled`, `preview_width`, and `preview_height`. Older `image_preview_*` keys are still supported for compatibility.
 
 ### Application Launch or Hide
 

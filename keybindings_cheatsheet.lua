@@ -6,6 +6,7 @@ _M.description = "展示快捷键备忘列表"
 local keybindings_cheatsheet = require "keybindings_config".keybindings_cheatsheet
 local input_methods = require "keybindings_config".manual_input_methods
 local system = require "keybindings_config".system
+local clipboard = require "keybindings_config".clipboard or {}
 local websites = require "keybindings_config".websites
 local apps = require "keybindings_config".apps
 
@@ -126,6 +127,9 @@ local function formatText()
     local systemManagement = {}
     table.insert(systemManagement, {msg = "[System Management]"})
 
+    local clipboardCenter = {}
+    table.insert(clipboardCenter, {msg = "[Clipboard Center]"})
+
     local WebsiteOpen = {}
     table.insert(WebsiteOpen, {msg = "[Website Open]"})
 
@@ -165,6 +169,12 @@ local function formatText()
                 table.insert(systemManagement, {msg = v.msg})
                 goto continue
             end
+        end
+
+        -- Clipboard center
+        if _msg == clipboard.message then
+            table.insert(clipboardCenter, {msg = v.msg})
+            goto continue
         end
 
         -- Open URL.
@@ -241,6 +251,12 @@ local function formatText()
     table.insert(hotkeys, {msg = ""})
 
     for _, v in ipairs(systemManagement) do
+        table.insert(hotkeys, {msg = v.msg})
+    end
+
+    table.insert(hotkeys, {msg = ""})
+
+    for _, v in ipairs(clipboardCenter) do
         table.insert(hotkeys, {msg = v.msg})
     end
 

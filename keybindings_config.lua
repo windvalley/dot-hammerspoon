@@ -286,6 +286,79 @@ _M.window_monitor = {
 	},
 }
 
+-- 剪贴板历史 + Snippets
+_M.clipboard = {
+	enabled = true,
+	-- 是否显示菜单栏图标
+	show_menubar = true,
+	-- 历史记录保留条数
+	history_size = 80,
+	-- 菜单栏里显示多少条最近历史
+	menu_history_size = 12,
+	-- 超过该字节数的文本不纳入历史，避免把超大块内容塞进 hs.settings
+	max_item_length = 30000,
+	-- 是否同时记录图片剪贴板历史
+	capture_images = true,
+	-- 图片历史缓存目录，支持 ~/ 开头、绝对路径，或相对 hs.configdir 的路径
+	-- 留空时自动使用 ~/Library/Caches/<当前 Hammerspoon bundle id>/clipboard_center_images
+	image_cache_dir = "",
+	-- chooser 中图片缩略图边长
+	image_thumbnail_size = 80,
+	-- 菜单历史子菜单中图片缩略图边长
+	image_menu_thumbnail_size = 80,
+	-- chooser 打开时是否显示预览面板，兼容旧键名 image_preview_enabled
+	preview_enabled = true,
+	-- 预览面板宽高，兼容旧键名 image_preview_width / image_preview_height
+	preview_width = 420,
+	preview_height = 320,
+	-- 选择 chooser 行数
+	chooser_rows = 12,
+	-- chooser 宽度，单位是屏幕宽度的百分比
+	chooser_width = 40,
+	-- NOTE: message 的值建议保持英文，避免快捷键面板错位
+	prefix = { "Option", "Shift" },
+	key = "V",
+	message = "Clipboard Center",
+	snippets = {
+		{
+			group = "常用文本",
+			title = "日报同步",
+			description = "简短同步当前进度",
+			content = "进展同步：当前已完成核心部分，剩余收尾和验证，预计今天内交付。",
+		},
+		{
+			group = "代码模板",
+			title = "Lua Module",
+			description = "Hammerspoon/Lua 模块骨架",
+			content = [[local _M = {}
+
+_M.name = ""
+_M.description = ""
+
+return _M]],
+		},
+		{
+			group = "常用 Prompt",
+			title = "代码评审",
+			description = "让模型按风险优先级做 review",
+			content = [[请以代码评审视角回答，优先指出：
+1. 明确的 bug
+2. 行为回归风险
+3. 边界条件遗漏
+4. 缺失的测试
+
+如果没有明显问题，请直接说明 residual risk 和 testing gap。]],
+		},
+		{
+			group = "常用 Prompt",
+			title = "需求拆解",
+			description = "先澄清边界再给方案",
+			content = [[请先拆解目标、约束、输入输出和边界条件，再给出实现方案。
+如果存在关键不确定项，请先列出需要确认的问题。]],
+		},
+	},
+}
+
 -- 强制休息提醒
 -- 说明:
 -- 1. 锁屏期间不计入工作时长

@@ -1,0 +1,1738 @@
+local _M = {}
+
+_M.name = "clipboard_center"
+_M.description = "剪贴板历史 + Snippets"
+
+local clipboard = require("keybindings_config").clipboard or {}
+local trim = require("utils_lib").trim
+local utf8len = require("utils_lib").utf8len
+local utf8sub = require("utils_lib").utf8sub
+
+local log = hs.logger.new("clipboard")
+
+local history_settings_key = "clipboard_center.history"
+local default_history_size = math.max(10, math.floor(tonumber(clipboard.history_size) or 80))
+local default_menu_history_size = math.max(5, math.floor(tonumber(clipboard.menu_history_size) or 12))
+local default_max_item_length = math.max(200, math.floor(tonumber(clipboard.max_item_length) or 30000))
+local default_capture_images = clipboard.capture_images ~= false
+local default_thumbnail_size = math.max(24, math.floor(tonumber(clipboard.image_thumbnail_size) or 40))
+local default_menu_thumbnail_size = math.max(14, math.floor(tonumber(clipboard.image_menu_thumbnail_size) or 18))
+local preview_enabled_config = clipboard.preview_enabled
+local preview_width_config = clipboard.preview_width
+local preview_height_config = clipboard.preview_height
+local preview_poll_interval_config = clipboard.preview_poll_interval
+local preview_body_max_chars = math.max(1000, math.floor(tonumber(clipboard.preview_body_max_chars) or 6000))
+
+if preview_enabled_config == nil then
+	preview_enabled_config = clipboard.image_preview_enabled
+end
+
+if preview_width_config == nil then
+	preview_width_config = clipboard.image_preview_width
+end
+
+if preview_height_config == nil then
+	preview_height_config = clipboard.image_preview_height
+end
+
+if preview_poll_interval_config == nil then
+	preview_poll_interval_config = clipboard.image_preview_poll_interval
+end
+
+local default_preview_enabled = preview_enabled_config ~= false
+local default_preview_width = math.max(260, math.floor(tonumber(preview_width_config) or 420))
+local default_preview_height = math.max(220, math.floor(tonumber(preview_height_config) or 320))
+local default_preview_poll_interval = math.max(0.05, tonumber(preview_poll_interval_config) or 0.08)
+local default_preview_gap = 24
+local default_preview_margin = 28
+local history_preview_length = 72
+local snippet_preview_length = 84
+local menu_preview_length = 40
+local tooltip_preview_length = 220
+local duplicate_suppression_seconds = 3
+local image_cache_dir = nil
+
+local state = {
+	show_menubar = clipboard.show_menubar ~= false,
+	history = {},
+	snippets = {},
+	watcher = nil,
+	chooser = nil,
+	menubar = nil,
+	hotkey = nil,
+	hotkey_modifiers = {},
+	hotkey_key = nil,
+	preview_canvas = nil,
+	preview_timer = nil,
+	preview_signature = nil,
+	chooser_screen_frame = nil,
+	suppressed_signature = nil,
+	suppressed_at = nil,
+}
+
+local modifier_aliases = {
+	ctrl = "ctrl",
+	control = "ctrl",
+	["⌃"] = "ctrl",
+	alt = "alt",
+	option = "alt",
+	opt = "alt",
+	["⌥"] = "alt",
+	cmd = "cmd",
+	command = "cmd",
+	["⌘"] = "cmd",
+	shift = "shift",
+	["⇧"] = "shift",
+	fn = "fn",
+	["function"] = "fn",
+}
+
+local modifier_order = {
+	ctrl = 1,
+	alt = 2,
+	cmd = 3,
+	shift = 4,
+	fn = 5,
+}
+
+local modifier_symbols = {
+	ctrl = "⌃",
+	alt = "⌥",
+	cmd = "⌘",
+	shift = "⇧",
+	fn = "fn",
+}
+
+local function normalize_number(value, fallback, minimum)
+	local number = tonumber(value)
+
+	if number == nil then
+		number = fallback
+	end
+
+	return math.max(minimum, math.floor(number))
+end
+
+local function copy_list(items)
+	local copied = {}
+
+	for _, item in ipairs(items or {}) do
+		table.insert(copied, item)
+	end
+
+	return copied
+end
+
+local function normalize_hotkey_modifiers(raw_modifiers)
+	local normalized = {}
+	local seen = {}
+
+	for _, raw_value in ipairs(raw_modifiers or {}) do
+		local token = string.lower(trim(tostring(raw_value)))
+
+		if token ~= "" then
+			local modifier = modifier_aliases[token]
+
+			if modifier == nil then
+				return nil, raw_value
+			end
+
+			if seen[modifier] ~= true then
+				seen[modifier] = true
+				table.insert(normalized, modifier)
+			end
+		end
+	end
+
+	table.sort(
+		normalized,
+		function(left, right)
+			return modifier_order[left] < modifier_order[right]
+		end
+	)
+
+	return normalized
+end
+
+local function format_hotkey(modifiers, key)
+	if key == nil or key == "" then
+		return "未设置"
+	end
+
+	local parts = {}
+
+	for _, modifier in ipairs(modifiers or {}) do
+		table.insert(parts, modifier_symbols[modifier] or modifier)
+	end
+
+	table.insert(parts, string.upper(key))
+
+	return table.concat(parts, " ")
+end
+
+local function expand_home_path(path)
+	if type(path) ~= "string" or path == "" then
+		return path
+	end
+
+	if path == "~" then
+		return os.getenv("HOME") or path
+	end
+
+	if string.sub(path, 1, 2) == "~/" then
+		local home = os.getenv("HOME")
+
+		if type(home) == "string" and home ~= "" then
+			return home .. string.sub(path, 2)
+		end
+	end
+
+	return path
+end
+
+local function resolve_cache_dir()
+	local configured = trim(tostring(clipboard.image_cache_dir or ""))
+
+	if configured == "" then
+		local home = os.getenv("HOME") or ""
+		local bundle_id = trim(tostring(hs.settings.bundleID or ""))
+
+		if bundle_id == "" then
+			bundle_id = "org.hammerspoon.Hammerspoon"
+		end
+
+		return string.format("%s/Library/Caches/%s/clipboard_center_images", home, bundle_id)
+	end
+
+	configured = expand_home_path(configured)
+
+	if string.sub(configured, 1, 1) == "/" then
+		return configured
+	end
+
+	return hs.configdir .. "/" .. configured
+end
+
+local function resolve_target_screen_frame()
+	local target_screen = nil
+	local focused_window = hs.window.focusedWindow()
+
+	if focused_window ~= nil then
+		target_screen = focused_window:screen()
+	end
+
+	if target_screen == nil then
+		target_screen = hs.screen.mainScreen()
+	end
+
+	if target_screen == nil then
+		return nil
+	end
+
+	return target_screen:frame()
+end
+
+local function chooser_layout(screen_frame)
+	if screen_frame == nil then
+		return nil
+	end
+
+	local chooser_width_percent = normalize_number(clipboard.chooser_width, 40, 20)
+	local chooser_width = math.floor(screen_frame.w * chooser_width_percent / 100)
+	local preview_width = math.min(default_preview_width, math.floor(screen_frame.w * 0.34))
+	local preview_height = math.min(default_preview_height, math.floor(screen_frame.h * 0.56))
+	local chooser_x = screen_frame.x + math.floor((screen_frame.w - chooser_width) / 2)
+	local preview_x = screen_frame.x + screen_frame.w - preview_width - default_preview_margin
+	local preview_y = screen_frame.y + math.floor((screen_frame.h - preview_height) / 2)
+	local chooser_y = preview_y
+
+	if default_preview_enabled == true then
+		local total_width = chooser_width + default_preview_gap + preview_width + (default_preview_margin * 2)
+
+		if total_width <= screen_frame.w then
+			chooser_x = screen_frame.x + math.floor((screen_frame.w - (chooser_width + default_preview_gap + preview_width)) / 2)
+			preview_x = chooser_x + chooser_width + default_preview_gap
+		end
+	end
+
+	return {
+		chooser_point = hs.geometry.point(chooser_x, chooser_y),
+		preview_frame = {
+			x = preview_x,
+			y = preview_y,
+			w = preview_width,
+			h = preview_height,
+		},
+	}
+end
+
+local function preview_colors()
+	if hs.host.interfaceStyle() == "Dark" then
+		return {
+			background = { red = 0.13, green = 0.14, blue = 0.17, alpha = 0.97 },
+			border = { white = 1, alpha = 0.12 },
+			title = { white = 1, alpha = 0.96 },
+			detail = { white = 1, alpha = 0.56 },
+			body = { white = 1, alpha = 0.9 },
+			image_background = { white = 1, alpha = 0.04 },
+			shadow = { alpha = 0.28, white = 0 },
+		}
+	end
+
+	return {
+		background = { white = 1, alpha = 0.98 },
+		border = { white = 0, alpha = 0.1 },
+		title = { white = 0.08, alpha = 1 },
+		detail = { white = 0.22, alpha = 0.74 },
+		body = { white = 0.08, alpha = 0.96 },
+		image_background = { white = 0, alpha = 0.04 },
+		shadow = { alpha = 0.18, white = 0 },
+	}
+end
+
+local function file_exists(path)
+	return type(path) == "string" and path ~= "" and hs.fs.attributes(path) ~= nil
+end
+
+local function ensure_directory(path)
+	if type(path) ~= "string" or path == "" then
+		return false
+	end
+
+	if hs.fs.attributes(path) ~= nil then
+		return true
+	end
+
+	local parent = string.match(path, "^(.*)/[^/]+/?$")
+
+	if parent ~= nil and parent ~= "" and parent ~= path then
+		if ensure_directory(parent) ~= true then
+			return false
+		end
+	end
+
+	local ok, err = hs.fs.mkdir(path)
+
+	if ok == true or hs.fs.attributes(path) ~= nil then
+		return true
+	end
+
+	log.e(string.format("failed to create directory: %s (%s)", path, tostring(err)))
+
+	return false
+end
+
+local function safe_remove_file(path)
+	if file_exists(path) ~= true then
+		return
+	end
+
+	local ok, err = os.remove(path)
+
+	if ok ~= true then
+		log.w(string.format("failed to remove cached clipboard image: %s (%s)", path, tostring(err)))
+	end
+end
+
+local function sanitize_text(text)
+	if type(text) ~= "string" then
+		return nil
+	end
+
+	text = text:gsub("\r\n", "\n")
+	text = text:gsub("\r", "\n")
+
+	if trim(text) == "" then
+		return nil
+	end
+
+	if #text > default_max_item_length then
+		log.w(string.format("ignore clipboard text larger than %d bytes", default_max_item_length))
+		return nil
+	end
+
+	return text
+end
+
+local function safe_utf8len(text)
+	local ok, length = pcall(utf8len, text or "")
+
+	if ok ~= true or type(length) ~= "number" then
+		return #(text or "")
+	end
+
+	return length
+end
+
+local function truncate_text(text, max_chars)
+	local length = safe_utf8len(text)
+
+	if length <= max_chars then
+		return text
+	end
+
+	return utf8sub(text, 1, max_chars) .. "..."
+end
+
+local function compact_preview(text, max_chars)
+	local preview = trim(text or "")
+
+	preview = preview:gsub("%s*\n%s*", " ⏎ ")
+	preview = preview:gsub("%s+", " ")
+
+	if preview == "" then
+		preview = "(空白)"
+	end
+
+	return truncate_text(preview, max_chars)
+end
+
+local function line_count(text)
+	local _, count = string.gsub(text or "", "\n", "\n")
+
+	return count + 1
+end
+
+local function describe_text(text)
+	local lines = line_count(text)
+	local characters = safe_utf8len(text)
+
+	if lines > 1 then
+		return string.format("%d 行 · %d 字符", lines, characters)
+	end
+
+	return string.format("%d 字符", characters)
+end
+
+local function format_timestamp(timestamp)
+	if type(timestamp) ~= "number" then
+		return "未知时间"
+	end
+
+	return os.date("%m-%d %H:%M", timestamp)
+end
+
+local function image_dimensions(item)
+	local width = math.max(0, math.floor(tonumber(item.width) or 0))
+	local height = math.max(0, math.floor(tonumber(item.height) or 0))
+
+	if width > 0 and height > 0 then
+		return string.format("%dx%d", width, height)
+	end
+
+	return "未知尺寸"
+end
+
+local function describe_history_item(item)
+	if type(item) ~= "table" then
+		return "未知内容"
+	end
+
+	if item.kind == "image" then
+		return "图片 · " .. image_dimensions(item)
+	end
+
+	return "文本 · " .. describe_text(item.content or "")
+end
+
+local function truncate_preview_body(text)
+	text = tostring(text or "")
+
+	if safe_utf8len(text) <= preview_body_max_chars then
+		return text
+	end
+
+	return truncate_text(text, preview_body_max_chars) .. "\n\n..."
+end
+
+local function looks_like_code(text)
+	if type(text) ~= "string" or text == "" then
+		return false
+	end
+
+	local lower_text = string.lower(text)
+	local has_code_keywords = lower_text:find("function", 1, true) ~= nil
+		or lower_text:find("local ", 1, true) ~= nil
+		or lower_text:find("return ", 1, true) ~= nil
+		or lower_text:find("select ", 1, true) ~= nil
+		or lower_text:find("insert ", 1, true) ~= nil
+		or lower_text:find("update ", 1, true) ~= nil
+		or lower_text:find("delete ", 1, true) ~= nil
+		or lower_text:find("from ", 1, true) ~= nil
+		or lower_text:find("const ", 1, true) ~= nil
+		or lower_text:find("import ", 1, true) ~= nil
+		or lower_text:find("class ", 1, true) ~= nil
+
+	if has_code_keywords == true then
+		return true
+	end
+
+	if text:find("[{}();=<>]") ~= nil and text:find("\n", 1, true) ~= nil then
+		return true
+	end
+
+	if text:find("^%s*[%-%*]%s") ~= nil then
+		return false
+	end
+
+	return false
+end
+
+local function preview_body_font(choice, body)
+	local preview_group = tostring(choice.preview_group or "")
+	local preview_title = string.lower(tostring(choice.preview_title or choice.text or ""))
+
+	if choice.preview_body_font ~= nil then
+		return choice.preview_body_font
+	end
+
+	if preview_group:find("代码") ~= nil or preview_title:find("code", 1, true) ~= nil or preview_title:find("lua", 1, true) ~= nil then
+		return "Menlo"
+	end
+
+	if looks_like_code(body) == true then
+		return "Menlo"
+	end
+
+	return nil
+end
+
+local function build_text_preview_model(choice)
+	if type(choice) ~= "table" or type(choice.content) ~= "string" then
+		return nil
+	end
+
+	local body = truncate_preview_body(choice.content)
+	local title = trim(tostring(choice.preview_title or choice.text or ""))
+	local detail = trim(tostring(choice.preview_detail or choice.subText or ""))
+
+	if title == "" then
+		title = "文本预览"
+	end
+
+	return {
+		kind = "text",
+		title = title,
+		detail = detail,
+		body = body,
+		body_font = preview_body_font(choice, body),
+	}
+end
+
+local function item_signature(item)
+	if type(item) ~= "table" then
+		return nil
+	end
+
+	if item.kind == "image" then
+		local fingerprint = trim(tostring(item.fingerprint or ""))
+
+		if fingerprint == "" then
+			return nil
+		end
+
+		return "image:" .. fingerprint
+	end
+
+	local content = item.content
+
+	if type(content) ~= "string" then
+		return nil
+	end
+
+	return "text:" .. content
+end
+
+local function history_counts()
+	local text_count = 0
+	local image_count = 0
+
+	for _, item in ipairs(state.history) do
+		if item.kind == "image" then
+			image_count = image_count + 1
+		else
+			text_count = text_count + 1
+		end
+	end
+
+	return text_count, image_count
+end
+
+local function persist_history()
+	if #state.history == 0 then
+		hs.settings.clear(history_settings_key)
+		return
+	end
+
+	hs.settings.set(history_settings_key, state.history)
+end
+
+local function cleanup_removed_image_files(previous_history, next_history)
+	local referenced_paths = {}
+
+	for _, item in ipairs(next_history or {}) do
+		if item.kind == "image" and type(item.image_path) == "string" then
+			referenced_paths[item.image_path] = true
+		end
+	end
+
+	for _, item in ipairs(previous_history or {}) do
+		if item.kind == "image" and type(item.image_path) == "string" then
+			if referenced_paths[item.image_path] ~= true then
+				safe_remove_file(item.image_path)
+			end
+		end
+	end
+end
+
+local refresh_menubar = nil
+
+local function replace_history(next_history)
+	local previous_history = state.history
+
+	state.history = next_history or {}
+	persist_history()
+	cleanup_removed_image_files(previous_history, state.history)
+
+	if refresh_menubar ~= nil then
+		refresh_menubar()
+	end
+end
+
+local function menubar_title()
+	local count = #state.history
+
+	if count <= 0 then
+		return "📋"
+	end
+
+	if count > 99 then
+		return "📋99+"
+	end
+
+	return string.format("📋%d", count)
+end
+
+local function tooltip_text(hotkey_label)
+	local text_count, image_count = history_counts()
+
+	return string.format(
+		"剪贴板中心\n历史条数: %d (文本 %d / 图片 %d)\nSnippets: %d\n快捷键: %s",
+		#state.history,
+		text_count,
+		image_count,
+		#state.snippets,
+		hotkey_label
+	)
+end
+
+local function build_text_history_item(text, timestamp)
+	local sanitized = sanitize_text(text)
+
+	if sanitized == nil then
+		return nil
+	end
+
+	return {
+		kind = "text",
+		content = sanitized,
+		stored_at = timestamp or os.time(),
+	}
+end
+
+local function image_hash(image)
+	if image == nil then
+		return nil
+	end
+
+	local ok, encoded = pcall(function()
+		return image:encodeAsURLString(true, "PNG")
+	end)
+
+	if ok ~= true or type(encoded) ~= "string" or encoded == "" then
+		log.w("failed to encode clipboard image for hashing")
+		return nil
+	end
+
+	return hs.hash.SHA256(encoded)
+end
+
+local function save_image_to_cache(image, fingerprint)
+	if ensure_directory(image_cache_dir) ~= true then
+		return nil
+	end
+
+	local path = string.format("%s/%s.png", image_cache_dir, fingerprint)
+	local ok = image:saveToFile(path, true, "PNG")
+
+	if ok ~= true then
+		log.e("failed to cache clipboard image: " .. path)
+		return nil
+	end
+
+	return path
+end
+
+local function build_image_history_item(image, timestamp)
+	if default_capture_images ~= true or image == nil then
+		return nil
+	end
+
+	local fingerprint = image_hash(image)
+
+	if fingerprint == nil then
+		return nil
+	end
+
+	local path = save_image_to_cache(image, fingerprint)
+
+	if path == nil then
+		return nil
+	end
+
+	local size = image:size() or {}
+
+	return {
+		kind = "image",
+		fingerprint = fingerprint,
+		image_path = path,
+		width = math.max(0, math.floor((tonumber(size.w) or 0) + 0.5)),
+		height = math.max(0, math.floor((tonumber(size.h) or 0) + 0.5)),
+		stored_at = timestamp or os.time(),
+	}
+end
+
+local function normalize_history_item(item)
+	local stored_at = os.time()
+
+	if type(item) == "string" then
+		return build_text_history_item(item, stored_at)
+	end
+
+	if type(item) ~= "table" then
+		return nil
+	end
+
+	if type(item.stored_at) == "number" then
+		stored_at = item.stored_at
+	end
+
+	if item.kind == "image" then
+		local image_path = trim(tostring(item.image_path or ""))
+		local fingerprint = trim(tostring(item.fingerprint or ""))
+
+		if image_path == "" or fingerprint == "" or file_exists(image_path) ~= true then
+			return nil
+		end
+
+		return {
+			kind = "image",
+			image_path = image_path,
+			fingerprint = fingerprint,
+			width = math.max(0, math.floor(tonumber(item.width) or 0)),
+			height = math.max(0, math.floor(tonumber(item.height) or 0)),
+			stored_at = stored_at,
+		}
+	end
+
+	return build_text_history_item(item.content, stored_at)
+end
+
+local function add_history_item(item, reason)
+	if type(item) ~= "table" then
+		return false
+	end
+
+	local signature = item_signature(item)
+
+	if signature == nil then
+		return false
+	end
+
+	local history_limit = normalize_number(clipboard.history_size, default_history_size, 1)
+	local deduplicate = clipboard.deduplicate ~= false
+	local history = {}
+	local found = false
+
+	for _, existing in ipairs(state.history) do
+		local existing_signature = item_signature(existing)
+
+		if deduplicate == true and existing_signature == signature then
+			found = true
+		else
+			table.insert(history, existing)
+		end
+	end
+
+	table.insert(history, 1, item)
+
+	while #history > history_limit do
+		table.remove(history)
+	end
+
+	replace_history(history)
+
+	log.d(
+		string.format(
+			"clipboard history updated (%s): total=%d, kind=%s, deduplicated=%s",
+			reason or "unknown",
+			#state.history,
+			tostring(item.kind),
+			tostring(found)
+		)
+	)
+
+	return true
+end
+
+local function clear_history()
+	replace_history({})
+	hs.alert.show("已清空剪贴板历史")
+end
+
+local function load_history()
+	local saved = hs.settings.get(history_settings_key)
+
+	if type(saved) ~= "table" then
+		return
+	end
+
+	local loaded = {}
+	local history_limit = normalize_number(clipboard.history_size, default_history_size, 1)
+
+	for _, item in ipairs(saved) do
+		local normalized = normalize_history_item(item)
+
+		if normalized ~= nil then
+			table.insert(loaded, normalized)
+		end
+
+		if #loaded >= history_limit then
+			break
+		end
+	end
+
+	state.history = loaded
+end
+
+local function normalize_snippets()
+	local normalized = {}
+
+	for _, item in ipairs(clipboard.snippets or {}) do
+		if type(item) == "table" then
+			local content = sanitize_text(item.content)
+
+			if content ~= nil then
+				local title = trim(tostring(item.title or ""))
+				local group = trim(tostring(item.group or "Snippets"))
+				local description = trim(tostring(item.description or ""))
+
+				if title == "" then
+					title = compact_preview(content, 32)
+				end
+
+				if group == "" then
+					group = "Snippets"
+				end
+
+				table.insert(
+					normalized,
+					{
+						title = title,
+						group = group,
+						content = content,
+						description = description,
+					}
+				)
+			end
+		end
+	end
+
+	state.snippets = normalized
+end
+
+local function grouped_snippets()
+	local groups = {}
+	local order = {}
+
+	for _, snippet in ipairs(state.snippets) do
+		if groups[snippet.group] == nil then
+			groups[snippet.group] = {}
+			table.insert(order, snippet.group)
+		end
+
+		table.insert(groups[snippet.group], snippet)
+	end
+
+	return groups, order
+end
+
+local function choice_to_history_item(choice)
+	if type(choice) ~= "table" then
+		return nil
+	end
+
+	if choice.kind == "image" then
+		local image_path = trim(tostring(choice.image_path or ""))
+		local fingerprint = trim(tostring(choice.fingerprint or ""))
+
+		if image_path == "" or fingerprint == "" then
+			return nil
+		end
+
+		return {
+			kind = "image",
+			image_path = image_path,
+			fingerprint = fingerprint,
+			width = math.max(0, math.floor(tonumber(choice.width) or 0)),
+			height = math.max(0, math.floor(tonumber(choice.height) or 0)),
+			stored_at = os.time(),
+		}
+	end
+
+	return build_text_history_item(choice.content, os.time())
+end
+
+local function load_image(path)
+	if file_exists(path) ~= true then
+		return nil
+	end
+
+	return hs.image.imageFromPath(path)
+end
+
+local function resized_thumbnail(item, size)
+	if item.kind ~= "image" then
+		return nil
+	end
+
+	local image = load_image(item.image_path)
+
+	if image == nil then
+		return nil
+	end
+
+	return image:setSize({ h = size, w = size }, false)
+end
+
+local function chooser_thumbnail(item)
+	return resized_thumbnail(item, default_thumbnail_size)
+end
+
+local function menu_thumbnail(item)
+	return resized_thumbnail(item, default_menu_thumbnail_size)
+end
+
+local function ensure_preview_canvas(frame)
+	if state.preview_canvas == nil then
+		state.preview_canvas = hs.canvas.new(frame)
+
+		pcall(function()
+			state.preview_canvas:level(hs.canvas.windowLevels.modalPanel)
+		end)
+		pcall(function()
+			state.preview_canvas:clickActivating(false)
+		end)
+	end
+
+	state.preview_canvas:frame(frame)
+
+	return state.preview_canvas
+end
+
+local function hide_image_preview()
+	state.preview_signature = nil
+
+	if state.preview_canvas ~= nil then
+		state.preview_canvas:hide(0.1)
+	end
+end
+
+local function build_text_preview_elements(frame, preview)
+	local colors = preview_colors()
+	local outer_radius = 16
+	local inner_radius = 12
+	local horizontal_padding = 18
+	local top_padding = 16
+	local title_height = 24
+	local detail_height = preview.detail ~= "" and 18 or 0
+	local body_top = top_padding + title_height + detail_height + 12
+	local body_frame = {
+		x = horizontal_padding,
+		y = body_top,
+		w = frame.w - (horizontal_padding * 2),
+		h = frame.h - body_top - horizontal_padding,
+	}
+	local text_style = {
+		color = colors.body,
+		paragraphStyle = {
+			lineBreak = "wordWrap",
+			lineSpacing = preview.body_font ~= nil and 3 or 4,
+		},
+	}
+
+	if preview.body_font ~= nil then
+		text_style.font = {
+			name = preview.body_font,
+			size = 12.5,
+		}
+	else
+		text_style.font = {
+			size = 14,
+		}
+	end
+
+	local styled_body = hs.styledtext.new(preview.body, text_style)
+
+	return {
+		{
+			type = "rectangle",
+			action = "fill",
+			fillColor = colors.background,
+			roundedRectRadii = { xRadius = outer_radius, yRadius = outer_radius },
+			withShadow = true,
+			shadow = {
+				blurRadius = 18,
+				color = colors.shadow,
+				offset = { h = 0, w = 0 },
+			},
+			frame = { x = 0, y = 0, w = frame.w, h = frame.h },
+		},
+		{
+			type = "rectangle",
+			action = "stroke",
+			strokeColor = colors.border,
+			strokeWidth = 1,
+			roundedRectRadii = { xRadius = outer_radius, yRadius = outer_radius },
+			frame = { x = 0.5, y = 0.5, w = frame.w - 1, h = frame.h - 1 },
+		},
+		{
+			type = "text",
+			text = preview.title,
+			textSize = 17,
+			textColor = colors.title,
+			frame = {
+				x = horizontal_padding,
+				y = top_padding,
+				w = frame.w - (horizontal_padding * 2),
+				h = title_height,
+			},
+		},
+		{
+			type = "text",
+			text = preview.detail,
+			textSize = 12,
+			textColor = colors.detail,
+			frame = {
+				x = horizontal_padding,
+				y = top_padding + title_height,
+				w = frame.w - (horizontal_padding * 2),
+				h = detail_height,
+			},
+		},
+		{
+			type = "rectangle",
+			action = "fill",
+			fillColor = colors.image_background,
+			roundedRectRadii = { xRadius = inner_radius, yRadius = inner_radius },
+			frame = body_frame,
+		},
+		{
+			type = "rectangle",
+			action = "stroke",
+			strokeColor = colors.border,
+			strokeWidth = 1,
+			roundedRectRadii = { xRadius = inner_radius, yRadius = inner_radius },
+			frame = body_frame,
+		},
+		{
+			type = "text",
+			text = styled_body,
+			frame = {
+				x = body_frame.x + 12,
+				y = body_frame.y + 10,
+				w = body_frame.w - 24,
+				h = body_frame.h - 20,
+			},
+		},
+	}
+end
+
+local function build_image_preview_elements(frame, item, image, detail)
+	local colors = preview_colors()
+	local outer_radius = 16
+	local inner_radius = 12
+	local horizontal_padding = 18
+	local top_padding = 16
+	local title_height = 24
+	local detail_height = 18
+	local image_top = top_padding + title_height + detail_height + 12
+	local image_frame = {
+		x = horizontal_padding,
+		y = image_top,
+		w = frame.w - (horizontal_padding * 2),
+		h = frame.h - image_top - horizontal_padding,
+	}
+
+	return {
+		{
+			type = "rectangle",
+			action = "fill",
+			fillColor = colors.background,
+			roundedRectRadii = { xRadius = outer_radius, yRadius = outer_radius },
+			withShadow = true,
+			shadow = {
+				blurRadius = 18,
+				color = colors.shadow,
+				offset = { h = 0, w = 0 },
+			},
+			frame = { x = 0, y = 0, w = frame.w, h = frame.h },
+		},
+		{
+			type = "rectangle",
+			action = "stroke",
+			strokeColor = colors.border,
+			strokeWidth = 1,
+			roundedRectRadii = { xRadius = outer_radius, yRadius = outer_radius },
+			frame = { x = 0.5, y = 0.5, w = frame.w - 1, h = frame.h - 1 },
+		},
+		{
+			type = "text",
+			text = "图片预览",
+			textSize = 17,
+			textColor = colors.title,
+			frame = {
+				x = horizontal_padding,
+				y = top_padding,
+				w = frame.w - (horizontal_padding * 2),
+				h = title_height,
+			},
+		},
+		{
+			type = "text",
+			text = detail,
+			textSize = 12,
+			textColor = colors.detail,
+			frame = {
+				x = horizontal_padding,
+				y = top_padding + title_height,
+				w = frame.w - (horizontal_padding * 2),
+				h = detail_height,
+			},
+		},
+		{
+			type = "rectangle",
+			action = "fill",
+			fillColor = colors.image_background,
+			roundedRectRadii = { xRadius = inner_radius, yRadius = inner_radius },
+			frame = image_frame,
+		},
+		{
+			type = "rectangle",
+			action = "stroke",
+			strokeColor = colors.border,
+			strokeWidth = 1,
+			roundedRectRadii = { xRadius = inner_radius, yRadius = inner_radius },
+			frame = image_frame,
+		},
+		{
+			type = "image",
+			image = image,
+			imageScaling = "scaleProportionally",
+			frame = {
+				x = image_frame.x + 1,
+				y = image_frame.y + 1,
+				w = image_frame.w - 2,
+				h = image_frame.h - 2,
+			},
+		},
+	}
+end
+
+local function build_choice_preview(choice)
+	if type(choice) ~= "table" then
+		return nil
+	end
+
+	if choice.kind == "image" then
+		local item = choice_to_history_item(choice)
+
+		if item == nil then
+			return nil
+		end
+
+		local image = load_image(item.image_path)
+
+		if image == nil then
+			return nil
+		end
+
+		return {
+			kind = "image",
+			signature = item_signature(item),
+			item = item,
+			image = image,
+			detail = trim(tostring(choice.preview_detail or string.format("%s · %s", image_dimensions(item), format_timestamp(item.stored_at)))),
+		}
+	end
+
+	local text_preview = build_text_preview_model(choice)
+
+	if text_preview == nil then
+		return nil
+	end
+
+	return {
+		kind = "text",
+		signature = string.format("preview:%s:%s", tostring(choice.source or ""), tostring(choice.content or "")),
+		text_preview = text_preview,
+	}
+end
+
+local function hide_preview()
+	hide_image_preview()
+end
+
+local function update_preview()
+	if default_preview_enabled ~= true or state.chooser == nil then
+		return
+	end
+
+	local choice = state.chooser:selectedRowContents()
+
+	if type(choice) ~= "table" then
+		hide_preview()
+		return
+	end
+
+	local preview = build_choice_preview(choice)
+
+	if preview == nil or preview.signature == nil then
+		hide_preview()
+		return
+	end
+
+	local screen_frame = state.chooser_screen_frame or resolve_target_screen_frame()
+	local layout = chooser_layout(screen_frame)
+
+	if layout == nil then
+		hide_preview()
+		return
+	end
+
+	local canvas = ensure_preview_canvas(layout.preview_frame)
+
+	if state.preview_signature ~= preview.signature or canvas:isShowing() ~= true then
+		if preview.kind == "image" then
+			canvas:replaceElements(
+				table.unpack(build_image_preview_elements(layout.preview_frame, preview.item, preview.image, preview.detail))
+			)
+		else
+			canvas:replaceElements(table.unpack(build_text_preview_elements(layout.preview_frame, preview.text_preview)))
+		end
+
+		canvas:show(0.08)
+	end
+
+	state.preview_signature = preview.signature
+end
+
+local function stop_preview_timer()
+	if state.preview_timer ~= nil then
+		state.preview_timer:stop()
+		state.preview_timer = nil
+	end
+end
+
+local function start_preview_timer()
+	if default_preview_enabled ~= true then
+		return
+	end
+
+	stop_preview_timer()
+
+	state.preview_timer = hs.timer.doEvery(default_preview_poll_interval, update_preview)
+	update_preview()
+end
+
+local function set_clipboard_item(item)
+	local signature = item_signature(item)
+
+	if signature == nil then
+		return false
+	end
+
+	state.suppressed_signature = signature
+	state.suppressed_at = os.time()
+
+	if item.kind == "image" then
+		local image = load_image(item.image_path)
+
+		if image == nil then
+			state.suppressed_signature = nil
+			state.suppressed_at = nil
+			hs.alert.show("图片缓存已失效，无法恢复")
+			return false
+		end
+
+		local ok = hs.pasteboard.writeObjects(image)
+
+		if ok ~= true then
+			state.suppressed_signature = nil
+			state.suppressed_at = nil
+			hs.alert.show("写入图片剪贴板失败")
+			return false
+		end
+
+		return true
+	end
+
+	local ok = hs.pasteboard.setContents(item.content)
+
+	if ok ~= true then
+		state.suppressed_signature = nil
+		state.suppressed_at = nil
+		hs.alert.show("写入剪贴板失败")
+		return false
+	end
+
+	return true
+end
+
+local function activate_choice(choice)
+	local item = choice_to_history_item(choice)
+
+	if item == nil then
+		return
+	end
+
+	if set_clipboard_item(item) ~= true then
+		return
+	end
+
+	add_history_item(item, choice.source or "chooser select")
+
+	if choice.source == "snippet" then
+		hs.alert.show("Snippet 已放入剪贴板")
+	elseif item.kind == "image" then
+		hs.alert.show("已恢复图片到剪贴板")
+	else
+		hs.alert.show("已恢复历史剪贴板内容")
+	end
+end
+
+local function history_choice(item, index)
+	if item.kind == "image" then
+		return {
+			text = "图片 " .. image_dimensions(item),
+			subText = string.format(
+				"历史 #%d · %s · 图片",
+				index,
+				format_timestamp(item.stored_at)
+			),
+			preview_title = "图片预览",
+			preview_detail = string.format("历史 #%d · %s · %s", index, format_timestamp(item.stored_at), image_dimensions(item)),
+			image = chooser_thumbnail(item),
+			source = "history",
+			kind = "image",
+			image_path = item.image_path,
+			fingerprint = item.fingerprint,
+			width = item.width,
+			height = item.height,
+			stored_at = item.stored_at,
+		}
+	end
+
+	return {
+		text = compact_preview(item.content, history_preview_length),
+		subText = string.format(
+			"历史 #%d · %s · 文本 · %s",
+			index,
+			format_timestamp(item.stored_at),
+			describe_text(item.content)
+		),
+		preview_title = compact_preview(item.content, 48),
+		preview_detail = string.format("历史 #%d · %s · 文本 · %s", index, format_timestamp(item.stored_at), describe_text(item.content)),
+		source = "history",
+		kind = "text",
+		content = item.content,
+	}
+end
+
+local function snippet_choice(item)
+	local detail = item.description
+
+	if detail == "" then
+		detail = compact_preview(item.content, snippet_preview_length)
+	end
+
+	return {
+		text = item.title,
+		subText = string.format("%s · %s · %s", item.group, describe_text(item.content), detail),
+		preview_title = item.title,
+		preview_detail = string.format("%s · %s%s", item.group, describe_text(item.content), item.description ~= "" and (" · " .. item.description) or ""),
+		preview_group = item.group,
+		source = "snippet",
+		kind = "text",
+		content = item.content,
+	}
+end
+
+local function build_chooser_choices()
+	local choices = {}
+
+	for index, item in ipairs(state.history) do
+		table.insert(choices, history_choice(item, index))
+	end
+
+	for _, item in ipairs(state.snippets) do
+		table.insert(choices, snippet_choice(item))
+	end
+
+	return choices
+end
+
+local function history_menu_title(item)
+	if item.kind == "image" then
+		return "[图片] " .. image_dimensions(item)
+	end
+
+	return compact_preview(item.content or "", menu_preview_length)
+end
+
+local function history_menu_tooltip(item)
+	if item.kind == "image" then
+		return truncate_text(
+			string.format("%s · %s", describe_history_item(item), tostring(item.image_path or "")),
+			tooltip_preview_length
+		)
+	end
+
+	return truncate_text(item.content or "", tooltip_preview_length)
+end
+
+local function history_menu_choice(item)
+	if item.kind == "image" then
+		return {
+			source = "history",
+			kind = "image",
+			image_path = item.image_path,
+			fingerprint = item.fingerprint,
+			width = item.width,
+			height = item.height,
+		}
+	end
+
+	return {
+		source = "history",
+		kind = "text",
+		content = item.content,
+	}
+end
+
+local function build_history_menu()
+	local menu = {}
+	local menu_history_size = normalize_number(clipboard.menu_history_size, default_menu_history_size, 1)
+	local count = math.min(#state.history, menu_history_size)
+
+	if count == 0 then
+		return {
+			{ title = "暂无历史", disabled = true },
+		}
+	end
+
+	for index = 1, count do
+		local item = state.history[index]
+		local choice = history_menu_choice(item)
+
+		table.insert(
+			menu,
+			{
+				title = history_menu_title(item),
+				tooltip = history_menu_tooltip(item),
+				image = menu_thumbnail(item),
+				fn = function()
+					activate_choice(choice)
+				end,
+			}
+		)
+	end
+
+	return menu
+end
+
+local function build_snippet_menu()
+	local groups, order = grouped_snippets()
+	local menu = {}
+
+	if #state.snippets == 0 then
+		return {
+			{ title = "暂无 Snippets", disabled = true },
+		}
+	end
+
+	for _, group in ipairs(order) do
+		local items = {}
+
+		for _, snippet in ipairs(groups[group]) do
+			table.insert(
+				items,
+				{
+					title = snippet.title,
+					tooltip = truncate_text(snippet.content, tooltip_preview_length),
+					fn = function()
+						activate_choice({
+							source = "snippet",
+							kind = "text",
+							content = snippet.content,
+						})
+					end,
+				}
+			)
+		end
+
+		table.insert(
+			menu,
+			{
+				title = string.format("%s (%d)", group, #items),
+				menu = items,
+			}
+		)
+	end
+
+	return menu
+end
+
+local function show_chooser()
+	if state.chooser == nil then
+		return
+	end
+
+	state.chooser_screen_frame = resolve_target_screen_frame()
+
+	state.chooser:choices(build_chooser_choices())
+	state.chooser:query(nil)
+
+	local layout = chooser_layout(state.chooser_screen_frame)
+
+	if layout ~= nil then
+		state.chooser:show(layout.chooser_point)
+	else
+		state.chooser:show()
+	end
+end
+
+refresh_menubar = function()
+	if state.show_menubar ~= true then
+		if state.menubar ~= nil then
+			state.menubar:delete()
+			state.menubar = nil
+		end
+		return
+	end
+
+	if state.menubar == nil then
+		state.menubar = hs.menubar.new()
+
+		if state.menubar == nil then
+			log.e("failed to create clipboard menubar item")
+			return
+		end
+	end
+
+	local hotkey_label = format_hotkey(clipboard.prefix or {}, clipboard.key)
+	local display_modifiers = state.hotkey_modifiers
+	local display_key = state.hotkey_key
+	local text_count, image_count = history_counts()
+
+	if #display_modifiers == 0 and (display_key == nil or display_key == "") then
+		local normalized_modifiers = normalize_hotkey_modifiers(clipboard.prefix or {})
+
+		if normalized_modifiers ~= nil then
+			display_modifiers = normalized_modifiers
+		end
+
+		display_key = trim(string.lower(tostring(clipboard.key or "")))
+	end
+
+	hotkey_label = format_hotkey(display_modifiers, display_key)
+
+	state.menubar:setTitle(menubar_title())
+	state.menubar:setTooltip(tooltip_text(hotkey_label))
+	state.menubar:setMenu(function()
+		return {
+			{ title = "剪贴板中心", disabled = true },
+			{
+				title = string.format("历史: %d (文本 %d / 图片 %d)", #state.history, text_count, image_count),
+				disabled = true,
+			},
+			{ title = "快捷键: " .. hotkey_label, disabled = true },
+			{ title = "-" },
+			{
+				title = "打开 Chooser",
+				fn = show_chooser,
+			},
+			{
+				title = "恢复最近一条历史",
+				disabled = #state.history == 0,
+				fn = function()
+					if state.history[1] ~= nil then
+						activate_choice(history_menu_choice(state.history[1]))
+					end
+				end,
+			},
+			{
+				title = "清空历史",
+				disabled = #state.history == 0,
+				fn = clear_history,
+			},
+			{ title = "-" },
+			{
+				title = string.format("最近历史 (%d)", #state.history),
+				menu = build_history_menu(),
+			},
+			{
+				title = string.format("Snippets (%d)", #state.snippets),
+				menu = build_snippet_menu(),
+			},
+		}
+	end)
+end
+
+local function current_clipboard_item()
+	local timestamp = os.time()
+
+	if default_capture_images == true then
+		local image = hs.pasteboard.readImage()
+
+		if image ~= nil then
+			local image_item = build_image_history_item(image, timestamp)
+
+			if image_item ~= nil then
+				return image_item
+			end
+		end
+	end
+
+	return build_text_history_item(hs.pasteboard.getContents(), timestamp)
+end
+
+local function handle_pasteboard_change(_)
+	local item = current_clipboard_item()
+
+	if item == nil then
+		return
+	end
+
+	local signature = item_signature(item)
+
+	if state.suppressed_signature ~= nil and signature == state.suppressed_signature then
+		local suppressed_at = state.suppressed_at or 0
+
+		if os.time() - suppressed_at <= duplicate_suppression_seconds then
+			state.suppressed_signature = nil
+			state.suppressed_at = nil
+			return
+		end
+	end
+
+	state.suppressed_signature = nil
+	state.suppressed_at = nil
+
+	add_history_item(item, "pasteboard watcher")
+end
+
+local function bind_hotkey()
+	local modifiers, invalid_modifier = normalize_hotkey_modifiers(clipboard.prefix or {})
+	local key = trim(string.lower(tostring(clipboard.key or "")))
+
+	if modifiers == nil then
+		log.e("invalid clipboard hotkey modifier: " .. tostring(invalid_modifier))
+		return
+	end
+
+	if key == "" then
+		log.i("clipboard hotkey disabled because key is empty")
+		return
+	end
+
+	local ok, binding = pcall(
+		function()
+			return hs.hotkey.bind(
+				copy_list(modifiers),
+				key,
+				clipboard.message or "Clipboard Center",
+				show_chooser
+			)
+		end
+	)
+
+	if ok ~= true or binding == nil then
+		log.e("failed to bind clipboard hotkey: " .. tostring(binding))
+		return
+	end
+
+	state.hotkey = binding
+	state.hotkey_modifiers = copy_list(modifiers)
+	state.hotkey_key = key
+end
+
+local function setup_chooser()
+	state.chooser = hs.chooser.new(function(choice)
+		if choice ~= nil then
+			activate_choice(choice)
+		end
+	end)
+
+	state.chooser:searchSubText(true)
+	state.chooser:rows(normalize_number(clipboard.chooser_rows, 12, 6))
+	state.chooser:width(normalize_number(clipboard.chooser_width, 40, 20))
+	state.chooser:placeholderText("搜索历史复制、图片、文本片段、代码模板、常用 Prompt")
+	state.chooser:showCallback(function()
+		local selected_row = state.chooser:selectedRow() or 0
+
+		if selected_row < 1 then
+			pcall(function()
+				state.chooser:selectedRow(1)
+			end)
+		end
+
+		start_preview_timer()
+	end)
+	state.chooser:hideCallback(function()
+		stop_preview_timer()
+		hide_preview()
+	end)
+	state.chooser:queryChangedCallback(function()
+		update_preview()
+	end)
+end
+
+local function sync_current_clipboard()
+	local item = current_clipboard_item()
+
+	if item ~= nil then
+		add_history_item(item, "startup sync")
+	end
+end
+
+if clipboard.enabled == false then
+	log.i("clipboard center disabled by config")
+	return _M
+end
+
+image_cache_dir = resolve_cache_dir()
+
+load_history()
+normalize_snippets()
+setup_chooser()
+bind_hotkey()
+refresh_menubar()
+
+state.watcher = hs.pasteboard.watcher.new(handle_pasteboard_change)
+sync_current_clipboard()
+
+_M.show_chooser = show_chooser
+_M.clear_history = clear_history
+
+return _M

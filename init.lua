@@ -41,6 +41,9 @@ require("keep_awake")
 -- 网站快捷访问
 require("website_open")
 
+-- 剪贴板历史 + Snippets
+require("clipboard_center")
+
 -- 切换到指定输入法
 require("manual_input_method")
 
