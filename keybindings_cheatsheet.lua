@@ -49,22 +49,25 @@ local function bind(modifiers, key, message, pressedfn, releasedfn, repeatfn)
     return hotkey_helper.bind(modifiers, key, message, pressedfn, releasedfn, repeatfn, { logger = log })
 end
 
--- 快捷键总数
-local num = 0
 local canvas_width = 0
 local canvas_height = 0
 
-local canvas = hs.canvas.new({x = 0, y = 0, w = 0, h = 0})
+local canvas = nil
 
--- 背景面板
-canvas:appendElements(
-    {
-        id = "pannel",
-        action = "fill",
-        fillColor = {alpha = background_opacity, red = 0, green = 0, blue = 0},
-        type = "rectangle"
-    }
-)
+local function createCanvas()
+    local nextCanvas = hs.canvas.new({x = 0, y = 0, w = 0, h = 0})
+
+    nextCanvas:appendElements(
+        {
+            id = "pannel",
+            action = "fill",
+            fillColor = {alpha = background_opacity, red = 0, green = 0, blue = 0},
+            type = "rectangle"
+        }
+    )
+
+    return nextCanvas
+end
 
 local function styleText(text)
     return hs.styledtext.new(
@@ -102,6 +105,10 @@ local function resolveTargetScreenFrame()
 end
 
 local function positionCanvas()
+    if canvas == nil then
+        return
+    end
+
     local screen = resolveTargetScreenFrame()
 
     if screen == nil then
@@ -121,7 +128,6 @@ end
 local function formatText()
     -- 加载所有绑定的快捷键
     local hotkeys = hs.hotkey.getHotkeys()
-
     local renderText = {}
 
     local keybindingsCheatsheet = {}
@@ -311,8 +317,6 @@ local function formatText()
 
     -- 文本定长
     for _, v in ipairs(hotkeys) do
-        num = num + 1
-
         local msg = v.msg
         local len = utf8len(msg)
 
@@ -338,6 +342,7 @@ end
 local function drawText(renderText)
     local w = 0
     local h = 0
+    local totalLines = #renderText
 
     -- 每一列需要显示的文本
     local column = ""
@@ -391,7 +396,7 @@ local function drawText(renderText)
         end
     end
 
-    if column ~= nil then
+    if column ~= "" then
         local itemText = styleText(column)
         local size = canvas:minimumTextSize(itemText)
 
@@ -402,7 +407,7 @@ local function drawText(renderText)
                 type = "text",
                 text = itemText,
                 frame = {
-                    x = math.ceil(num / max_line_number - 1) * size.w + seperator_spacing,
+                    x = math.ceil(totalLines / max_line_number - 1) * size.w + seperator_spacing,
                     y = 0,
                     w = size.w + seperator_spacing,
                     h = size.h
@@ -416,13 +421,30 @@ local function drawText(renderText)
     positionCanvas()
 end
 
+local function rebuildCanvas()
+    local renderText = formatText()
+
+    if canvas ~= nil then
+        canvas:hide(0)
+        canvas:delete()
+    end
+
+    canvas_width = 0
+    canvas_height = 0
+    canvas = createCanvas()
+    drawText(renderText)
+end
+
 -- 默认不显示
 local show = false
 local function toggleKeybindingsCheatsheet()
     if show then
         -- 0.3s 过渡
-        canvas:hide(.3)
+        if canvas ~= nil then
+            canvas:hide(.3)
+        end
     else
+        rebuildCanvas()
         positionCanvas()
         canvas:show(.3)
     end
@@ -431,7 +453,7 @@ local function toggleKeybindingsCheatsheet()
 end
 
 -- 执行绘制
-drawText(formatText())
+rebuildCanvas()
 
 -- 显示/隐藏快捷键备忘列表
 bind(
