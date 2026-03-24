@@ -446,6 +446,23 @@ local function compact_preview(text, max_chars)
 	return truncate_text(preview, max_chars)
 end
 
+local function normalize_search_text(text)
+	if type(text) ~= "string" then
+		return ""
+	end
+
+	text = text:gsub("\r\n", "\n")
+	text = text:gsub("\r", "\n")
+	text = text:gsub("%s+", " ")
+	text = trim(text)
+
+	if text == "" then
+		return ""
+	end
+
+	return string.lower(text)
+end
+
 local function line_count(text)
 	local _, count = string.gsub(text or "", "\n", "\n")
 
@@ -1427,13 +1444,15 @@ end
 
 local function history_choice(item, index)
 	if item.kind == "image" then
+		local detail = string.format(
+			"历史 #%d · %s · 图片",
+			index,
+			format_timestamp(item.stored_at)
+		)
+
 		return {
 			text = "图片 " .. image_dimensions(item),
-			subText = string.format(
-				"历史 #%d · %s · 图片",
-				index,
-				format_timestamp(item.stored_at)
-			),
+			subText = detail,
 			preview_title = "图片预览",
 			preview_detail = string.format("历史 #%d · %s · %s", index, format_timestamp(item.stored_at), image_dimensions(item)),
 			image = chooser_thumbnail(item),
@@ -1445,31 +1464,51 @@ local function history_choice(item, index)
 			width = item.width,
 			height = item.height,
 			stored_at = item.stored_at,
+			search_text = normalize_search_text(
+				table.concat({
+					"图片 " .. image_dimensions(item),
+					detail,
+					string.format("历史 #%d %s %s", index, format_timestamp(item.stored_at), image_dimensions(item)),
+				}, "\n")
+			),
 		}
 	end
 
+	local detail = string.format(
+		"历史 #%d · %s · 文本 · %s",
+		index,
+		format_timestamp(item.stored_at),
+		describe_text(item.content)
+	)
+
 	return {
 		text = compact_preview(item.content, history_preview_length),
-		subText = string.format(
-			"历史 #%d · %s · 文本 · %s",
-			index,
-			format_timestamp(item.stored_at),
-			describe_text(item.content)
-		),
+		subText = detail,
 		preview_title = compact_preview(item.content, 48),
-		preview_detail = string.format("历史 #%d · %s · 文本 · %s", index, format_timestamp(item.stored_at), describe_text(item.content)),
+		preview_detail = detail,
 		source = "history",
 		history_id = item.id,
 		kind = "text",
 		content = item.content,
+		search_text = normalize_search_text(
+			table.concat({
+				item.content,
+				detail,
+			}, "\n")
+		),
 	}
 end
 
-local function build_chooser_choices()
+local function build_chooser_choices(query)
 	local choices = {}
+	local normalized_query = normalize_search_text(query)
 
 	for index, item in ipairs(state.history) do
-		table.insert(choices, history_choice(item, index))
+		local choice = history_choice(item, index)
+
+		if normalized_query == "" or choice.search_text:find(normalized_query, 1, true) ~= nil then
+			table.insert(choices, choice)
+		end
 	end
 
 	return choices
@@ -1487,7 +1526,7 @@ refresh_chooser_choices = function(preserve_query, selected_row)
 		query = state.chooser:query()
 	end
 
-	local choices = build_chooser_choices()
+	local choices = build_chooser_choices(query)
 
 	state.chooser:choices(choices)
 
@@ -1505,9 +1544,15 @@ refresh_chooser_choices = function(preserve_query, selected_row)
 		return
 	end
 
-	if #choices > 0 and type(selected_row) == "number" and selected_row > 0 then
+	if #choices > 0 then
+		local target_row = 1
+
+		if type(selected_row) == "number" and selected_row > 0 then
+			target_row = math.min(selected_row, #choices)
+		end
+
 		pcall(function()
-			state.chooser:selectedRow(math.min(selected_row, #choices))
+			state.chooser:selectedRow(target_row)
 		end)
 		update_preview()
 		return
@@ -1996,7 +2041,9 @@ local function setup_chooser()
 		hide_preview()
 	end)
 	state.chooser:queryChangedCallback(function()
-		update_preview()
+		local selected_row = state.chooser:selectedRow() or 0
+
+		refresh_chooser_choices(true, selected_row)
 	end)
 	state.chooser:rightClickCallback(function(row)
 		show_chooser_context_menu(row)
