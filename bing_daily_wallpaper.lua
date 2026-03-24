@@ -1,116 +1,487 @@
 local _M = {}
 
 _M.name = "bing_daily_wallpaper"
-_M.description = "使用Bing Daily Picture作为屏幕壁纸"
+_M.description = "使用 Bing Daily Picture 作为屏幕壁纸"
+
+local wallpaper = require("keybindings_config").bing_daily_wallpaper or {}
+local trim = require("utils_lib").trim
 
 local log = hs.logger.new("wallpaper")
 
--- 每隔多少秒触发一次bing请求进行壁纸更新:
---   2分钟: 2 * 60
---   2小时: 2 * 60 * 60
-local do_every_seconds = 1 * 60 * 60
+local settings_key_last_picture_name = "bing_daily_wallpaper.last_picture_name"
+local wallpaper_file_prefix = "bing_"
+local default_user_agent =
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) AppleWebKit/603.2.4 (KHTML, like Gecko) Version/10.1.1 Safari/603.2.4"
 
--- 最好根据自己的电脑屏幕分辨率设置.
-local pic_width, pic_height = 3072, 1920
+local state = {
+	started = false,
+	timer = nil,
+	task = nil,
+	cache_dir = nil,
+	last_picture_name = "",
+	request_id = 0,
+	request_inflight = false,
+}
 
--- 获取Bing最近多少天的壁纸列表(每天有一张壁纸图片):
---   设置成1, 代表壁纸保持和Bing当天的壁纸一样;
---   设置成大于1, 则每次触发更新壁纸, 会随机从中选择一张壁纸图片.
-local pic_count = 1
+local function normalize_integer(value, fallback, minimum, maximum)
+	local number = tonumber(value)
 
-local pic_save_path = os.getenv("HOME") .. "/.Trash/"
+	if number == nil then
+		number = fallback
+	end
 
--- 获取图片url json列表的接口.
-local bing_pictures_url =
-    "https://cn.bing.com/HPImageArchive.aspx?format=js&idx=0&n=" ..
-    pic_count .. "&nc=1612409408851&pid=hp&FORM=BEHPTB&uhd=1&uhdwidth=" .. pic_width .. "&uhdheight=" .. pic_height
+	number = math.floor(number)
 
-local user_agent_str =
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) AppleWebKit/603.2.4 (KHTML, like Gecko) Version/10.1.1 Safari/603.2.4"
+	if minimum ~= nil then
+		number = math.max(minimum, number)
+	end
 
-local function curl_callback(exitCode, stdOut, stdErr)
-    if exitCode == 0 then
-        _M.task = nil
-        _M.last_pic = hs.http.urlParts(_M.full_url).query
+	if maximum ~= nil then
+		number = math.min(maximum, number)
+	end
 
-        local localpath = pic_save_path .. hs.http.urlParts(_M.full_url).query
-
-        -- 为每个显示器都设置壁纸(注意不是macOS新建的其他桌面, 而是扩展显示器)
-        local screens = hs.screen.allScreens()
-        for _, screen in ipairs(screens) do
-            log.i(string.format("set wallpaper for %s", screen))
-            screen:desktopImageURL("file://" .. localpath)
-        end
-    else
-        log.e(stdOut, stdErr)
-    end
+	return number
 end
 
-local function bing_request()
-    hs.http.asyncGet(
-        bing_pictures_url,
-        {["User-Agent"] = user_agent_str},
-        function(stat, body, _)
-            if stat == 200 then
-                if
-                    pcall(
-                        function()
-                            hs.json.decode(body)
-                        end
-                    )
-                 then
-                    local decode_data = hs.json.decode(body)
-                    local image_urls = decode_data.images
-                    local pic_url = image_urls[math.random(1, #image_urls)].url
-                    local pic_name = hs.http.urlParts(pic_url).query
+local function normalize_url_base(value, fallback)
+	local url = trim(tostring(value or fallback or ""))
 
-                    -- 只有在本次和上次获取的图片不同时才去设置屏幕壁纸.
-                    if _M.last_pic ~= pic_name then
-                        _M.full_url = "https://www.bing.com" .. pic_url
+	if url == "" then
+		url = fallback or ""
+	end
 
-                        if _M.task then
-                            _M.task:terminate()
-                            _M.task = nil
-                        end
-
-                        local localpath = pic_save_path .. hs.http.urlParts(_M.full_url).query
-
-                        -- 这里真正触发下载壁纸图片.
-                        _M.task =
-                            hs.task.new(
-                            "/usr/bin/curl",
-                            curl_callback,
-                            {"-A", user_agent_str, _M.full_url, "-o", localpath}
-                        )
-
-                        _M.task:start()
-
-                        log.d("wallpaper changed, current picture: ", pic_name, " last picture: ", _M.last_pic)
-                    else
-                        log.d("current picture is same as last picture: ", pic_name)
-                    end
-                end
-            else
-                log.e("Bing URL request failed!")
-            end
-        end
-    )
+	return (url:gsub("/+$", ""))
 end
 
--- 每次reload配置都触发更新.
-bing_request()
+local function file_exists(path)
+	return type(path) == "string" and path ~= "" and hs.fs.attributes(path) ~= nil
+end
 
--- 定期自动更新.
-if _M.timer == nil then
-    _M.timer =
-        hs.timer.doEvery(
-        do_every_seconds,
-        function()
-            bing_request()
-        end
-    )
-else
-    _M.timer:start()
+local function ensure_directory(path)
+	if type(path) ~= "string" or path == "" then
+		return false
+	end
+
+	if hs.fs.attributes(path) ~= nil then
+		return true
+	end
+
+	local parent = string.match(path, "^(.*)/[^/]+/?$")
+
+	if parent ~= nil and parent ~= "" and parent ~= path then
+		if ensure_directory(parent) ~= true then
+			return false
+		end
+	end
+
+	local ok, err = hs.fs.mkdir(path)
+
+	if ok == true or hs.fs.attributes(path) ~= nil then
+		return true
+	end
+
+	log.e(string.format("failed to create wallpaper cache directory: %s (%s)", path, tostring(err)))
+
+	return false
+end
+
+local function resolve_cache_dir()
+	local raw = trim(tostring(wallpaper.cache_dir or ""))
+	local home = os.getenv("HOME") or ""
+
+	if raw == "" then
+		local bundle_id = trim(tostring(hs.settings.bundleID or ""))
+
+		if bundle_id == "" then
+			bundle_id = "org.hammerspoon.Hammerspoon"
+		end
+
+		return string.format("%s/Library/Caches/%s/bing_daily_wallpaper", home, bundle_id)
+	end
+
+	if raw:sub(1, 2) == "~/" then
+		return home .. raw:sub(2)
+	end
+
+	if raw:sub(1, 1) == "/" then
+		return raw
+	end
+
+	return hs.configdir .. "/" .. raw
+end
+
+local function load_last_picture_name()
+	return trim(tostring(hs.settings.get(settings_key_last_picture_name) or ""))
+end
+
+local function persist_last_picture_name(name)
+	name = trim(tostring(name or ""))
+
+	if name == "" then
+		hs.settings.clear(settings_key_last_picture_name)
+		return
+	end
+
+	hs.settings.set(settings_key_last_picture_name, name)
+end
+
+local function refresh_interval_seconds()
+	return normalize_integer(wallpaper.refresh_interval_seconds, 60 * 60, 60, 24 * 60 * 60)
+end
+
+local function picture_width()
+	return normalize_integer(wallpaper.picture_width, 3072, 512, 8192)
+end
+
+local function picture_height()
+	return normalize_integer(wallpaper.picture_height, 1920, 512, 8192)
+end
+
+local function history_count()
+	return normalize_integer(wallpaper.history_count, 1, 1, 8)
+end
+
+local function metadata_base_url()
+	return normalize_url_base(wallpaper.metadata_base_url, "https://cn.bing.com")
+end
+
+local function image_base_url()
+	return normalize_url_base(wallpaper.image_base_url, "https://www.bing.com")
+end
+
+local function metadata_url()
+	return string.format(
+		"%s/HPImageArchive.aspx?format=js&idx=0&n=%d&pid=hp&uhd=1&uhdwidth=%d&uhdheight=%d",
+		metadata_base_url(),
+		history_count(),
+		picture_width(),
+		picture_height()
+	)
+end
+
+local function relative_image_url(image)
+	if type(image) ~= "table" then
+		return nil
+	end
+
+	local url = trim(tostring(image.url or ""))
+
+	if url == "" then
+		return nil
+	end
+
+	return url
+end
+
+local function absolute_image_url(relative_url)
+	if relative_url:match("^https?://") ~= nil then
+		return relative_url
+	end
+
+	if relative_url:sub(1, 1) ~= "/" then
+		relative_url = "/" .. relative_url
+	end
+
+	return image_base_url() .. relative_url
+end
+
+local function picture_name_from_url(relative_url)
+	local identifier = relative_url:match("[?&]id=([^&]+)")
+
+	if identifier ~= nil and trim(identifier) ~= "" then
+		return wallpaper_file_prefix .. trim(identifier):gsub("[^%w%._%-]", "_")
+	end
+
+	local extension = relative_url:match("%.([A-Za-z0-9]+)")
+
+	if extension ~= nil then
+		extension = "." .. extension
+	else
+		extension = ".jpg"
+	end
+
+	return wallpaper_file_prefix .. hs.hash.SHA256(relative_url) .. extension
+end
+
+local function cleanup_cache(retained_names)
+	if state.cache_dir == nil or retained_names == nil or type(hs.fs.dir) ~= "function" then
+		return
+	end
+
+	for entry in hs.fs.dir(state.cache_dir) do
+		if entry ~= "." and entry ~= ".." and entry:sub(1, #wallpaper_file_prefix) == wallpaper_file_prefix and retained_names[entry] ~= true then
+			local full_path = state.cache_dir .. "/" .. entry
+			local attributes = hs.fs.attributes(full_path)
+
+			if attributes ~= nil and attributes.mode == "file" then
+				local ok, err = os.remove(full_path)
+
+				if ok ~= true then
+					log.w(string.format("failed to remove cached wallpaper: %s (%s)", full_path, tostring(err)))
+				end
+			end
+		end
+	end
+end
+
+local function apply_wallpaper(local_path, picture_name)
+	if file_exists(local_path) ~= true then
+		log.e("wallpaper file does not exist: " .. tostring(local_path))
+		return false
+	end
+
+	local file_url = "file://" .. local_path
+	local applied = false
+
+	for _, screen in ipairs(hs.screen.allScreens()) do
+		local ok, err = pcall(
+			function()
+				screen:desktopImageURL(file_url)
+			end
+		)
+
+		if ok ~= true then
+			log.e(string.format("failed to set wallpaper for %s: %s", tostring(screen), tostring(err)))
+		else
+			applied = true
+		end
+	end
+
+	if applied == true then
+		state.last_picture_name = picture_name
+		persist_last_picture_name(picture_name)
+		log.i("wallpaper updated: " .. picture_name)
+	end
+
+	return applied
+end
+
+local function stop_download_task()
+	if state.task == nil then
+		return
+	end
+
+	local task = state.task
+
+	state.task = nil
+	task:terminate()
+end
+
+local function download_picture(full_url, local_path, picture_name, retained_names)
+	stop_download_task()
+
+	local task
+
+	task = hs.task.new(
+		"/usr/bin/curl",
+		function(exit_code, _, std_err)
+			if state.task ~= task then
+				return
+			end
+
+			state.task = nil
+
+			if exit_code ~= 0 then
+				log.e(string.format("failed to download Bing wallpaper: %s (%s)", picture_name, trim(std_err)))
+				return
+			end
+
+			if apply_wallpaper(local_path, picture_name) == true then
+				cleanup_cache(retained_names)
+			end
+		end,
+		{
+			"--fail",
+			"--location",
+			"--silent",
+			"--show-error",
+			"-A",
+			default_user_agent,
+			full_url,
+			"-o",
+			local_path,
+		}
+	)
+
+	if task == nil then
+		log.e("failed to create wallpaper download task")
+		return false
+	end
+
+	state.task = task
+
+	if task:start() == false then
+		state.task = nil
+		log.e("failed to start wallpaper download task")
+		return false
+	end
+
+	return true
+end
+
+local function pick_image(images)
+	if #images == 1 then
+		return images[1]
+	end
+
+	return images[math.random(1, #images)]
+end
+
+local function build_retained_names(images)
+	local retained = {}
+
+	for _, image in ipairs(images) do
+		local relative_url = relative_image_url(image)
+
+		if relative_url ~= nil then
+			retained[picture_name_from_url(relative_url)] = true
+		end
+	end
+
+	return retained
+end
+
+local function refresh_now(reason)
+	if wallpaper.enabled == false then
+		return false
+	end
+
+	if state.request_inflight == true then
+		log.d("skip wallpaper refresh because a previous metadata request is still running")
+		return false
+	end
+
+	if state.cache_dir == nil then
+		state.cache_dir = resolve_cache_dir()
+	end
+
+	if ensure_directory(state.cache_dir) ~= true then
+		return false
+	end
+
+	state.request_id = state.request_id + 1
+	state.request_inflight = true
+
+	local request_id = state.request_id
+	local url = metadata_url()
+
+	hs.http.asyncGet(
+		url,
+		{ ["User-Agent"] = default_user_agent },
+		function(status, body, _)
+			if request_id ~= state.request_id then
+				return
+			end
+
+			state.request_inflight = false
+
+			if status ~= 200 then
+				log.e(string.format("failed to request Bing wallpaper metadata: status=%s, reason=%s", tostring(status), tostring(reason)))
+				return
+			end
+
+			local ok, payload = pcall(hs.json.decode, body)
+
+			if ok ~= true or type(payload) ~= "table" then
+				log.e("failed to decode Bing wallpaper metadata response")
+				return
+			end
+
+			local images = payload.images
+
+			if type(images) ~= "table" or #images == 0 then
+				log.e("Bing wallpaper metadata response does not contain any image")
+				return
+			end
+
+			local selected = pick_image(images)
+			local relative_url = relative_image_url(selected)
+
+			if relative_url == nil then
+				log.e("selected Bing wallpaper item does not contain a valid image url")
+				return
+			end
+
+			local picture_name = picture_name_from_url(relative_url)
+			local local_path = state.cache_dir .. "/" .. picture_name
+			local retained_names = build_retained_names(images)
+
+			if file_exists(local_path) == true then
+				apply_wallpaper(local_path, picture_name)
+				cleanup_cache(retained_names)
+				return
+			end
+
+			if download_picture(absolute_image_url(relative_url), local_path, picture_name, retained_names) ~= true then
+				log.e("failed to refresh wallpaper: " .. picture_name)
+				return
+			end
+
+			log.i(string.format("wallpaper refresh scheduled (%s): %s", tostring(reason or "unknown"), picture_name))
+		end
+	)
+
+	return true
+end
+
+function _M.start()
+	if wallpaper.enabled == false then
+		log.i("bing daily wallpaper disabled by config")
+		return false
+	end
+
+	if state.started == true then
+		return true
+	end
+
+	state.started = true
+	state.cache_dir = resolve_cache_dir()
+	state.last_picture_name = load_last_picture_name()
+
+	if ensure_directory(state.cache_dir) ~= true then
+		state.started = false
+		return false
+	end
+
+	refresh_now("startup")
+
+	state.timer = hs.timer.doEvery(
+		refresh_interval_seconds(),
+		function()
+			refresh_now("scheduled refresh")
+		end
+	)
+
+	return true
+end
+
+function _M.stop()
+	state.started = false
+	state.request_id = state.request_id + 1
+	state.request_inflight = false
+
+	if state.timer ~= nil then
+		state.timer:stop()
+		state.timer = nil
+	end
+
+	stop_download_task()
+end
+
+function _M.refresh_now()
+	if state.started ~= true then
+		return _M.start()
+	end
+
+	return refresh_now("manual refresh")
+end
+
+_M.current_cache_dir = function()
+	if state.cache_dir == nil then
+		state.cache_dir = resolve_cache_dir()
+	end
+
+	return state.cache_dir
 end
 
 return _M

@@ -80,6 +80,31 @@ Use the menubar icon or <kbd>⌥</kbd> + <kbd>A</kbd> to prevent idle sleep duri
 - <kbd>⌥</kbd> + <kbd>9</kbd>: google.com
 - <kbd>⌥</kbd> + <kbd>7</kbd>: bing.com
 
+### Bing Daily Wallpaper
+
+The wallpaper module periodically fetches Bing Daily Picture metadata and applies the selected image to all screens.
+
+You can customize it in `~/.hammerspoon/keybindings_config.lua`:
+
+```lua
+_M.bing_daily_wallpaper = {
+	enabled = true,
+	refresh_interval_seconds = 60 * 60,
+	picture_width = 3072,
+	picture_height = 1920,
+	history_count = 1,
+	metadata_base_url = "https://cn.bing.com",
+	image_base_url = "https://www.bing.com",
+	cache_dir = "",
+}
+```
+
+When `cache_dir` is empty, Bing Daily Wallpaper will automatically use:
+
+`~/Library/Caches/<current Hammerspoon bundle id>/bing_daily_wallpaper`
+
+When `history_count` is greater than `1`, the module will randomly choose one image from the most recent Bing wallpaper entries returned by the metadata API.
+
 ### Clipboard Center
 
 Use the menubar item or <kbd>⌥</kbd><kbd>⇧</kbd> + <kbd>C</kbd> to open a searchable chooser for:

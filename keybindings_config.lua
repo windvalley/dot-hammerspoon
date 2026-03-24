@@ -319,6 +319,25 @@ _M.clipboard = {
 	message = "Clipboard Center",
 }
 
+-- Bing Daily Picture 壁纸
+_M.bing_daily_wallpaper = {
+	enabled = true,
+	-- 定时检查 Bing 当日壁纸的周期，单位秒
+	refresh_interval_seconds = 60 * 60,
+	-- 请求壁纸尺寸
+	picture_width = 3072,
+	picture_height = 1920,
+	-- 拉取最近多少天的 Bing 壁纸元数据
+	-- 为 1 时始终使用当天壁纸；大于 1 时会从最近几天里随机选一张
+	history_count = 1,
+	-- 元数据接口和图片下载的基础地址
+	metadata_base_url = "https://cn.bing.com",
+	image_base_url = "https://www.bing.com",
+	-- 缓存目录，支持 ~/ 开头、绝对路径，或相对 hs.configdir 的路径
+	-- 留空时自动使用 ~/Library/Caches/<当前 Hammerspoon bundle id>/bing_daily_wallpaper
+	cache_dir = "",
+}
+
 -- 强制休息提醒
 -- 说明:
 -- 1. 锁屏期间不计入工作时长
