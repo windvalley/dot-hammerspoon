@@ -206,6 +206,8 @@ _M.break_reminder = {
 
 ### Window Manipulation
 
+Window move and resize actions keep the focused window within the current screen's visible frame, and prevent repeated shrink operations from reducing it below a minimum usable size.
+
 #### Window Position
 
 ![window-position](https://user-images.githubusercontent.com/6139938/213381748-31c10324-aee6-48d4-9ec7-492611fac499.gif)
