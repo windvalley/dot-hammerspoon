@@ -315,7 +315,7 @@ _M.clipboard = {
 	chooser_width = 40,
 	-- NOTE: message 的值建议保持英文，避免快捷键面板错位
 	prefix = { "Option", "Shift" },
-	key = "V",
+	key = "C",
 	message = "Clipboard Center",
 }
 

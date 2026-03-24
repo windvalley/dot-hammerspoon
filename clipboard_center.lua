@@ -53,6 +53,7 @@ local duplicate_suppression_seconds = 3
 local image_cache_dir = nil
 local history_id_counter = 0
 local menubar_icon_size = 18
+local menu_history_shortcut_limit = 9
 
 local state = {
 	show_menubar = clipboard.show_menubar ~= false,
@@ -1748,7 +1749,7 @@ local function append_history_menu_items(menu)
 		return
 	end
 
-	table.insert(menu, { title = "点击恢复，按住 ⌘ 点击可删除", disabled = true })
+	table.insert(menu, { title = "点击恢复，前 9 条可直接按数字，按住 ⌘ 点击可删除", disabled = true })
 
 	for index = 1, count do
 		local item = state.history[index]
@@ -1760,6 +1761,7 @@ local function append_history_menu_items(menu)
 				title = history_menu_title(item),
 				tooltip = history_menu_tooltip(item),
 				image = menu_thumbnail(item),
+				shortcut = index <= menu_history_shortcut_limit and tostring(index) or nil,
 				fn = function(modifiers)
 					if type(modifiers) == "table" and modifiers.cmd == true then
 						delete_history_choice(choice)

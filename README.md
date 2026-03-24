@@ -82,7 +82,7 @@ Use the menubar icon or <kbd>⌥</kbd> + <kbd>A</kbd> to prevent idle sleep duri
 
 ### Clipboard Center
 
-Use the menubar item or <kbd>⌥</kbd><kbd>⇧</kbd> + <kbd>V</kbd> to open a searchable chooser for:
+Use the menubar item or <kbd>⌥</kbd><kbd>⇧</kbd> + <kbd>C</kbd> to open a searchable chooser for:
 
 - Clipboard history
 - Clipboard images
@@ -103,7 +103,7 @@ _M.clipboard = {
 	preview_height = 320,
 	image_menu_thumbnail_size = 80,
 	prefix = { "Option", "Shift" },
-	key = "V",
+	key = "C",
 	message = "Clipboard Center",
 }
 ```
@@ -117,6 +117,8 @@ When a chooser item is highlighted, Clipboard Center will show a larger preview 
 Image thumbnails inside `hs.chooser` use a fixed small icon size because the native chooser row height is effectively fixed. If you need a larger view, use the preview panel on the right.
 
 History items can be removed individually: right click a history row in the chooser, or hold `⌘` while clicking an item shown directly in the menubar menu.
+
+When the menubar menu is open, the first nine recent history items can also be restored directly with number keys `1` to `9`.
 
 `menu_history_size` controls how many recent history items are shown directly in the menubar menu. You can also change it at runtime from the menubar via `最近历史显示数量`, and the override will be persisted via `hs.settings`.
 
