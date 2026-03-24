@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.9.0] - 2026-03-24
+
+### Added
+- Introduced a centralized Clipboard History Center for managing and browsing clipboard records.
+- Support for deleting specific history items.
+- Dynamic runtime configuration for history menu size.
+- Enhanced accessibility with new keyboard shortcuts and customizable hotkeys.
+
+### Changed
+- Refined the clipboard interface with updated icons.
+
+### Removed
+- Discontinued the snippet functionality within the clipboard module.
+
+
 ## [0.8.0] - 2026-03-19
 
 ### Added
