@@ -44,6 +44,8 @@ local stroke_color = "#585858"
 local stroke_width = 1
 
 local log = hs.logger.new("cheatsheet")
+local started = false
+local hotkey_binding = nil
 
 local function bind(modifiers, key, message, pressedfn, releasedfn, repeatfn)
     return hotkey_helper.bind(modifiers, key, message, pressedfn, releasedfn, repeatfn, { logger = log })
@@ -435,6 +437,18 @@ local function rebuildCanvas()
     drawText(renderText)
 end
 
+local function destroyCanvas()
+    if canvas == nil then
+        return
+    end
+
+    canvas:hide(0)
+    canvas:delete()
+    canvas = nil
+    canvas_width = 0
+    canvas_height = 0
+end
+
 -- 默认不显示
 local show = false
 local function toggleKeybindingsCheatsheet()
@@ -452,15 +466,34 @@ local function toggleKeybindingsCheatsheet()
     show = not show
 end
 
--- 执行绘制
-rebuildCanvas()
+function _M.start()
+    if started == true then
+        return true
+    end
 
--- 显示/隐藏快捷键备忘列表
-bind(
-    keybindings_cheatsheet.prefix,
-    keybindings_cheatsheet.key,
-    keybindings_cheatsheet.message,
-    toggleKeybindingsCheatsheet
-)
+    rebuildCanvas()
+    hotkey_binding = bind(
+        keybindings_cheatsheet.prefix,
+        keybindings_cheatsheet.key,
+        keybindings_cheatsheet.message,
+        toggleKeybindingsCheatsheet
+    )
+    started = true
+
+    return true
+end
+
+function _M.stop()
+    if hotkey_binding ~= nil then
+        hotkey_binding:delete()
+        hotkey_binding = nil
+    end
+
+    destroyCanvas()
+    show = false
+    started = false
+
+    return true
+end
 
 return _M

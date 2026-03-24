@@ -3213,6 +3213,30 @@ _M.export_current_config_to_file = function()
 	export_current_config_to_file()
 end
 
+_M.stop = function()
+	clear_active_runtime(true)
+	stop_inactive_resume_timer()
+	stop_menubar_status_timer()
+
+	if _M.screen_watcher ~= nil then
+		_M.screen_watcher:stop()
+	end
+
+	if _M.caffeinate_watcher ~= nil then
+		_M.caffeinate_watcher:stop()
+	end
+
+	if menubar_item ~= nil then
+		menubar_item:delete()
+		menubar_item = nil
+	end
+
+	last_menubar_render_signature = nil
+	last_menubar_tooltip = nil
+
+	return true
+end
+
 _M.get_state = function()
 	local break_completion_rate, break_completion_opportunities = current_break_completion_rate()
 

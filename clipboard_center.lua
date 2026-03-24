@@ -58,6 +58,9 @@ local menu_history_shortcut_limit = 9
 local chooser_row_height = 40
 local chooser_row_spacing = 2
 local chooser_window_chrome_height = 94
+local started = false
+local history_loaded = false
+local startup_synchronized = false
 
 local state = {
 	show_menubar = clipboard.show_menubar ~= false,
@@ -1834,6 +1837,12 @@ local function append_history_menu_items(menu)
 end
 
 local function show_chooser()
+	if started ~= true then
+		if _M.start() ~= true then
+			return
+		end
+	end
+
 	if state.chooser == nil then
 		return
 	end
@@ -2058,6 +2067,67 @@ local function sync_current_clipboard()
 	end
 end
 
+local function delete_hotkey()
+	if state.hotkey ~= nil then
+		state.hotkey:delete()
+		state.hotkey = nil
+	end
+end
+
+local function destroy_menubar()
+	if state.menubar ~= nil then
+		state.menubar:delete()
+		state.menubar = nil
+	end
+end
+
+local function destroy_preview_canvas()
+	if state.preview_canvas ~= nil then
+		state.preview_canvas:hide(0)
+		state.preview_canvas:delete()
+		state.preview_canvas = nil
+	end
+
+	state.preview_signature = nil
+end
+
+local function destroy_chooser()
+	if state.chooser == nil then
+		return
+	end
+
+	pcall(function()
+		state.chooser:hide()
+	end)
+	pcall(function()
+		state.chooser:delete()
+	end)
+
+	state.chooser = nil
+	state.chooser_screen_frame = nil
+end
+
+local function stop_pasteboard_watcher()
+	if state.watcher == nil then
+		return
+	end
+
+	pcall(function()
+		state.watcher:stop()
+	end)
+end
+
+local function start_pasteboard_watcher()
+	if state.watcher == nil then
+		state.watcher = hs.pasteboard.watcher.new(handle_pasteboard_change)
+		return
+	end
+
+	pcall(function()
+		state.watcher:start()
+	end)
+end
+
 do
 	local persisted_menu_history_size = hs.settings.get(menu_history_size_settings_key)
 
@@ -2074,20 +2144,56 @@ do
 	end
 end
 
-if clipboard.enabled == false then
-	log.i("clipboard center disabled by config")
-	return _M
+function _M.start()
+	if clipboard.enabled == false then
+		log.i("clipboard center disabled by config")
+		return false
+	end
+
+	if started == true then
+		return true
+	end
+
+	image_cache_dir = resolve_cache_dir()
+
+	if history_loaded ~= true then
+		load_history()
+		history_loaded = true
+	end
+
+	if state.chooser == nil then
+		setup_chooser()
+	end
+
+	if state.hotkey == nil then
+		bind_hotkey()
+	end
+
+	refresh_menubar()
+	start_pasteboard_watcher()
+
+	if startup_synchronized ~= true then
+		sync_current_clipboard()
+		startup_synchronized = true
+	end
+
+	started = true
+
+	return true
 end
 
-image_cache_dir = resolve_cache_dir()
+function _M.stop()
+	stop_preview_timer()
+	hide_preview()
+	destroy_preview_canvas()
+	stop_pasteboard_watcher()
+	destroy_menubar()
+	delete_hotkey()
+	destroy_chooser()
+	started = false
 
-load_history()
-setup_chooser()
-bind_hotkey()
-refresh_menubar()
-
-state.watcher = hs.pasteboard.watcher.new(handle_pasteboard_change)
-sync_current_clipboard()
+	return true
+end
 
 _M.show_chooser = show_chooser
 _M.clear_history = clear_history

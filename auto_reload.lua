@@ -5,6 +5,7 @@ _M.description = "lua文件变动自动reload, 使实时生效"
 
 local log = hs.logger.new("reload")
 local reload_delay_seconds = 0.25
+local started = false
 
 local reload_timer = nil
 
@@ -62,10 +63,32 @@ local function reload(paths, flag_tables)
     end
 end
 
-_M.watcher = hs.pathwatcher.new(hs.configdir, reload)
+function _M.start()
+    if started == true then
+        return true
+    end
 
-_M.watcher:start()
+    if _M.watcher == nil then
+        _M.watcher = hs.pathwatcher.new(hs.configdir, reload)
+    end
 
-hs.alert.show("hammerspoon reloaded")
+    _M.watcher:start()
+    started = true
+    hs.alert.show("hammerspoon reloaded")
+
+    return true
+end
+
+function _M.stop()
+    stop_reload_timer()
+
+    if _M.watcher ~= nil then
+        _M.watcher:stop()
+    end
+
+    started = false
+
+    return true
+end
 
 return _M

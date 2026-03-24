@@ -24,6 +24,7 @@ local menubar_icon_size = 18
 local menubar_canvas_size = 36
 local build_menu = nil
 local hotkey_binding = nil
+local started = false
 
 local modifier_aliases = {
 	ctrl = "ctrl",
@@ -690,20 +691,58 @@ build_menu = function()
 end
 
 _M.show_menubar = function()
+	if started ~= true then
+		_M.start()
+	end
+
 	set_show_menubar(true, "manual api show menubar")
 end
 
 _M.hide_menubar = function()
+	if started ~= true then
+		_M.start()
+	end
+
 	set_show_menubar(false, "manual api hide menubar")
 end
 
 _M.toggle_menubar_visibility = function()
+	if started ~= true then
+		_M.start()
+	end
+
 	set_show_menubar(not state.show_menubar, "manual api toggle menubar")
 end
 
-refresh_menubar()
-apply_hotkey_binding("startup")
+function _M.start()
+	if started == true then
+		return true
+	end
 
-apply_state("startup")
+	refresh_menubar()
+	apply_hotkey_binding("startup")
+	apply_state("startup")
+	started = true
+
+	return true
+end
+
+function _M.stop()
+	if hotkey_binding ~= nil then
+		hotkey_binding:delete()
+		hotkey_binding = nil
+	end
+
+	if menubar_item ~= nil then
+		menubar_item:delete()
+		menubar_item = nil
+	end
+
+	hs.caffeinate.set("displayIdle", false)
+	hs.caffeinate.set("systemIdle", false)
+	started = false
+
+	return true
+end
 
 return _M
