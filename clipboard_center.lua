@@ -54,6 +54,9 @@ local image_cache_dir = nil
 local history_id_counter = 0
 local menubar_icon_size = 18
 local menu_history_shortcut_limit = 9
+local chooser_row_height = 40
+local chooser_row_spacing = 2
+local chooser_window_chrome_height = 94
 
 local state = {
 	show_menubar = clipboard.show_menubar ~= false,
@@ -278,6 +281,14 @@ local function resolve_target_screen_frame()
 	return target_screen:frame()
 end
 
+local function chooser_window_height()
+	local chooser_rows = normalize_number(clipboard.chooser_rows, 12, 6)
+
+	-- Mirrors HSChooser.m + HSChooserWindow.xib:
+	-- finalHeight = non-table chrome + (rowHeight + intercellSpacing) * numRows
+	return chooser_window_chrome_height + ((chooser_row_height + chooser_row_spacing) * chooser_rows)
+end
+
 local function chooser_layout(screen_frame)
 	if screen_frame == nil then
 		return nil
@@ -285,12 +296,13 @@ local function chooser_layout(screen_frame)
 
 	local chooser_width_percent = normalize_number(clipboard.chooser_width, 40, 20)
 	local chooser_width = math.floor(screen_frame.w * chooser_width_percent / 100)
+	local chooser_height = chooser_window_height()
 	local preview_width = math.min(default_preview_width, math.floor(screen_frame.w * 0.34))
 	local preview_height = math.min(default_preview_height, math.floor(screen_frame.h * 0.56))
 	local chooser_x = screen_frame.x + math.floor((screen_frame.w - chooser_width) / 2)
 	local preview_x = screen_frame.x + screen_frame.w - preview_width - default_preview_margin
 	local preview_y = screen_frame.y + math.floor((screen_frame.h - preview_height) / 2)
-	local chooser_y = preview_y
+	local chooser_y = screen_frame.y + math.floor((screen_frame.h - chooser_height) / 2)
 
 	if default_preview_enabled == true then
 		local total_width = chooser_width + default_preview_gap + preview_width + (default_preview_margin * 2)
