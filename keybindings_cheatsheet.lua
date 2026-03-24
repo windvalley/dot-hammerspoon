@@ -15,6 +15,7 @@ local window_movement = require("keybindings_config").window_movement
 local window_resize = require("keybindings_config").window_resize
 local window_monitor = require("keybindings_config").window_monitor
 local window_batch = require("keybindings_config").window_batch
+local hotkey_helper = require("hotkey_helper")
 
 local utf8len = require "utils_lib".utf8len
 local utf8sub = require "utils_lib".utf8sub
@@ -41,6 +42,12 @@ local font_color = "#c6c6c6"
 local stroke_color = "#585858"
 -- 分割线的宽度
 local stroke_width = 1
+
+local log = hs.logger.new("cheatsheet")
+
+local function bind(modifiers, key, message, pressedfn, releasedfn, repeatfn)
+    return hotkey_helper.bind(modifiers, key, message, pressedfn, releasedfn, repeatfn, { logger = log })
+end
 
 -- 快捷键总数
 local num = 0
@@ -427,7 +434,7 @@ end
 drawText(formatText())
 
 -- 显示/隐藏快捷键备忘列表
-hs.hotkey.bind(
+bind(
     keybindings_cheatsheet.prefix,
     keybindings_cheatsheet.key,
     keybindings_cheatsheet.message,

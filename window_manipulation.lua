@@ -10,12 +10,17 @@ local window_batch = require("keybindings_config").window_batch
 local window_monitor = require("keybindings_config").window_monitor
 
 local window_lib = require("window_lib")
+local hotkey_helper = require("hotkey_helper")
 
 local log = hs.logger.new("window")
 
+local function bind(modifiers, key, message, pressedfn, releasedfn, repeatfn)
+    return hotkey_helper.bind(modifiers, key, message, pressedfn, releasedfn, repeatfn, { logger = log })
+end
+
 -- ********** window position **********
 -- 居中
-hs.hotkey.bind(
+bind(
     window_position.center.prefix,
     window_position.center.key,
     window_position.center.message,
@@ -24,7 +29,7 @@ hs.hotkey.bind(
     end
 )
 -- 左半屏
-hs.hotkey.bind(
+bind(
     window_position.left.prefix,
     window_position.left.key,
     window_position.left.message,
@@ -33,7 +38,7 @@ hs.hotkey.bind(
     end
 )
 -- 右半屏
-hs.hotkey.bind(
+bind(
     window_position.right.prefix,
     window_position.right.key,
     window_position.right.message,
@@ -42,7 +47,7 @@ hs.hotkey.bind(
     end
 )
 -- 上半屏
-hs.hotkey.bind(
+bind(
     window_position.up.prefix,
     window_position.up.key,
     window_position.up.message,
@@ -51,7 +56,7 @@ hs.hotkey.bind(
     end
 )
 -- 下半屏
-hs.hotkey.bind(
+bind(
     window_position.down.prefix,
     window_position.down.key,
     window_position.down.message,
@@ -60,7 +65,7 @@ hs.hotkey.bind(
     end
 )
 -- 左上角
-hs.hotkey.bind(
+bind(
     window_position.top_left.prefix,
     window_position.top_left.key,
     window_position.top_left.message,
@@ -69,7 +74,7 @@ hs.hotkey.bind(
     end
 )
 -- 右上角
-hs.hotkey.bind(
+bind(
     window_position.top_right.prefix,
     window_position.top_right.key,
     window_position.top_right.message,
@@ -78,7 +83,7 @@ hs.hotkey.bind(
     end
 )
 -- 左下角
-hs.hotkey.bind(
+bind(
     window_position.bottom_left.prefix,
     window_position.bottom_left.key,
     window_position.bottom_left.message,
@@ -87,7 +92,7 @@ hs.hotkey.bind(
     end
 )
 -- 右下角
-hs.hotkey.bind(
+bind(
     window_position.bottom_right.prefix,
     window_position.bottom_right.key,
     window_position.bottom_right.message,
@@ -96,7 +101,7 @@ hs.hotkey.bind(
     end
 )
 -- 左 1/3（横屏）或上 1/3（竖屏）
-hs.hotkey.bind(
+bind(
     window_position.left_1_3.prefix,
     window_position.left_1_3.key,
     window_position.left_1_3.message,
@@ -105,7 +110,7 @@ hs.hotkey.bind(
     end
 )
 -- 右 1/3（横屏）或下 1/3（竖屏）
-hs.hotkey.bind(
+bind(
     window_position.right_1_3.prefix,
     window_position.right_1_3.key,
     window_position.right_1_3.message,
@@ -114,7 +119,7 @@ hs.hotkey.bind(
     end
 )
 -- 左 2/3（横屏）或上 2/3（竖屏）
-hs.hotkey.bind(
+bind(
     window_position.left_2_3.prefix,
     window_position.left_2_3.key,
     window_position.left_2_3.message,
@@ -123,7 +128,7 @@ hs.hotkey.bind(
     end
 )
 -- 右 2/3（横屏）或下 2/3（竖屏）
-hs.hotkey.bind(
+bind(
     window_position.right_2_3.prefix,
     window_position.right_2_3.key,
     window_position.right_2_3.message,
@@ -134,7 +139,7 @@ hs.hotkey.bind(
 
 -- ********** window resize **********
 -- 最大化
-hs.hotkey.bind(
+bind(
     window_resize.max.prefix,
     window_resize.max.key,
     window_resize.max.message,
@@ -143,7 +148,7 @@ hs.hotkey.bind(
     end
 )
 -- 等比例放大窗口
-hs.hotkey.bind(
+bind(
     window_resize.stretch.prefix,
     window_resize.stretch.key,
     window_resize.stretch.message,
@@ -152,7 +157,7 @@ hs.hotkey.bind(
     end
 )
 -- 等比例缩小窗口
-hs.hotkey.bind(
+bind(
     window_resize.shrink.prefix,
     window_resize.shrink.key,
     window_resize.shrink.message,
@@ -161,7 +166,7 @@ hs.hotkey.bind(
     end
 )
 -- 基于底边向上或向下伸展.
-hs.hotkey.bind(
+bind(
     window_resize.stretch_up.prefix,
     window_resize.stretch_up.key,
     window_resize.stretch_up.message,
@@ -173,7 +178,7 @@ hs.hotkey.bind(
         window_lib.directionStepResize("up")
     end
 )
-hs.hotkey.bind(
+bind(
     window_resize.stretch_down.prefix,
     window_resize.stretch_down.key,
     window_resize.stretch_down.message,
@@ -186,7 +191,7 @@ hs.hotkey.bind(
     end
 )
 -- 基于右边向左或向右伸展.
-hs.hotkey.bind(
+bind(
     window_resize.stretch_left.prefix,
     window_resize.stretch_left.key,
     window_resize.stretch_left.message,
@@ -198,7 +203,7 @@ hs.hotkey.bind(
         window_lib.directionStepResize("left")
     end
 )
-hs.hotkey.bind(
+bind(
     window_resize.stretch_right.prefix,
     window_resize.stretch_right.key,
     window_resize.stretch_right.message,
@@ -213,7 +218,7 @@ hs.hotkey.bind(
 
 -- ********** window movement **********
 -- 上下左右移动窗口.
-hs.hotkey.bind(
+bind(
     window_movement.to_up.prefix,
     window_movement.to_up.key,
     window_movement.to_up.message,
@@ -225,7 +230,7 @@ hs.hotkey.bind(
         window_lib.stepMove("up")
     end
 )
-hs.hotkey.bind(
+bind(
     window_movement.to_down.prefix,
     window_movement.to_down.key,
     window_movement.to_down.message,
@@ -237,7 +242,7 @@ hs.hotkey.bind(
         window_lib.stepMove("down")
     end
 )
-hs.hotkey.bind(
+bind(
     window_movement.to_left.prefix,
     window_movement.to_left.key,
     window_movement.to_left.message,
@@ -249,7 +254,7 @@ hs.hotkey.bind(
         window_lib.stepMove("left")
     end
 )
-hs.hotkey.bind(
+bind(
     window_movement.to_right.prefix,
     window_movement.to_right.key,
     window_movement.to_right.message,
@@ -264,7 +269,7 @@ hs.hotkey.bind(
 
 -- ********** window monitor **********
 -- 将窗口移动到上下左右或下一个显示器.
-hs.hotkey.bind(
+bind(
     window_monitor.to_above_screen.prefix,
     window_monitor.to_above_screen.key,
     window_monitor.to_above_screen.message,
@@ -273,7 +278,7 @@ hs.hotkey.bind(
         window_lib.moveToScreen("up")
     end
 )
-hs.hotkey.bind(
+bind(
     window_monitor.to_below_screen.prefix,
     window_monitor.to_below_screen.key,
     window_monitor.to_below_screen.message,
@@ -282,7 +287,7 @@ hs.hotkey.bind(
         window_lib.moveToScreen("down")
     end
 )
-hs.hotkey.bind(
+bind(
     window_monitor.to_left_screen.prefix,
     window_monitor.to_left_screen.key,
     window_monitor.to_left_screen.message,
@@ -291,7 +296,7 @@ hs.hotkey.bind(
         window_lib.moveToScreen("left")
     end
 )
-hs.hotkey.bind(
+bind(
     window_monitor.to_right_screen.prefix,
     window_monitor.to_right_screen.key,
     window_monitor.to_right_screen.message,
@@ -300,7 +305,7 @@ hs.hotkey.bind(
         window_lib.moveToScreen("right")
     end
 )
-hs.hotkey.bind(
+bind(
     window_monitor.to_next_screen.prefix,
     window_monitor.to_next_screen.key,
     window_monitor.to_next_screen.message,
@@ -312,7 +317,7 @@ hs.hotkey.bind(
 
 -- ********** window batch **********
 -- 最小化所有窗口
-hs.hotkey.bind(
+bind(
     window_batch.minimize_all_windows.prefix,
     window_batch.minimize_all_windows.key,
     window_batch.minimize_all_windows.message,
@@ -322,7 +327,7 @@ hs.hotkey.bind(
     end
 )
 -- 恢复所有最小化的窗口
-hs.hotkey.bind(
+bind(
     window_batch.un_minimize_all_windows.prefix,
     window_batch.un_minimize_all_windows.key,
     window_batch.un_minimize_all_windows.message,
@@ -332,7 +337,7 @@ hs.hotkey.bind(
     end
 )
 -- 关闭所有窗口
-hs.hotkey.bind(
+bind(
     window_batch.close_all_windows.prefix,
     window_batch.close_all_windows.key,
     window_batch.close_all_windows.message,

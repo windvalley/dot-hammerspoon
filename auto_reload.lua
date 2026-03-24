@@ -3,24 +3,68 @@ local _M = {}
 _M.name = "auto_reload"
 _M.description = "lua文件变动自动reload, 使实时生效"
 
-local function reload(files)
-    local doReload = false
+local log = hs.logger.new("reload")
+local reload_delay_seconds = 0.25
 
-    for _, file in pairs(files) do
-        if file:sub(-4) == ".lua" then
-            doReload = true
-        end
+local reload_timer = nil
+
+local function stop_reload_timer()
+    if reload_timer == nil then
+        return
     end
 
-    if doReload then
-        hs.console.clearConsole()
-        hs.reload()
+    reload_timer:stop()
+    reload_timer = nil
+end
+
+local function schedule_reload(reason)
+    stop_reload_timer()
+
+    reload_timer = hs.timer.doAfter(
+        reload_delay_seconds,
+        function()
+            reload_timer = nil
+            log.i("reload hammerspoon config: " .. tostring(reason or "file change"))
+            hs.reload()
+        end
+    )
+end
+
+local function is_relevant_lua_change(path, flags)
+    if type(path) ~= "string" or path:sub(-4) ~= ".lua" then
+        return false
+    end
+
+    if type(flags) ~= "table" then
+        return true
+    end
+
+    if flags.mustScanSubDirs == true or flags.rootChanged == true then
+        return true
+    end
+
+    if flags.itemIsFile ~= true and flags.itemRenamed ~= true then
+        return false
+    end
+
+    return flags.itemCreated == true
+        or flags.itemRemoved == true
+        or flags.itemRenamed == true
+        or flags.itemModified == true
+end
+
+local function reload(paths, flag_tables)
+    for index, path in ipairs(paths or {}) do
+        if is_relevant_lua_change(path, flag_tables and flag_tables[index]) then
+            schedule_reload(path)
+            return
+        end
     end
 end
 
-configWatcher = hs.pathwatcher.new(hs.configdir, reload)
+_M.watcher = hs.pathwatcher.new(hs.configdir, reload)
 
-configWatcher:start()
+_M.watcher:start()
 
 hs.alert.show("hammerspoon reloaded")
 

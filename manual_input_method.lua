@@ -4,15 +4,20 @@ _M.name = "manual_input_method"
 _M.description = "明确指定切换到某个输入法"
 
 local manual_input_methods = require "keybindings_config".manual_input_methods
+local hotkey_helper = require("hotkey_helper")
 
 local log = hs.logger.new("input")
+
+local function bind(modifiers, key, message, pressedfn, releasedfn, repeatfn)
+    return hotkey_helper.bind(modifiers, key, message, pressedfn, releasedfn, repeatfn, { logger = log })
+end
 
 local pop_msg = false
 
 hs.fnutils.each(
     manual_input_methods,
     function(item)
-        hs.hotkey.bind(
+        bind(
             item.prefix,
             item.key,
             item.message,

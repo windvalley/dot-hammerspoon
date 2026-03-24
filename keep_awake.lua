@@ -4,6 +4,7 @@ _M.name = "keep_awake"
 _M.description = "防止电脑空闲休眠, 并提供菜单栏图标"
 
 local keep_awake = require("keybindings_config").system.keep_awake or {}
+local hotkey_helper = require("hotkey_helper")
 local trim = require("utils_lib").trim
 
 local log = hs.logger.new("awake")
@@ -528,24 +529,23 @@ local function create_hotkey_binding(modifiers, key)
 		return true, nil
 	end
 
-	local ok, binding_or_error = pcall(
+	local binding, binding_or_error = hotkey_helper.bind(
+		modifiers,
+		key,
+		hotkey_message,
 		function()
-			return hs.hotkey.bind(
-				modifiers,
-				key,
-				hotkey_message,
-				function()
-					set_enabled(not state.enabled, "hotkey toggle")
-				end
-			)
-		end
+			set_enabled(not state.enabled, "hotkey toggle")
+		end,
+		nil,
+		nil,
+		{ logger = log }
 	)
 
-	if ok ~= true or binding_or_error == nil then
+	if binding == nil then
 		return false, binding_or_error
 	end
 
-	return true, binding_or_error
+	return true, binding
 end
 
 local function replace_hotkey_binding(binding)

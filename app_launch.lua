@@ -4,8 +4,13 @@ _M.name = "app_launch"
 _M.description = "app启动或切换"
 
 local apps = require "keybindings_config".apps
+local hotkey_helper = require("hotkey_helper")
 
 local log = hs.logger.new("appLaunch")
+
+local function bind(modifiers, key, message, pressedfn, releasedfn, repeatfn)
+    return hotkey_helper.bind(modifiers, key, message, pressedfn, releasedfn, repeatfn, { logger = log })
+end
 
 -- App显示或隐藏
 local function toggleAppByBundleId(bundleID)
@@ -22,7 +27,7 @@ end
 hs.fnutils.each(
     apps,
     function(item)
-        hs.hotkey.bind(
+        bind(
             item.prefix,
             item.key,
             item.message,

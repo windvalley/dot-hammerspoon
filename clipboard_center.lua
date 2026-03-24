@@ -4,6 +4,7 @@ _M.name = "clipboard_center"
 _M.description = "剪贴板历史"
 
 local clipboard = require("keybindings_config").clipboard or {}
+local hotkey_helper = require("hotkey_helper")
 local trim = require("utils_lib").trim
 local utf8len = require("utils_lib").utf8len
 local utf8sub = require("utils_lib").utf8sub
@@ -1949,19 +1950,17 @@ local function bind_hotkey()
 		return
 	end
 
-	local ok, binding = pcall(
-		function()
-			return hs.hotkey.bind(
-				copy_list(modifiers),
-				key,
-				clipboard.message or "Clipboard Center",
-				show_chooser
-			)
-		end
+	local binding = hotkey_helper.bind(
+		copy_list(modifiers),
+		key,
+		clipboard.message or "Clipboard Center",
+		show_chooser,
+		nil,
+		nil,
+		{ logger = log }
 	)
 
-	if ok ~= true or binding == nil then
-		log.e("failed to bind clipboard hotkey: " .. tostring(binding))
+	if binding == nil then
 		return
 	end
 
