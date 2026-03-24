@@ -28,6 +28,9 @@ local valid_menubar_skins = {
 	hourglass = true,
 	bars = true,
 }
+local deprecated_runtime_override_keys = {
+	show_progress_in_menubar = true,
+}
 local blocked_event_type_names = {
 	"keyDown",
 	"keyUp",
@@ -157,7 +160,6 @@ local function normalize_config(config)
 	return {
 		enabled = config.enabled ~= false,
 		show_menubar = config.show_menubar ~= false,
-		show_progress_in_menubar = config.show_progress_in_menubar ~= false,
 		menubar_title = tostring(config.menubar_title or default_menubar_title),
 		menubar_skin = normalize_menubar_skin(config.menubar_skin),
 		start_next_cycle = normalize_start_next_cycle_mode(config.start_next_cycle),
@@ -287,11 +289,36 @@ local function mode_label(mode)
 	return "硬性提醒"
 end
 
+local function sanitize_runtime_overrides(overrides)
+	local sanitized = {}
+	local changed = false
+
+	for key, value in pairs(overrides or {}) do
+		if deprecated_runtime_override_keys[key] == true then
+			changed = true
+		else
+			sanitized[key] = value
+		end
+	end
+
+	return sanitized, changed
+end
+
 local function load_runtime_overrides()
 	local saved = hs.settings.get(settings_key)
 
 	if type(saved) == "table" then
-		return saved
+		local sanitized, changed = sanitize_runtime_overrides(saved)
+
+		if changed == true then
+			if table_is_empty(sanitized) then
+				hs.settings.clear(settings_key)
+			else
+				hs.settings.set(settings_key, sanitized)
+			end
+		end
+
+		return sanitized
 	end
 
 	return {}
@@ -399,7 +426,6 @@ local menubar_disabled_color = { white = 0, alpha = 0.34 }
 local menubar_paused_color = { white = 0, alpha = 0.52 }
 local menubar_active_color = { white = 0, alpha = 1 }
 local menubar_waiting_color = { white = 0, alpha = 0.72 }
-local menubar_track_color = { white = 0, alpha = 0.18 }
 local font_name = "Monaco"
 local icon_font_name = "Apple Color Emoji"
 
@@ -1148,59 +1174,23 @@ end
 local function menubar_visual_state()
 	if state.enabled ~= true then
 		return {
-			progress = nil,
-			progress_color = menubar_disabled_color,
 			icon_color = menubar_disabled_color,
 		}
 	end
 
 	if session_is_inactive == true then
 		return {
-			progress = nil,
-			progress_color = menubar_paused_color,
 			icon_color = menubar_paused_color,
 		}
 	end
 
 	if waiting_for_resume_input == true then
 		return {
-			progress = nil,
-			progress_color = menubar_waiting_color,
 			icon_color = menubar_waiting_color,
 		}
 	end
 
-	if break_ends_at ~= nil then
-		local remaining_seconds = math.max(0, break_ends_at - os.time())
-		local rest_seconds = current_break_duration_seconds or effective_rest_seconds()
-		local progress = 0
-
-		if rest_seconds > 0 then
-			progress = clamp_number(remaining_seconds / rest_seconds, 0, 1)
-		end
-
-		return {
-			progress = state.show_progress_in_menubar and progress or nil,
-			progress_color = menubar_active_color,
-			icon_color = menubar_active_color,
-		}
-	end
-
-	if next_break_at ~= nil and work_cycle_started_at ~= nil then
-		local work_seconds = current_work_cycle_duration_seconds or state.work_seconds
-		local elapsed_seconds = clamp_number(os.time() - work_cycle_started_at, 0, work_seconds)
-		local progress = clamp_number(elapsed_seconds / work_seconds, 0, 1)
-
-		return {
-			progress = state.show_progress_in_menubar and progress or nil,
-			progress_color = menubar_active_color,
-			icon_color = menubar_active_color,
-		}
-	end
-
 	return {
-		progress = nil,
-		progress_color = menubar_active_color,
 		icon_color = menubar_active_color,
 	}
 end
@@ -1211,10 +1201,7 @@ local function menubar_render_signature(status_title, status_detail, tooltip, vi
 			tostring(status_title or ""),
 			tostring(status_detail or ""),
 			tostring(tooltip or ""),
-			tostring(state.show_progress_in_menubar),
 			tostring(state.menubar_skin),
-			visual_state.progress == nil and "nil" or string.format("%.6f", visual_state.progress),
-			tostring(visual_state.progress_color and visual_state.progress_color.alpha or ""),
 			tostring(visual_state.icon_color and visual_state.icon_color.alpha or ""),
 		},
 		"|"
@@ -1245,32 +1232,6 @@ local function menubar_tooltip_status_detail()
 	return "等待开始新的工作计时"
 end
 
-local function circle_path_coordinates(progress, center_x, center_y, radius)
-	if progress == nil or progress <= 0 then
-		return nil
-	end
-
-	local steps = math.max(8, math.ceil(56 * progress))
-	local coordinates = {}
-	local start_radians = -math.pi / 2
-	local end_radians = start_radians + (math.pi * 2 * progress)
-
-	for index = 0, steps do
-		local ratio = index / steps
-		local angle = start_radians + ((end_radians - start_radians) * ratio)
-
-		table.insert(
-			coordinates,
-			{
-				x = center_x + (math.cos(angle) * radius),
-				y = center_y + (math.sin(angle) * radius),
-			}
-		)
-	end
-
-	return coordinates
-end
-
 local function build_menubar_icon(visual_state)
 	visual_state = visual_state or menubar_visual_state()
 	local canvas = hs.canvas.new({
@@ -1281,25 +1242,8 @@ local function build_menubar_icon(visual_state)
 	})
 	local center_x = menubar_canvas_size / 2
 	local center_y = menubar_canvas_size / 2
-	local ring_radius = 15.0
-	local ring_width = 1.9
-	local show_progress_ring = state.show_progress_in_menubar == true
 	local icon_color = visual_state.icon_color
 	local elements = {}
-
-	if show_progress_ring == true then
-		table.insert(
-			elements,
-			{
-				type = "circle",
-				action = "stroke",
-				center = { x = center_x, y = center_y },
-				radius = ring_radius,
-				strokeWidth = ring_width,
-				strokeColor = menubar_track_color,
-			}
-		)
-	end
 
 	local function transform_coordinates(coordinates, scale, offset_x, offset_y)
 		local transformed = {}
@@ -1318,9 +1262,9 @@ local function build_menubar_icon(visual_state)
 	end
 
 	local function append_coffee_skin()
-		local icon_scale = show_progress_ring and 1.08 or 1.24
-		local icon_offset_x = show_progress_ring and 0 or 0.2
-		local icon_offset_y = show_progress_ring and 0.15 or 0.35
+		local icon_scale = 1.24
+		local icon_offset_x = 0.2
+		local icon_offset_y = 0.35
 		local transform = function(coordinates)
 			return transform_coordinates(coordinates, icon_scale, icon_offset_x, icon_offset_y)
 		end
@@ -1331,7 +1275,7 @@ local function build_menubar_icon(visual_state)
 				type = "segments",
 				action = "stroke",
 				closed = false,
-				strokeWidth = show_progress_ring and 1.85 or 1.95,
+				strokeWidth = 1.95,
 				strokeCapStyle = "round",
 				strokeJoinStyle = "round",
 				strokeColor = icon_color,
@@ -1351,7 +1295,7 @@ local function build_menubar_icon(visual_state)
 				type = "segments",
 				action = "stroke",
 				closed = false,
-				strokeWidth = show_progress_ring and 1.75 or 1.85,
+				strokeWidth = 1.85,
 				strokeCapStyle = "round",
 				strokeJoinStyle = "round",
 				strokeColor = icon_color,
@@ -1367,7 +1311,7 @@ local function build_menubar_icon(visual_state)
 				type = "segments",
 				action = "stroke",
 				closed = false,
-				strokeWidth = show_progress_ring and 1.85 or 1.95,
+				strokeWidth = 1.95,
 				strokeCapStyle = "round",
 				strokeJoinStyle = "round",
 				strokeColor = icon_color,
@@ -1386,7 +1330,7 @@ local function build_menubar_icon(visual_state)
 				type = "segments",
 				action = "stroke",
 				closed = false,
-				strokeWidth = show_progress_ring and 1.45 or 1.55,
+				strokeWidth = 1.55,
 				strokeCapStyle = "round",
 				strokeJoinStyle = "round",
 				strokeColor = icon_color,
@@ -1404,7 +1348,7 @@ local function build_menubar_icon(visual_state)
 				type = "segments",
 				action = "stroke",
 				closed = false,
-				strokeWidth = show_progress_ring and 1.45 or 1.55,
+				strokeWidth = 1.55,
 				strokeCapStyle = "round",
 				strokeJoinStyle = "round",
 				strokeColor = icon_color,
@@ -1422,7 +1366,7 @@ local function build_menubar_icon(visual_state)
 				type = "segments",
 				action = "stroke",
 				closed = false,
-				strokeWidth = show_progress_ring and 1.6 or 1.75,
+				strokeWidth = 1.75,
 				strokeCapStyle = "round",
 				strokeJoinStyle = "round",
 				strokeColor = icon_color,
@@ -1435,13 +1379,13 @@ local function build_menubar_icon(visual_state)
 	end
 
 	local function append_hourglass_skin()
-		local icon_scale = show_progress_ring and 1.05 or 1.18
+		local icon_scale = 1.18
 		local icon_offset_x = 0
-		local icon_offset_y = show_progress_ring and 0 or 0.3
+		local icon_offset_y = 0.3
 		local transform = function(coordinates)
 			return transform_coordinates(coordinates, icon_scale, icon_offset_x, icon_offset_y)
 		end
-		local stroke_width = show_progress_ring and 1.75 or 1.95
+		local stroke_width = 1.95
 
 		table.insert(
 			elements,
@@ -1500,7 +1444,7 @@ local function build_menubar_icon(visual_state)
 				type = "segments",
 				action = "stroke",
 				closed = false,
-				strokeWidth = show_progress_ring and 1.35 or 1.5,
+				strokeWidth = 1.5,
 				strokeCapStyle = "round",
 				strokeJoinStyle = "round",
 				strokeColor = icon_color,
@@ -1513,13 +1457,12 @@ local function build_menubar_icon(visual_state)
 	end
 
 	local function append_bars_skin()
-		local icon_scale = show_progress_ring and 1 or 1.1
-		local icon_offset_y = show_progress_ring and 0 or 0.2
-		local progress = clamp_number(visual_state.progress or 0.58, 0.18, 1)
+		local icon_scale = 1.1
+		local icon_offset_y = 0.2
 		local heights = {
-			8 + (progress * 8),
-			12 + (progress * 10),
-			6 + (progress * 12),
+			12.6,
+			17.8,
+			13.0,
 		}
 		local bars = {
 			{ x = 10.8, width = 4.2, height = heights[1] },
@@ -1557,20 +1500,6 @@ local function build_menubar_icon(visual_state)
 	end
 
 	canvas:appendElements(table.unpack(elements))
-
-	if show_progress_ring == true and visual_state.progress ~= nil and visual_state.progress > 0 then
-		canvas:appendElements(
-			{
-				type = "segments",
-				action = "stroke",
-				closed = false,
-				strokeWidth = ring_width,
-				strokeCapStyle = "round",
-				strokeColor = visual_state.progress_color,
-				coordinates = circle_path_coordinates(visual_state.progress, center_x, center_y, ring_radius),
-			}
-		)
-	end
 
 	local icon = canvas:imageFromCanvas()
 
@@ -2164,7 +2093,6 @@ local function exportable_config()
 	return {
 		enabled = state.enabled,
 		show_menubar = state.show_menubar,
-		show_progress_in_menubar = state.show_progress_in_menubar,
 		menubar_skin = state.menubar_skin,
 		start_next_cycle = state.start_next_cycle,
 		mode = state.mode,
@@ -2190,8 +2118,6 @@ local function render_break_reminder_config_block(config)
 			"\tenabled = " .. serialize_lua_value(config.enabled) .. ",",
 			"\t-- 是否显示菜单栏图标, 可通过菜单直接调整提醒配置",
 			"\tshow_menubar = " .. serialize_lua_value(config.show_menubar) .. ",",
-			"\t-- 是否在菜单栏图标中直接显示进度",
-			"\tshow_progress_in_menubar = " .. serialize_lua_value(config.show_progress_in_menubar) .. ",",
 			"\t-- 菜单栏图标皮肤: \"coffee\" \"hourglass\" \"bars\"",
 			"\tmenubar_skin = " .. serialize_lua_value(config.menubar_skin) .. ",",
 			"\t-- 休息结束后如何开始下一轮工作计时: \"auto\" 或 \"on_input\"",
@@ -3109,19 +3035,6 @@ local function build_menu()
 			end,
 		},
 		{
-			title = "显示进度环",
-			checked = state.show_progress_in_menubar,
-			disabled = state.show_menubar ~= true,
-			fn = function()
-				update_runtime_overrides(
-					{
-						show_progress_in_menubar = not state.show_progress_in_menubar,
-					},
-					state.show_progress_in_menubar and "已关闭图标进度显示" or "已开启图标进度显示"
-				)
-			end,
-		},
-		{
 			title = "图标皮肤",
 			disabled = state.show_menubar ~= true,
 			menu = build_menubar_skin_menu(),
@@ -3306,7 +3219,6 @@ _M.get_state = function()
 	return {
 		enabled = state.enabled,
 		show_menubar = state.show_menubar,
-		show_progress_in_menubar = state.show_progress_in_menubar,
 		menubar_skin = state.menubar_skin,
 		start_next_cycle = state.start_next_cycle,
 		mode = state.mode,

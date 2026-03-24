@@ -346,10 +346,6 @@ _M.break_reminder = {
 	enabled = true,
 	-- 是否显示菜单栏图标, 可通过菜单直接调整提醒配置
 	show_menubar = true,
-	-- 是否在菜单栏图标中直接显示当前进度
-	-- 关闭后切换为更简洁的纯图标版, 不显示外环
-	-- 开启后工作阶段显示进度环, 休息阶段显示剩余倒计时环
-	show_progress_in_menubar = true,
 	-- 菜单栏图标皮肤: coffee / hourglass / bars
 	menubar_skin = "coffee",
 	-- 休息结束后如何开始下一轮工作计时
