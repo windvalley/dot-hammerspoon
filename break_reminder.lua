@@ -408,6 +408,7 @@ local break_timer = nil
 local friendly_reminder_timer = nil
 local friendly_reminder_popup_timer = nil
 local menubar_status_timer = nil
+local last_menubar_render_signature = nil
 local inactive_resume_timer = nil
 local break_ends_at = nil
 local next_break_at = nil
@@ -1199,6 +1200,22 @@ local function menubar_visual_state()
 	}
 end
 
+local function menubar_render_signature(status_title, status_detail, tooltip, visual_state)
+	return table.concat(
+		{
+			tostring(status_title or ""),
+			tostring(status_detail or ""),
+			tostring(tooltip or ""),
+			tostring(state.show_progress_in_menubar),
+			tostring(state.menubar_skin),
+			visual_state.progress == nil and "nil" or string.format("%.6f", visual_state.progress),
+			tostring(visual_state.progress_color and visual_state.progress_color.alpha or ""),
+			tostring(visual_state.icon_color and visual_state.icon_color.alpha or ""),
+		},
+		"|"
+	)
+end
+
 local function circle_path_coordinates(progress, center_x, center_y, radius)
 	if progress == nil or progress <= 0 then
 		return nil
@@ -1225,8 +1242,8 @@ local function circle_path_coordinates(progress, center_x, center_y, radius)
 	return coordinates
 end
 
-local function build_menubar_icon()
-	local visual_state = menubar_visual_state()
+local function build_menubar_icon(visual_state)
+	visual_state = visual_state or menubar_visual_state()
 	local canvas = hs.canvas.new({
 		x = 0,
 		y = 0,
@@ -1547,7 +1564,33 @@ update_menubar_status = function()
 	ensure_gamification_metrics_current()
 
 	local status_title, status_detail = current_status()
-	local icon = build_menubar_icon()
+	local visual_state = menubar_visual_state()
+	local icon = build_menubar_icon(visual_state)
+	local tooltip = string.format(
+		"Break Reminder\n状态: %s\n%s\n模式: %s | 工作: %s | 休息: %s | 下一轮: %s\n今日专注: %s / %s | 完成休息: %d | 跳过: %d\n休息目标: %s | 休息完成率: %s\n连续达标: %d 天 | 今日积分: %d (%s) | 皮肤: %s",
+		status_title,
+		status_detail,
+		effective_mode_label(),
+		format_minutes(state.work_seconds),
+		rest_duration_label(),
+		start_next_cycle_label(state.start_next_cycle),
+		format_duration(gamification_metrics.today_focus_seconds),
+		format_duration(state.focus_goal_seconds),
+		gamification_metrics.today_completed_breaks,
+		gamification_metrics.today_skipped_breaks,
+		state.break_goal_count <= 0 and "未启用"
+			or string.format("%d/%d%s", gamification_metrics.today_completed_breaks, state.break_goal_count, break_goal_reached() == true and "（已达成）" or ""),
+		break_completion_rate_label(),
+		current_streak_days(),
+		gamification_points(),
+		gamification_rank_label(),
+		menubar_skin_label(state.menubar_skin)
+	)
+	local render_signature = menubar_render_signature(status_title, status_detail, tooltip, visual_state)
+
+	if render_signature == last_menubar_render_signature then
+		return
+	end
 
 	menubar_item:setTitle(nil)
 
@@ -1558,41 +1601,14 @@ update_menubar_status = function()
 		menubar_item:setTitle(state.menubar_title)
 	end
 
-	menubar_item:setTooltip(
-		string.format(
-			"Break Reminder\n状态: %s\n%s\n模式: %s | 工作: %s | 休息: %s | 下一轮: %s\n今日专注: %s / %s | 完成休息: %d | 跳过: %d\n休息目标: %s | 休息完成率: %s\n连续达标: %d 天 | 今日积分: %d (%s) | 皮肤: %s",
-			status_title,
-			status_detail,
-			effective_mode_label(),
-			format_minutes(state.work_seconds),
-			rest_duration_label(),
-			start_next_cycle_label(state.start_next_cycle),
-			format_duration(gamification_metrics.today_focus_seconds),
-			format_duration(state.focus_goal_seconds),
-			gamification_metrics.today_completed_breaks,
-			gamification_metrics.today_skipped_breaks,
-			state.break_goal_count <= 0 and "未启用"
-				or string.format("%d/%d%s", gamification_metrics.today_completed_breaks, state.break_goal_count, break_goal_reached() == true and "（已达成）" or ""),
-			break_completion_rate_label(),
-			current_streak_days(),
-			gamification_points(),
-			gamification_rank_label(),
-			menubar_skin_label(state.menubar_skin)
-		)
-	)
+	menubar_item:setTooltip(tooltip)
+	last_menubar_render_signature = render_signature
 end
 
 local function start_menubar_status_timer()
-	if menubar_item == nil or menubar_status_timer ~= nil then
-		return
-	end
-
-	menubar_status_timer = hs.timer.doEvery(
-		1,
-		function()
-			update_menubar_status()
-		end
-	)
+	-- Keep the menubar event-driven. Repainting it every second triggers
+	-- repeated WindowServer "Invalid window" errors on some systems.
+	stop_menubar_status_timer()
 end
 
 local function stop_menubar_status_timer()
@@ -1828,7 +1844,6 @@ start_break = function(reason)
 			end
 
 			update_overlays(remaining_seconds)
-			update_menubar_status()
 		end
 	)
 end
@@ -3156,6 +3171,7 @@ end
 refresh_menubar = function()
 	if state.show_menubar ~= true then
 		stop_menubar_status_timer()
+		last_menubar_render_signature = nil
 
 		if menubar_item ~= nil then
 			menubar_item:delete()
@@ -3172,6 +3188,8 @@ refresh_menubar = function()
 			log.e("failed to create break reminder menubar item")
 			return
 		end
+
+		last_menubar_render_signature = nil
 	end
 
 	menubar_item:setMenu(build_menu)
