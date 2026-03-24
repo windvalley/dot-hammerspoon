@@ -76,13 +76,13 @@ _M.serialize = function(self, obj)
     elseif t == "table" then
         lua = lua .. "{\n"
         for k, v in pairs(obj) do
-            lua = lua .. "[" .. self.serialize(k) .. "]=" .. self.serialize(v) .. ",\n"
+            lua = lua .. "[" .. self:serialize(k) .. "]=" .. self:serialize(v) .. ",\n"
         end
 
         local metatable = getmetatable(obj)
         if metatable ~= nil and type(metatable.__index) == "table" then
             for k, v in pairs(metatable.__index) do
-                lua = lua .. "[" .. self.serialize(k) .. "]=" .. self.serialize(v) .. ",\n"
+                lua = lua .. "[" .. self:serialize(k) .. "]=" .. self:serialize(v) .. ",\n"
             end
         end
 
