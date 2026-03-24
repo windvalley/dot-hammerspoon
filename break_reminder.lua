@@ -409,6 +409,7 @@ local friendly_reminder_timer = nil
 local friendly_reminder_popup_timer = nil
 local menubar_status_timer = nil
 local last_menubar_render_signature = nil
+local last_menubar_tooltip = nil
 local inactive_resume_timer = nil
 local break_ends_at = nil
 local next_break_at = nil
@@ -428,6 +429,10 @@ local menubar_item = nil
 local refresh_menubar = function()
 end
 local update_menubar_status = function()
+end
+local start_menubar_status_timer = function()
+end
+local stop_menubar_status_timer = function()
 end
 local try_resume_after_inactive_session = nil
 local start_inactive_resume_timer = nil
@@ -1216,6 +1221,30 @@ local function menubar_render_signature(status_title, status_detail, tooltip, vi
 	)
 end
 
+local function menubar_tooltip_status_detail()
+	if state.enabled ~= true then
+		return "提醒未启用"
+	end
+
+	if session_is_inactive == true then
+		return "锁屏或睡眠期间不会累计工作时长"
+	end
+
+	if waiting_for_resume_input == true then
+		return "休息已结束，等待首次输入后开始下一轮"
+	end
+
+	if break_ends_at ~= nil then
+		return string.format("休息进行中，目标时长 %s", format_duration(current_break_duration_seconds or effective_rest_seconds()))
+	end
+
+	if next_break_at ~= nil then
+		return string.format("工作进行中，当前节奏 %s / %s", format_minutes(state.work_seconds), rest_duration_label())
+	end
+
+	return "等待开始新的工作计时"
+end
+
 local function circle_path_coordinates(progress, center_x, center_y, radius)
 	if progress == nil or progress <= 0 then
 		return nil
@@ -1569,7 +1598,7 @@ update_menubar_status = function()
 	local tooltip = string.format(
 		"Break Reminder\n状态: %s\n%s\n模式: %s | 工作: %s | 休息: %s | 下一轮: %s\n今日专注: %s / %s | 完成休息: %d | 跳过: %d\n休息目标: %s | 休息完成率: %s\n连续达标: %d 天 | 今日积分: %d (%s) | 皮肤: %s",
 		status_title,
-		status_detail,
+		menubar_tooltip_status_detail(),
 		effective_mode_label(),
 		format_minutes(state.work_seconds),
 		rest_duration_label(),
@@ -1601,17 +1630,21 @@ update_menubar_status = function()
 		menubar_item:setTitle(state.menubar_title)
 	end
 
-	menubar_item:setTooltip(tooltip)
+	if tooltip ~= last_menubar_tooltip then
+		menubar_item:setTooltip(tooltip)
+		last_menubar_tooltip = tooltip
+	end
+
 	last_menubar_render_signature = render_signature
 end
 
-local function start_menubar_status_timer()
-	-- Keep the menubar event-driven. Repainting it every second triggers
-	-- repeated WindowServer "Invalid window" errors on some systems.
+start_menubar_status_timer = function()
+	-- Keep the menubar event-driven. Periodic status-item mutations still
+	-- trigger WindowServer "Invalid window" errors on this macOS setup.
 	stop_menubar_status_timer()
 end
 
-local function stop_menubar_status_timer()
+stop_menubar_status_timer = function()
 	if menubar_status_timer == nil then
 		return
 	end
@@ -3172,6 +3205,7 @@ refresh_menubar = function()
 	if state.show_menubar ~= true then
 		stop_menubar_status_timer()
 		last_menubar_render_signature = nil
+		last_menubar_tooltip = nil
 
 		if menubar_item ~= nil then
 			menubar_item:delete()
@@ -3190,6 +3224,7 @@ refresh_menubar = function()
 		end
 
 		last_menubar_render_signature = nil
+		last_menubar_tooltip = nil
 	end
 
 	menubar_item:setMenu(build_menu)
