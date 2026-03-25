@@ -358,7 +358,7 @@ _M.break_reminder = {
 	mode = "soft",
 	-- 遮罩透明度, 范围 0~1
 	-- 默认值: soft=0.32, hard=0.96
-	overlay_opacity = 0.96,
+	overlay_opacity = 0.32,
 	-- true 时仅显示简洁图标，不显示倒计时和说明文字
 	minimal_display = true,
 	-- 每日专注目标, 达到后计入连续达标天数

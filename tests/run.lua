@@ -7,6 +7,7 @@ local test_files = {
 	"tests/test_break_reminder.lua",
 	"tests/test_hotkey_helper.lua",
 	"tests/test_init.lua",
+	"tests/test_keybindings_config.lua",
 	"tests/test_keybindings_cheatsheet.lua",
 	"tests/test_keep_awake.lua",
 	"tests/test_manual_input_method.lua",
