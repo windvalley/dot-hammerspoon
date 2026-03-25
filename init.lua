@@ -71,18 +71,29 @@ local function invoke_module_hook(module_name, module, hook_name)
 	end
 
 	local hook = module[hook_name]
+	local hook_result = nil
 
 	if type(hook) ~= "function" then
 		return true
 	end
 
 	local ok, err = xpcall(function()
-		hook(module)
+		hook_result = hook(module)
 	end, debug.traceback)
 
 	if ok ~= true then
 		push_startup_notice("error", string.format("模块 %s 的 %s() 执行失败，详见 Console", module_name, hook_name))
 		log.e(err)
+		return false
+	end
+
+	if hook_name == "start" and hook_result == false then
+		push_startup_notice("warning", string.format("模块 %s 的 start() 返回 false，功能可能未正常启用", module_name))
+		return false
+	end
+
+	if hook_name == "stop" and hook_result == false then
+		log.w(string.format("模块 %s 的 stop() 返回 false", module_name))
 		return false
 	end
 

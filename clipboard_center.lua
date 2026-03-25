@@ -2195,7 +2195,7 @@ end
 function _M.start()
 	if clipboard.enabled == false then
 		log.i("clipboard center disabled by config")
-		return false
+		return true
 	end
 
 	if started == true then

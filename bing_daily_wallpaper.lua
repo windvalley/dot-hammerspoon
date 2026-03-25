@@ -393,7 +393,7 @@ end
 function _M.start()
 	if wallpaper.enabled == false then
 		log.i("bing daily wallpaper disabled by config")
-		return false
+		return true
 	end
 
 	if state.started == true then
