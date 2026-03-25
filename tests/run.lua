@@ -1,7 +1,9 @@
 local test_files = {
 	"tests/test_app_launch.lua",
+	"tests/test_bing_daily_wallpaper.lua",
 	"tests/test_clipboard_center.lua",
 	"tests/test_break_reminder.lua",
+	"tests/test_hotkey_helper.lua",
 	"tests/test_init.lua",
 	"tests/test_keep_awake.lua",
 }
