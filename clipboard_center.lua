@@ -70,11 +70,14 @@ local expand_home_path = utils_lib.expand_home_path
 local prompt_text = utils_lib.prompt_text
 local normalize_hotkey_modifiers = hotkey_helper.normalize_hotkey_modifiers
 local format_hotkey = hotkey_helper.format_hotkey
+local modifier_prompt_names = hotkey_helper.modifier_prompt_names
 
 local log = hs.logger.new("clipboard")
 
 local history_settings_key = "clipboard_center.history"
 local menu_history_size_settings_key = "clipboard_center.menu_history_size"
+local hotkey_modifiers_settings_key = "clipboard_center.hotkey.modifiers"
+local hotkey_key_settings_key = "clipboard_center.hotkey.key"
 local default_history_size = math.max(10, math.floor(tonumber(clipboard.history_size) or 80))
 local default_menu_history_size = math.max(1, math.floor(tonumber(clipboard.menu_history_size) or 12))
 local default_max_item_length = math.max(200, math.floor(tonumber(clipboard.max_item_length) or 30000))
@@ -113,6 +116,8 @@ local history_preview_length = 72
 local menu_preview_length = 40
 local tooltip_preview_length = 220
 local duplicate_suppression_seconds = 3
+local default_hotkey_modifiers
+local default_hotkey_key
 local image_cache_dir = nil
 local history_id_counter = 0
 local menubar_icon_size = 18
@@ -165,6 +170,75 @@ local function normalize_menu_history_size(value, fallback)
 	end
 
 	return math.max(1, math.floor(number))
+end
+
+local function same_list(left, right)
+	if #left ~= #right then
+		return false
+	end
+
+	for index, value in ipairs(left) do
+		if right[index] ~= value then
+			return false
+		end
+	end
+
+	return true
+end
+
+local function normalize_hotkey_key(raw_key)
+	if raw_key == nil then
+		return nil
+	end
+
+	local normalized = string.lower(trim(tostring(raw_key)))
+
+	if normalized == "" or normalized == "none" or normalized == "disabled" then
+		return nil
+	end
+
+	return normalized
+end
+
+local function format_hotkey_for_prompt(modifiers, key)
+	local modifier_names = {}
+
+	for _, modifier in ipairs(modifiers or {}) do
+		table.insert(modifier_names, modifier_prompt_names[modifier] or modifier)
+	end
+
+	return table.concat(modifier_names, "+"), key or ""
+end
+
+do
+	local configured_modifiers, invalid_modifier = normalize_hotkey_modifiers(clipboard.prefix or {})
+
+	if configured_modifiers == nil then
+		log.e("invalid clipboard hotkey modifier in config: " .. tostring(invalid_modifier))
+		configured_modifiers = {}
+	end
+
+	default_hotkey_modifiers = configured_modifiers
+	default_hotkey_key = normalize_hotkey_key(clipboard.key)
+	state.hotkey_modifiers = copy_list(default_hotkey_modifiers)
+	state.hotkey_key = default_hotkey_key
+
+	local persisted_hotkey_modifiers = hs.settings.get(hotkey_modifiers_settings_key)
+	local persisted_hotkey_key = hs.settings.get(hotkey_key_settings_key)
+
+	if persisted_hotkey_modifiers ~= nil or persisted_hotkey_key ~= nil then
+		local normalized_modifiers, persisted_invalid_modifier = normalize_hotkey_modifiers(persisted_hotkey_modifiers)
+		local normalized_key = normalize_hotkey_key(persisted_hotkey_key)
+
+		if normalized_modifiers == nil then
+			log.w("ignore invalid persisted clipboard hotkey modifier: " .. tostring(persisted_invalid_modifier))
+			hs.settings.clear(hotkey_modifiers_settings_key)
+			hs.settings.clear(hotkey_key_settings_key)
+		else
+			state.hotkey_modifiers = normalized_modifiers
+			state.hotkey_key = normalized_key
+		end
+	end
 end
 
 local function next_history_id()
@@ -553,6 +627,17 @@ local function persist_menu_history_size()
 	hs.settings.set(menu_history_size_settings_key, state.menu_history_size)
 end
 
+local function persist_hotkey_state()
+	if same_list(state.hotkey_modifiers, default_hotkey_modifiers) and state.hotkey_key == default_hotkey_key then
+		hs.settings.clear(hotkey_modifiers_settings_key)
+		hs.settings.clear(hotkey_key_settings_key)
+		return
+	end
+
+	hs.settings.set(hotkey_modifiers_settings_key, copy_list(state.hotkey_modifiers))
+	hs.settings.set(hotkey_key_settings_key, state.hotkey_key or "")
+end
+
 local function cleanup_removed_image_files(previous_history, next_history)
 	local referenced_paths = {}
 
@@ -680,6 +765,14 @@ local function tooltip_text(hotkey_label)
 		image_count,
 		hotkey_label
 	)
+end
+
+local function display_hotkey_label()
+	if state.hotkey_key == nil then
+		return "已禁用"
+	end
+
+	return format_hotkey(state.hotkey_modifiers, state.hotkey_key)
 end
 
 local function build_text_history_item(text, timestamp)
@@ -1702,7 +1795,121 @@ local function append_history_menu_items(menu)
 	end
 end
 
-local function show_chooser()
+local show_chooser
+
+local function create_hotkey_binding(modifiers, key)
+	if key == nil then
+		return true, nil
+	end
+
+	local binding = hotkey_helper.bind(copy_list(modifiers), key, clipboard.message or "Clipboard Center", function()
+		show_chooser()
+	end, nil, nil, { logger = log })
+
+	if binding == nil then
+		return false, "bind failed"
+	end
+
+	return true, binding
+end
+
+local function replace_hotkey_binding(binding)
+	if state.hotkey ~= nil then
+		state.hotkey:delete()
+	end
+
+	state.hotkey = binding
+end
+
+local function apply_hotkey_binding(reason)
+	local ok, binding_or_error = create_hotkey_binding(state.hotkey_modifiers, state.hotkey_key)
+
+	if ok ~= true then
+		log.e(string.format("failed to bind clipboard hotkey (%s): %s", reason or "unknown", tostring(binding_or_error)))
+		return false
+	end
+
+	replace_hotkey_binding(binding_or_error)
+	refresh_menubar()
+
+	return true
+end
+
+local function set_hotkey(modifiers, key, reason)
+	if same_list(state.hotkey_modifiers, modifiers) and state.hotkey_key == key then
+		return true
+	end
+
+	local previous_modifiers = copy_list(state.hotkey_modifiers)
+	local previous_key = state.hotkey_key
+	local previous_binding = state.hotkey
+
+	state.hotkey_modifiers = copy_list(modifiers)
+	state.hotkey_key = key
+	state.hotkey = nil
+
+	if previous_binding ~= nil then
+		previous_binding:delete()
+	end
+
+	if apply_hotkey_binding(reason) ~= true then
+		state.hotkey_modifiers = previous_modifiers
+		state.hotkey_key = previous_key
+		state.hotkey = nil
+		apply_hotkey_binding("restore previous clipboard hotkey")
+		hs.alert.show("剪贴板快捷键设置失败")
+		return false
+	end
+
+	persist_hotkey_state()
+
+	if state.hotkey_key == nil then
+		hs.alert.show("已禁用剪贴板快捷键")
+	else
+		hs.alert.show("剪贴板快捷键已更新: " .. display_hotkey_label())
+	end
+
+	return true
+end
+
+local function prompt_hotkey_configuration()
+	local current_modifiers, current_key = format_hotkey_for_prompt(state.hotkey_modifiers, state.hotkey_key)
+	local modifier_text = prompt_text(
+		"设置剪贴板快捷键",
+		"请输入修饰键, 多个值用 + 分隔。\n可用: ctrl option command shift fn\n留空表示无修饰键。",
+		current_modifiers
+	)
+
+	if modifier_text == nil then
+		return
+	end
+
+	local key_text = prompt_text(
+		"设置剪贴板快捷键",
+		"请输入主键, 例如 c、space、return、f18。\n留空表示禁用快捷键。",
+		current_key
+	)
+
+	if key_text == nil then
+		return
+	end
+
+	local normalized_modifiers, invalid_modifier = normalize_hotkey_modifiers(modifier_text)
+	local normalized_key = normalize_hotkey_key(key_text)
+
+	if normalized_modifiers == nil then
+		hs.alert.show("无效修饰键: " .. tostring(invalid_modifier))
+		return
+	end
+
+	set_hotkey(normalized_modifiers, normalized_key, "menubar update clipboard hotkey")
+end
+
+local function restore_default_hotkey()
+	set_hotkey(default_hotkey_modifiers, default_hotkey_key, "restore default clipboard hotkey")
+end
+
+show_chooser = function()
 	if started ~= true then
 		if _M.start() ~= true then
 			return
@@ -1748,18 +1955,7 @@ refresh_menubar = function()
 	local display_modifiers = state.hotkey_modifiers
 	local display_key = state.hotkey_key
 	local text_count, image_count = history_counts()
-
-	if #display_modifiers == 0 and (display_key == nil or display_key == "") then
-		local normalized_modifiers = normalize_hotkey_modifiers(clipboard.prefix or {})
-
-		if normalized_modifiers ~= nil then
-			display_modifiers = normalized_modifiers
-		end
-
-		display_key = trim(string.lower(tostring(clipboard.key or "")))
-	end
-
-	local hotkey_label = format_hotkey(display_modifiers, display_key)
+	local hotkey_label = display_hotkey_label()
 
 	local menubar_icon = build_menubar_icon()
 
@@ -1784,6 +1980,15 @@ refresh_menubar = function()
 			{
 				title = "打开 Chooser",
 				fn = show_chooser,
+			},
+			{
+				title = "设置快捷键",
+				fn = prompt_hotkey_configuration,
+			},
+			{
+				title = "恢复默认快捷键",
+				disabled = same_list(display_modifiers, default_hotkey_modifiers) and display_key == default_hotkey_key,
+				fn = restore_default_hotkey,
 			},
 			{
 				title = "恢复最近一条历史",
@@ -1853,32 +2058,6 @@ local function handle_pasteboard_change(_)
 	state.suppressed_at = nil
 
 	add_history_item(item, "pasteboard watcher")
-end
-
-local function bind_hotkey()
-	local modifiers, invalid_modifier = normalize_hotkey_modifiers(clipboard.prefix or {})
-	local key = trim(string.lower(tostring(clipboard.key or "")))
-
-	if modifiers == nil then
-		log.e("invalid clipboard hotkey modifier: " .. tostring(invalid_modifier))
-		return
-	end
-
-	if key == "" then
-		log.i("clipboard hotkey disabled because key is empty")
-		return
-	end
-
-	local binding =
-		hotkey_helper.bind(copy_list(modifiers), key, clipboard.message or "Clipboard Center", show_chooser, nil, nil, { logger = log })
-
-	if binding == nil then
-		return
-	end
-
-	state.hotkey = binding
-	state.hotkey_modifiers = copy_list(modifiers)
-	state.hotkey_key = key
 end
 
 local function setup_chooser()
@@ -1978,12 +2157,23 @@ end
 local function start_pasteboard_watcher()
 	if state.watcher == nil then
 		state.watcher = hs.pasteboard.watcher.new(handle_pasteboard_change)
-		return
 	end
 
-	pcall(function()
-		state.watcher:start()
+	if state.watcher == nil then
+		log.e("failed to create pasteboard watcher")
+		return false
+	end
+
+	local ok, started_watcher = pcall(function()
+		return state.watcher:start()
 	end)
+
+	if ok ~= true or started_watcher == false then
+		log.e("failed to start pasteboard watcher")
+		return false
+	end
+
+	return true
 end
 
 do
@@ -2024,11 +2214,20 @@ function _M.start()
 	end
 
 	if state.hotkey == nil then
-		bind_hotkey()
+		if apply_hotkey_binding("startup") ~= true then
+			destroy_chooser()
+			return false
+		end
 	end
 
 	refresh_menubar()
-	start_pasteboard_watcher()
+
+	if start_pasteboard_watcher() ~= true then
+		destroy_menubar()
+		delete_hotkey()
+		destroy_chooser()
+		return false
+	end
 
 	if startup_synchronized ~= true then
 		sync_current_clipboard()
