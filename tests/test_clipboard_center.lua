@@ -49,6 +49,8 @@ function _M.run()
 		},
 		watcher_start_count = 0,
 		deleted_binding_count = 0,
+		query_set_calls = 0,
+		chooser = nil,
 	}
 	local current_clipboard_text = "seed clipboard text"
 
@@ -143,7 +145,17 @@ function _M.run()
 				end
 				function chooser.query(_, value)
 					if value ~= nil then
+						recorded.query_set_calls = recorded.query_set_calls + 1
+
+						if recorded.query_set_calls > 5 then
+							error("recursive chooser query updates detected")
+						end
+
 						state.query = value
+
+						if state.query_changed_callback ~= nil then
+							state.query_changed_callback()
+						end
 					end
 
 					return state.query
@@ -177,6 +189,8 @@ function _M.run()
 					return state.choices[row or state.selected_row]
 				end
 
+				recorded.chooser = chooser
+
 				return chooser
 			end,
 		},
@@ -201,6 +215,11 @@ function _M.run()
 		},
 		canvas = {
 			new = function()
+				local state = {
+					frame = nil,
+					showing = false,
+				}
+
 				return {
 					appendElements = function() end,
 					imageFromCanvas = function()
@@ -208,6 +227,25 @@ function _M.run()
 							size = function() end,
 							template = function() end,
 						}
+					end,
+					frame = function(_, value)
+						if value ~= nil then
+							state.frame = value
+						end
+
+						return state.frame
+					end,
+					level = function() end,
+					clickActivating = function() end,
+					replaceElements = function() end,
+					isShowing = function()
+						return state.showing
+					end,
+					show = function()
+						state.showing = true
+					end,
+					hide = function()
+						state.showing = false
 					end,
 					delete = function() end,
 				}
@@ -409,6 +447,11 @@ function _M.run()
 	assert_equal(recorded.hotkey_bindings[1].key, "v", "persisted hotkey should be used during startup")
 	assert_contains(recorded.menubar_tooltip, "快捷键: cmd+v", "tooltip should include persisted hotkey")
 	assert_equal(recorded.settings_store["clipboard_center.history"][1].content, "seed clipboard text", "startup should sync current clipboard")
+
+	clipboard_center.show_chooser()
+	recorded.query_set_calls = 0
+	recorded.chooser:query("seed")
+	assert_equal(recorded.query_set_calls, 1, "query changes should not recursively reapply the same search text")
 
 	local menu = recorded.menu_builder()
 	local set_hotkey_item = find_menu_item(menu, "设置快捷键")

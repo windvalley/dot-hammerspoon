@@ -1505,9 +1505,7 @@ refresh_chooser_choices = function(preserve_query, selected_row)
 
 	state.chooser:choices(choices)
 
-	if preserve_query == true then
-		state.chooser:query(query)
-	else
+	if preserve_query ~= true then
 		state.chooser:query(nil)
 	end
 
