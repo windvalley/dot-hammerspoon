@@ -2160,7 +2160,23 @@ local function start_pasteboard_watcher()
 		return false
 	end
 
+	local running_ok, watcher_running = pcall(function()
+		if type(state.watcher.running) == "function" then
+			return state.watcher:running()
+		end
+
+		return false
+	end)
+
+	if running_ok == true and watcher_running == true then
+		return true
+	end
+
 	local ok, started_watcher = pcall(function()
+		if type(state.watcher.start) ~= "function" then
+			return true
+		end
+
 		return state.watcher:start()
 	end)
 

@@ -39,18 +39,19 @@ end
 function _M.run()
 	reset_modules()
 
-	local recorded = {
-		alerts = {},
-		hotkey_bindings = {},
-		prompt_values = { "control+shift", "x" },
-		settings_store = {
+		local recorded = {
+			alerts = {},
+			hotkey_bindings = {},
+			prompt_values = { "control+shift", "x" },
+			settings_store = {
 			["clipboard_center.hotkey.modifiers"] = { "cmd" },
 			["clipboard_center.hotkey.key"] = "v",
 		},
-		watcher_start_count = 0,
-		deleted_binding_count = 0,
-		query_set_calls = 0,
-		chooser = nil,
+			watcher_start_count = 0,
+			watcher_new_count = 0,
+			deleted_binding_count = 0,
+			query_set_calls = 0,
+			chooser = nil,
 	}
 	local current_clipboard_text = "seed clipboard text"
 
@@ -255,17 +256,26 @@ function _M.run()
 			},
 		},
 		pasteboard = {
-			watcher = {
-				new = function()
-					return {
-						start = function()
-							recorded.watcher_start_count = recorded.watcher_start_count + 1
-							return true
-						end,
-						stop = function() end,
-					}
-				end,
-			},
+				watcher = {
+					new = function()
+						recorded.watcher_new_count = recorded.watcher_new_count + 1
+						local running = true
+
+						return {
+							running = function()
+								return running
+							end,
+							start = function()
+								running = true
+								recorded.watcher_start_count = recorded.watcher_start_count + 1
+								return true
+							end,
+							stop = function()
+								running = false
+							end,
+						}
+					end,
+				},
 			readImage = function()
 				return nil
 			end,
@@ -440,13 +450,14 @@ function _M.run()
 		end,
 	}
 
-	local clipboard_center = require("clipboard_center")
+		local clipboard_center = require("clipboard_center")
 
-	assert_true(clipboard_center.start(), "clipboard_center.start() should succeed")
-	assert_equal(recorded.watcher_start_count, 1, "clipboard watcher should start on first module start")
-	assert_equal(recorded.hotkey_bindings[1].key, "v", "persisted hotkey should be used during startup")
-	assert_contains(recorded.menubar_tooltip, "快捷键: cmd+v", "tooltip should include persisted hotkey")
-	assert_equal(recorded.settings_store["clipboard_center.history"][1].content, "seed clipboard text", "startup should sync current clipboard")
+		assert_true(clipboard_center.start(), "clipboard_center.start() should succeed")
+		assert_equal(recorded.watcher_new_count, 1, "clipboard watcher should be created on first module start")
+		assert_equal(recorded.watcher_start_count, 0, "new clipboard watchers should not be started twice")
+		assert_equal(recorded.hotkey_bindings[1].key, "v", "persisted hotkey should be used during startup")
+		assert_contains(recorded.menubar_tooltip, "快捷键: cmd+v", "tooltip should include persisted hotkey")
+		assert_equal(recorded.settings_store["clipboard_center.history"][1].content, "seed clipboard text", "startup should sync current clipboard")
 
 	clipboard_center.show_chooser()
 	recorded.query_set_calls = 0
@@ -468,14 +479,15 @@ function _M.run()
 	)
 	assert_true(recorded.deleted_binding_count >= 1, "previous hotkey binding should be deleted before rebinding")
 
-	clipboard_center.stop()
-	current_clipboard_text = "second clipboard text"
-	recorded.settings_store["clipboard_center.history"] = nil
-	assert_true(clipboard_center.start(), "clipboard_center.start() should support restart after stop")
-	assert_equal(recorded.watcher_start_count, 2, "clipboard watcher should restart after stop/start")
-	assert_equal(
-		recorded.settings_store["clipboard_center.history"][1].content,
-		"second clipboard text",
+		clipboard_center.stop()
+		current_clipboard_text = "second clipboard text"
+		recorded.settings_store["clipboard_center.history"] = nil
+		assert_true(clipboard_center.start(), "clipboard_center.start() should support restart after stop")
+		assert_equal(recorded.watcher_new_count, 1, "clipboard watcher should be reused after stop/start")
+		assert_equal(recorded.watcher_start_count, 1, "stopped clipboard watcher should restart on the next start")
+		assert_equal(
+			recorded.settings_store["clipboard_center.history"][1].content,
+			"second clipboard text",
 		"restart should resync current clipboard instead of reusing stale in-memory history"
 	)
 
