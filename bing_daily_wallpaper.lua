@@ -20,6 +20,7 @@ local state = {
 	started = false,
 	timer = nil,
 	task = nil,
+	download_temp_path = nil,
 	cache_dir = nil,
 	last_picture_name = "",
 	request_id = 0,
@@ -238,23 +239,50 @@ local function stop_download_task()
 	local task = state.task
 
 	state.task = nil
+	local temp_path = state.download_temp_path
+	state.download_temp_path = nil
 	task:terminate()
+
+	if temp_path ~= nil and temp_path ~= "" then
+		local ok, err = os.remove(temp_path)
+
+		if ok ~= true and file_exists(temp_path) == true then
+			log.w(string.format("failed to remove partial wallpaper download: %s (%s)", temp_path, tostring(err)))
+		end
+	end
 end
 
 local function download_picture(full_url, local_path, picture_name, retained_names)
 	stop_download_task()
 
 	local task
+	local temp_path = local_path .. ".part"
+	local _, remove_err = os.remove(temp_path)
+
+	if file_exists(temp_path) == true then
+		log.w(string.format("failed to clear stale partial wallpaper download: %s (%s)", temp_path, tostring(remove_err)))
+	end
 
 	task = hs.task.new("/usr/bin/curl", function(exit_code, _, std_err)
 		if state.task ~= task then
+			os.remove(temp_path)
 			return
 		end
 
 		state.task = nil
+		state.download_temp_path = nil
 
 		if exit_code ~= 0 then
+			os.remove(temp_path)
 			log.e(string.format("failed to download Bing wallpaper: %s (%s)", picture_name, trim(std_err)))
+			return
+		end
+
+		local renamed, rename_err = os.rename(temp_path, local_path)
+
+		if renamed ~= true then
+			os.remove(temp_path)
+			log.e(string.format("failed to finalize Bing wallpaper download: %s (%s)", picture_name, tostring(rename_err)))
 			return
 		end
 
@@ -270,7 +298,7 @@ local function download_picture(full_url, local_path, picture_name, retained_nam
 		default_user_agent,
 		full_url,
 		"-o",
-		local_path,
+		temp_path,
 	})
 
 	if task == nil then
@@ -279,9 +307,12 @@ local function download_picture(full_url, local_path, picture_name, retained_nam
 	end
 
 	state.task = task
+	state.download_temp_path = temp_path
 
 	if task:start() == false then
 		state.task = nil
+		state.download_temp_path = nil
+		os.remove(temp_path)
 		log.e("failed to start wallpaper download task")
 		return false
 	end
