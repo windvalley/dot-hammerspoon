@@ -1,5 +1,6 @@
 local test_files = {
 	"tests/test_app_launch.lua",
+	"tests/test_auto_input_method.lua",
 	"tests/test_auto_reload.lua",
 	"tests/test_bing_daily_wallpaper.lua",
 	"tests/test_clipboard_center.lua",
@@ -8,6 +9,10 @@ local test_files = {
 	"tests/test_init.lua",
 	"tests/test_keybindings_cheatsheet.lua",
 	"tests/test_keep_awake.lua",
+	"tests/test_manual_input_method.lua",
+	"tests/test_system_manage.lua",
+	"tests/test_website_open.lua",
+	"tests/test_window_manipulation.lua",
 }
 
 local passed = 0
