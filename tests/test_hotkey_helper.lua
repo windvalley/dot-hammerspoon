@@ -52,7 +52,8 @@ function _M.run()
 			assignable = function()
 				return true
 			end,
-			bind = function()
+			bind = function(...)
+				recorded.last_bind_args = { ... }
 				error("bind failed")
 			end,
 		},
@@ -82,6 +83,21 @@ function _M.run()
 	assert_nil(binding, "bind should return nil when hs.hotkey.bind raises")
 	assert_true(tostring(bind_error):find("bind failed", 1, true) ~= nil, "bind should surface the underlying error")
 	assert_true(#recorded.errors > 0, "bind failure should be logged")
+
+	recorded.errors = {}
+	recorded.last_bind_args = nil
+	hs.hotkey.bind = function(...)
+		recorded.last_bind_args = { ... }
+		return {
+			delete = function() end,
+		}
+	end
+
+	local binding_without_message =
+		hotkey_helper.bind({ "ctrl" }, "j", nil, function() end, nil, nil, { logger = hs.logger.new("test") })
+
+	assert_true(type(binding_without_message) == "table", "bind should succeed when message is omitted")
+	assert_true(type(recorded.last_bind_args[3]) == "function", "bind should pass the pressed callback in the third slot when message is omitted")
 
 	reset_modules()
 	hs = nil

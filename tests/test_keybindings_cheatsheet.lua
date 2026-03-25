@@ -244,6 +244,71 @@ function _M.run()
 	assert_true(recorded.deleted_bindings > 0, "stop should delete bound hotkey")
 
 	reset_modules()
+
+	recorded = {
+		rendered_text = {},
+		text_frames = {},
+		segment_coordinates = {},
+		canvas_frames = {},
+		deleted_bindings = 0,
+		bound_handler = nil,
+		settings_store = {},
+	}
+
+	loaded_modules["keybindings_config"] = {
+		keybindings_cheatsheet = {
+			prefix = { "Option" },
+			key = "/",
+			message = "Cheatsheet",
+		},
+		manual_input_methods = {},
+		system = {
+			lock_screen = { prefix = { "Option" }, key = "Q", message = "Lock Screen" },
+			screen_saver = { prefix = { "Option" }, key = "S", message = "Start Screensaver" },
+			keep_awake = { prefix = { "Option" }, key = "A", message = "Toggle Prevent Sleep" },
+			restart = { prefix = { "Ctrl", "Option" }, key = "R", message = "Restart Computer" },
+			shutdown = { prefix = { "Ctrl", "Option" }, key = "X", message = "Shutdown Computer" },
+		},
+		clipboard = {
+			enabled = false,
+		},
+		websites = {},
+		apps = {},
+		window_position = {},
+		window_movement = {},
+		window_resize = {},
+		window_monitor = {},
+		window_batch = {},
+	}
+
+	loaded_modules["hotkey_helper"] = {
+		format_hotkey = function(modifiers, key)
+			return table.concat(modifiers or {}, "+") .. "+" .. tostring(key or "")
+		end,
+		normalize_hotkey_modifiers = function(modifiers)
+			return modifiers or {}
+		end,
+		bind = function()
+			return nil, "bind failed"
+		end,
+	}
+
+	loaded_modules["utils_lib"] = {
+		utf8len = function(text)
+			return #tostring(text or "")
+		end,
+		utf8sub = function(text, start_char, num_chars)
+			return tostring(text or ""):sub(start_char, start_char + num_chars - 1)
+		end,
+		trim = function(value)
+			return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		end,
+	}
+
+	cheatsheet = require("keybindings_cheatsheet")
+	assert_true(cheatsheet.start() == false, "cheatsheet should report startup failure when its toggle hotkey cannot be bound")
+
+	reset_modules()
 	hs = nil
 end
 

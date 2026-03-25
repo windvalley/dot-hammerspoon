@@ -157,6 +157,10 @@ function _M.bind(modifiers, key, message, pressedfn, releasedfn, repeatfn, optio
 	end
 
 	local ok, binding_or_error = pcall(function()
+		if message == nil then
+			return hs.hotkey.bind(modifiers, key, pressedfn, releasedfn, repeatfn)
+		end
+
 		return hs.hotkey.bind(modifiers, key, message, pressedfn, releasedfn, repeatfn)
 	end)
 

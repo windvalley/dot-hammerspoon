@@ -10,6 +10,7 @@ local log = hs.logger.new("appLaunch")
 local state = {
 	started = false,
 	bindings = {},
+	binding_failures = 0,
 }
 
 local function bind(modifiers, key, message, pressedfn, releasedfn, repeatfn)
@@ -17,6 +18,8 @@ local function bind(modifiers, key, message, pressedfn, releasedfn, repeatfn)
 
 	if binding ~= nil then
 		table.insert(state.bindings, binding)
+	else
+		state.binding_failures = state.binding_failures + 1
 	end
 
 	return binding
@@ -49,6 +52,7 @@ function _M.start()
 	end
 
 	state.started = true
+	state.binding_failures = 0
 
 	hs.fnutils.each(apps, function(item)
 		bind(item.prefix, item.key, item.message, function()
@@ -56,11 +60,12 @@ function _M.start()
 		end)
 	end)
 
-	return true
+	return state.binding_failures == 0
 end
 
 function _M.stop()
 	clearBindings()
+	state.binding_failures = 0
 	state.started = false
 
 	return true

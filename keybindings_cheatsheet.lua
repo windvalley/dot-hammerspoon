@@ -515,9 +515,9 @@ function _M.start()
 
 	hotkey_binding =
 		bind(keybindings_cheatsheet.prefix, keybindings_cheatsheet.key, keybindings_cheatsheet.message, toggleKeybindingsCheatsheet)
-	started = true
+	started = hotkey_binding ~= nil
 
-	return true
+	return started
 end
 
 function _M.stop()

@@ -106,6 +106,30 @@ function _M.run()
 	assert_equal(recorded.deleted_bindings, 1, "stop should delete registered bindings")
 
 	reset_modules()
+
+	recorded = {
+		bindings = {},
+		launches = {},
+		hide_count = 0,
+		deleted_bindings = 0,
+	}
+
+	loaded_modules["keybindings_config"] = {
+		apps = {
+			{ prefix = { "Option" }, key = "C", message = "Chrome", bundleId = "com.google.Chrome" },
+		},
+	}
+
+	loaded_modules["hotkey_helper"] = {
+		bind = function()
+			return nil, "bind failed"
+		end,
+	}
+
+	app_launch = require("app_launch")
+	assert_true(app_launch.start() == false, "module should report startup failure when any hotkey binding fails")
+
+	reset_modules()
 	hs = nil
 end
 
