@@ -24,6 +24,8 @@ function _M.run()
 
 	local recorded = {
 		timer_started = 0,
+		timer_stopped = 0,
+		async_get_calls = 0,
 	}
 
 	hs = {
@@ -47,8 +49,15 @@ function _M.run()
 			doEvery = function()
 				recorded.timer_started = recorded.timer_started + 1
 				return {
-					stop = function() end,
+					stop = function()
+						recorded.timer_stopped = recorded.timer_stopped + 1
+					end,
 				}
+			end,
+		},
+		http = {
+			asyncGet = function()
+				recorded.async_get_calls = recorded.async_get_calls + 1
 			end,
 		},
 	}
@@ -75,6 +84,34 @@ function _M.run()
 
 	assert_true(wallpaper.start(), "disabled wallpaper module should be treated as a successful no-op start")
 	assert_equal(recorded.timer_started, 0, "disabled wallpaper module should not start any refresh timer")
+
+	reset_modules()
+
+	loaded_modules["keybindings_config"] = {
+		bing_daily_wallpaper = {
+			enabled = true,
+			refresh_interval_seconds = 60,
+		},
+	}
+	loaded_modules["utils_lib"] = {
+		trim = function(value)
+			return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		end,
+		file_exists = function()
+			return false
+		end,
+		ensure_directory = function()
+			return true
+		end,
+	}
+
+	local active_wallpaper = require("bing_daily_wallpaper")
+
+	assert_true(active_wallpaper.start(), "enabled wallpaper module should start successfully")
+	assert_equal(recorded.timer_started, 1, "enabled wallpaper module should start refresh timer")
+	assert_equal(recorded.async_get_calls, 1, "startup should trigger one metadata refresh")
+	assert_true(active_wallpaper.stop(), "stop should return true for lifecycle consistency")
+	assert_equal(recorded.timer_stopped, 1, "stop should cancel active refresh timer")
 
 	reset_modules()
 	hs = nil

@@ -429,6 +429,8 @@ function _M.stop()
 	end
 
 	stop_download_task()
+
+	return true
 end
 
 function _M.refresh_now()
