@@ -21,11 +21,16 @@ end
 function _M.run()
 	reset_modules()
 
-	local recorded = {
-		watcher_started = 0,
-		watcher_stopped = 0,
-		switched_to = {},
-	}
+		local recorded = {
+			watcher_started = 0,
+			watcher_stopped = 0,
+			switched_to = {},
+		}
+		local frontmost_app = {
+			bundleID = function()
+				return "com.google.Chrome"
+			end,
+		}
 
 		hs = {
 			logger = {
@@ -36,10 +41,13 @@ function _M.run()
 					}
 				end,
 			},
-		application = {
-			watcher = {
-				activated = "activated",
-				new = function(callback)
+			application = {
+				frontmostApplication = function()
+					return frontmost_app
+				end,
+				watcher = {
+					activated = "activated",
+					new = function(callback)
 					recorded.callback = callback
 
 					return {
@@ -67,13 +75,15 @@ function _M.run()
 		},
 	}
 
-	local auto_input_method = require("auto_input_method")
+		local auto_input_method = require("auto_input_method")
 
-	assert_true(auto_input_method.start(), "auto_input_method.start() should succeed")
-	assert_equal(recorded.watcher_started, 1, "module should start application watcher")
+		assert_true(auto_input_method.start(), "auto_input_method.start() should succeed")
+		assert_equal(recorded.watcher_started, 1, "module should start application watcher")
+		assert_equal(#recorded.switched_to, 1, "startup should synchronize the current frontmost application")
+		assert_equal(recorded.switched_to[1], "com.apple.keylayout.ABC", "startup sync should use the configured input source")
 
-	recorded.callback("Chrome", "deactivated", {
-		bundleID = function()
+		recorded.callback("Chrome", "deactivated", {
+			bundleID = function()
 			return "com.google.Chrome"
 		end,
 	})
@@ -83,14 +93,14 @@ function _M.run()
 			return nil
 		end,
 	})
-	recorded.callback("Chrome", "activated", {
-		bundleID = function()
-			return "com.google.Chrome"
-		end,
-	})
+		recorded.callback("Chrome", "activated", {
+			bundleID = function()
+				return "com.google.Chrome"
+			end,
+		})
 
-	assert_equal(#recorded.switched_to, 1, "only mapped activated apps should switch input source")
-	assert_equal(recorded.switched_to[1], "com.apple.keylayout.ABC", "mapped app should switch to configured input source")
+		assert_equal(#recorded.switched_to, 2, "only mapped activated apps should switch input source after startup sync")
+		assert_equal(recorded.switched_to[2], "com.apple.keylayout.ABC", "mapped app activation should switch to configured input source")
 
 	auto_input_method.stop()
 	assert_equal(recorded.watcher_stopped, 1, "stop should stop application watcher")

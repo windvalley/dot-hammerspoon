@@ -23,20 +23,16 @@ local function switch_input_method(input_method, context_label)
 	return true
 end
 
-local function applicationWatcher(appName, eventType, appObject)
-	if eventType ~= hs.application.watcher.activated then
-		return
-	end
-
+local function update_input_method_for_app(appName, appObject, reason)
 	if appObject == nil then
-		log.d("skip input method switch because appObject is nil")
+		log.d(string.format("skip input method switch because appObject is nil (%s)", tostring(reason or "unknown")))
 		return
 	end
 
 	local bundleID = appObject:bundleID()
 
 	if bundleID == nil then
-		log.d(string.format("skip input method switch because bundleID is nil for '%s'", tostring(appName)))
+		log.d(string.format("skip input method switch because bundleID is nil for '%s' (%s)", tostring(appName), tostring(reason or "unknown")))
 		return
 	end
 
@@ -51,8 +47,16 @@ local function applicationWatcher(appName, eventType, appObject)
 			hs.alert.show(input_method, 0.5)
 		end
 
-		log.d(string.format("app '%s' switched to '%s'", tostring(appName or bundleID), input_method))
+		log.d(string.format("app '%s' switched to '%s' (%s)", tostring(appName or bundleID), input_method, tostring(reason or "unknown")))
 	end
+end
+
+local function applicationWatcher(appName, eventType, appObject)
+	if eventType ~= hs.application.watcher.activated then
+		return
+	end
+
+	update_input_method_for_app(appName, appObject, "application activated")
 end
 
 function _M.start()
@@ -66,6 +70,8 @@ function _M.start()
 
 	state.watcher:start()
 	state.started = true
+
+	update_input_method_for_app(nil, hs.application.frontmostApplication(), "module start")
 
 	return true
 end
