@@ -2306,7 +2306,7 @@ local function build_focus_goal_menu()
 			disabled = true,
 		},
 	}
-	local presets = { 60, 90, 120, 180, 240 }
+	local presets = { 60, 90, 120, 180, 240, 300, 360, 480 }
 
 	for _, minutes in ipairs(presets) do
 		table.insert(menu, {
@@ -2348,7 +2348,7 @@ local function build_break_goal_menu()
 		},
 	}
 
-	for _, count in ipairs({ 0, 2, 3, 4, 6 }) do
+	for _, count in ipairs({ 0, 2, 4, 6, 8, 10, 12 }) do
 		table.insert(menu, {
 			title = count == 0 and "关闭休息目标" or string.format("%d 次", count),
 			checked = state.break_goal_count == count,
@@ -2357,6 +2357,24 @@ local function build_break_goal_menu()
 			end,
 		})
 	end
+
+	table.insert(menu, {
+		title = "自定义...",
+		fn = function()
+			local count = prompt_number("每日休息目标", "请输入每日休息目标次数，0 表示关闭", state.break_goal_count, 0, nil)
+
+			if count == nil then
+				return
+			end
+
+			if math.abs(count - math.floor(count)) > 0.000001 then
+				show_message("请输入整数次数")
+				return
+			end
+
+			menu_item_set_break_goal_count(math.floor(count))
+		end,
+	})
 
 	return menu
 end
