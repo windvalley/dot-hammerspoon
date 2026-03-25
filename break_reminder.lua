@@ -66,6 +66,7 @@ local log = hs.logger.new("break")
 local settings_key = "break_reminder.runtime_overrides"
 local metrics_settings_key = "break_reminder.gamification_metrics"
 local default_menubar_title = "☕"
+local default_friendly_reminder_duration_seconds = 10
 local default_overlay_opacity = {
 	soft = 0.32,
 	hard = 0.96,
@@ -230,7 +231,11 @@ local function normalize_config(config)
 		rest_penalty_seconds_per_skip = resolve_integer_seconds(config.rest_penalty_seconds_per_skip, 30, 0),
 		max_rest_penalty_seconds = resolve_integer_seconds(config.max_rest_penalty_seconds, 300, 0),
 		friendly_reminder_seconds = resolve_integer_seconds(config.friendly_reminder_seconds, 0, 0),
-		friendly_reminder_duration_seconds = resolve_number(config.friendly_reminder_duration_seconds, 1.5, 0),
+		friendly_reminder_duration_seconds = resolve_number(
+			config.friendly_reminder_duration_seconds,
+			default_friendly_reminder_duration_seconds,
+			0
+		),
 		friendly_reminder_message = tostring(config.friendly_reminder_message or "还有 {{remaining}} 开始休息"),
 		overlay_opacity = clamp_number(resolve_number(config.overlay_opacity, default_overlay_opacity[mode], 0), 0, 1),
 	}
@@ -2122,6 +2127,89 @@ local function render_break_reminder_config_block(config)
 	}, "\n")
 end
 
+local function escape_lua_pattern(text)
+	return (tostring(text or ""):gsub("(%W)", "%%%1"))
+end
+
+local function find_assignment_table_block(content, assignment_name)
+	if type(content) ~= "string" or content == "" then
+		return nil, "empty content"
+	end
+
+	local escaped_name = escape_lua_pattern(assignment_name)
+	local assignment_start, assignment_end = content:find(escaped_name .. "%s*=%s*")
+
+	if assignment_start == nil or assignment_end == nil then
+		return nil, "assignment not found"
+	end
+
+	local open_brace_index = content:find("{", assignment_end + 1, true)
+
+	if open_brace_index == nil then
+		return nil, "opening brace not found"
+	end
+
+	local depth = 0
+	local in_single_quote = false
+	local in_double_quote = false
+	local in_line_comment = false
+	local index = open_brace_index
+
+	while index <= #content do
+		local char = content:sub(index, index)
+		local next_char = content:sub(index + 1, index + 1)
+
+		if in_line_comment == true then
+			if char == "\n" then
+				in_line_comment = false
+			end
+		elseif in_single_quote == true then
+			if char == "\\" then
+				index = index + 1
+			elseif char == "'" then
+				in_single_quote = false
+			end
+		elseif in_double_quote == true then
+			if char == "\\" then
+				index = index + 1
+			elseif char == '"' then
+				in_double_quote = false
+			end
+		else
+			if char == "-" and next_char == "-" then
+				in_line_comment = true
+				index = index + 1
+			elseif char == "'" then
+				in_single_quote = true
+			elseif char == '"' then
+				in_double_quote = true
+			elseif char == "{" then
+				depth = depth + 1
+			elseif char == "}" then
+				depth = depth - 1
+
+				if depth == 0 then
+					return assignment_start, index
+				end
+			end
+		end
+
+		index = index + 1
+	end
+
+	return nil, "unterminated table block"
+end
+
+local function replace_assignment_table_block(content, assignment_name, replacement)
+	local block_start, block_end_or_error = find_assignment_table_block(content, assignment_name)
+
+	if block_start == nil then
+		return nil, block_end_or_error
+	end
+
+	return content:sub(1, block_start - 1) .. replacement .. content:sub(block_end_or_error + 1)
+end
+
 local function prompt_number(message, informative_text, default_value, minimum_value, maximum_value)
 	local raw_value = prompt_text(message, informative_text, tostring(default_value or ""))
 
@@ -2165,11 +2253,10 @@ export_current_config_to_file = function()
 	end
 
 	local replacement = render_break_reminder_config_block(exportable_config())
-	local updated_content, replaced_count = content:gsub("_M%.break_reminder%s*=%s*%b{}", function()
-		return replacement
-	end, 1)
+	local updated_content, replace_error = replace_assignment_table_block(content, "_M.break_reminder", replacement)
 
-	if replaced_count ~= 1 then
+	if updated_content == nil then
+		log.e("failed to replace break reminder config block: " .. tostring(replace_error))
 		show_message("导出失败: 未找到 _M.break_reminder 配置块")
 		return
 	end
