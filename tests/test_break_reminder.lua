@@ -147,6 +147,235 @@ function _M.run()
 	assert_contains(recorded.alerts[#recorded.alerts], "已恢复默认配置", "confirmed restore should surface a success message")
 
 	reset_modules()
+
+	local lifecycle_recorded = {
+		alerts = {},
+		settings_store = {},
+		after_timers = {},
+		every_timers = {},
+		screen_watcher_started = 0,
+		screen_watcher_stopped = 0,
+		caffeinate_watcher_started = 0,
+		caffeinate_watcher_stopped = 0,
+		overlay_canvas_deleted = 0,
+	}
+
+	hs = {
+		logger = {
+			new = function()
+				return {
+					e = function() end,
+					w = function() end,
+					i = function() end,
+					d = function() end,
+				}
+			end,
+		},
+		settings = {
+			get = function(key)
+				return lifecycle_recorded.settings_store[key]
+			end,
+			set = function(key, value)
+				lifecycle_recorded.settings_store[key] = value
+			end,
+			clear = function(key)
+				lifecycle_recorded.settings_store[key] = nil
+			end,
+		},
+		eventtap = {
+			event = {
+				types = {},
+			},
+		},
+		timer = {
+			doAfter = function(interval, fn)
+				local timer = {
+					interval = interval,
+					callback = fn,
+					stopped = false,
+					stop = function(self)
+						self.stopped = true
+					end,
+				}
+
+				table.insert(lifecycle_recorded.after_timers, timer)
+
+				return timer
+			end,
+			doEvery = function(interval, fn)
+				local timer = {
+					interval = interval,
+					callback = fn,
+					stopped = false,
+					stop = function(self)
+						self.stopped = true
+					end,
+				}
+
+				table.insert(lifecycle_recorded.every_timers, timer)
+
+				return timer
+			end,
+		},
+		alert = {
+			show = function(message)
+				table.insert(lifecycle_recorded.alerts, message)
+			end,
+		},
+		dialog = {
+			blockAlert = function()
+				return "取消"
+			end,
+		},
+		styledtext = {
+			new = function(text)
+				return text
+			end,
+		},
+			canvas = {
+				windowLevels = {
+					screenSaver = 1,
+				},
+				new = function(frame)
+					local canvas_state = {
+						frame = frame,
+					}
+
+				return {
+					behaviorAsLabels = function() end,
+					clickActivating = function() end,
+					level = function() end,
+					appendElements = function() end,
+					minimumTextSize = function(_, text)
+						return {
+							w = #tostring(text or ""),
+							h = 10,
+						}
+					end,
+					frame = function(_, value)
+						if value ~= nil then
+							canvas_state.frame = value
+						end
+
+						return canvas_state.frame
+					end,
+					show = function() end,
+					hide = function() end,
+					delete = function()
+						lifecycle_recorded.overlay_canvas_deleted = lifecycle_recorded.overlay_canvas_deleted + 1
+					end,
+					mouseCallback = function() end,
+				}
+			end,
+		},
+		screen = {
+			allScreens = function()
+				return {
+					{
+						fullFrame = function()
+							return { x = 0, y = 0, w = 1440, h = 900 }
+						end,
+					},
+				}
+			end,
+			watcher = {
+				new = function()
+					return {
+						start = function()
+							lifecycle_recorded.screen_watcher_started = lifecycle_recorded.screen_watcher_started + 1
+						end,
+						stop = function()
+							lifecycle_recorded.screen_watcher_stopped = lifecycle_recorded.screen_watcher_stopped + 1
+						end,
+					}
+				end,
+			},
+		},
+		caffeinate = {
+			sessionProperties = function()
+				return {
+					CGSSessionScreenIsLocked = false,
+					kCGSSessionOnConsoleKey = true,
+				}
+			end,
+			watcher = {
+				screensDidLock = 1,
+				systemWillSleep = 2,
+				sessionDidResignActive = 3,
+				systemDidWake = 4,
+				screensDidUnlock = 5,
+				sessionDidBecomeActive = 6,
+				new = function()
+					return {
+						start = function()
+							lifecycle_recorded.caffeinate_watcher_started = lifecycle_recorded.caffeinate_watcher_started + 1
+						end,
+						stop = function()
+							lifecycle_recorded.caffeinate_watcher_stopped = lifecycle_recorded.caffeinate_watcher_stopped + 1
+						end,
+					}
+				end,
+			},
+		},
+		application = {
+			frontmostApplication = function()
+				return nil
+			end,
+		},
+	}
+
+	loaded_modules["keybindings_config"] = {
+		break_reminder = {
+			enabled = true,
+			show_menubar = false,
+			mode = "soft",
+			minimal_display = true,
+			start_next_cycle = "auto",
+			work_minutes = 15,
+			rest_seconds = 90,
+			friendly_reminder_seconds = 0,
+			focus_goal_minutes = 60,
+			break_goal_count = 0,
+			strict_mode_after_skips = 0,
+			rest_penalty_seconds_per_skip = 0,
+			max_rest_penalty_seconds = 0,
+		},
+	}
+
+	loaded_modules["utils_lib"] = {
+		prompt_text = function()
+			return nil
+		end,
+	}
+
+	break_reminder = require("break_reminder")
+
+	assert_true(break_reminder.start(), "enabled reminder module should start successfully")
+	state = break_reminder.get_state()
+	assert_equal(state.current_work_cycle_duration_seconds, 15 * 60, "start should schedule a work cycle")
+	assert_true(state.next_break_at ~= nil, "start should record next break timestamp")
+	assert_equal(lifecycle_recorded.screen_watcher_started, 1, "start should activate screen watcher")
+	assert_equal(lifecycle_recorded.caffeinate_watcher_started, 1, "start should activate caffeinate watcher")
+
+	break_reminder.start_break_now()
+	state = break_reminder.get_state()
+	assert_true(state.break_ends_at ~= nil, "manual start should enter break state")
+	assert_equal(state.current_break_duration_seconds, 90, "manual start should use configured rest duration")
+	assert_equal(state.next_break_at, nil, "break state should clear pending work timer target")
+
+	assert_true(break_reminder.skip_break_now(), "skip api should succeed during an active break")
+	state = break_reminder.get_state()
+	assert_equal(state.gamification.today_skipped_breaks, 1, "skip should increase skipped break count")
+	assert_equal(state.break_ends_at, nil, "skip should leave break state")
+	assert_equal(state.current_work_cycle_duration_seconds, 15 * 60, "skip should immediately schedule the next work cycle")
+	assert_true(state.next_break_at ~= nil, "skip should schedule another break")
+
+	assert_true(break_reminder.stop(), "stop should succeed after lifecycle transitions")
+	assert_equal(lifecycle_recorded.screen_watcher_stopped, 1, "stop should deactivate screen watcher")
+	assert_equal(lifecycle_recorded.caffeinate_watcher_stopped, 1, "stop should deactivate caffeinate watcher")
+	assert_true(lifecycle_recorded.overlay_canvas_deleted >= 1, "stop should clean up rendered overlays")
+
+	reset_modules()
 	hs = nil
 end
 
