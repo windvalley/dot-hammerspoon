@@ -3,12 +3,12 @@ local _M = {}
 _M.name = "keybindings_cheatsheet"
 _M.description = "展示快捷键备忘列表"
 
-local keybindings_cheatsheet = require "keybindings_config".keybindings_cheatsheet
-local input_methods = require "keybindings_config".manual_input_methods
-local system = require "keybindings_config".system
-local clipboard = require "keybindings_config".clipboard or {}
-local websites = require "keybindings_config".websites
-local apps = require "keybindings_config".apps
+local keybindings_cheatsheet = require("keybindings_config").keybindings_cheatsheet
+local input_methods = require("keybindings_config").manual_input_methods
+local system = require("keybindings_config").system
+local clipboard = require("keybindings_config").clipboard or {}
+local websites = require("keybindings_config").websites
+local apps = require("keybindings_config").apps
 
 local window_position = require("keybindings_config").window_position
 local window_movement = require("keybindings_config").window_movement
@@ -17,10 +17,10 @@ local window_monitor = require("keybindings_config").window_monitor
 local window_batch = require("keybindings_config").window_batch
 local hotkey_helper = require("hotkey_helper")
 
-local utf8len = require "utils_lib".utf8len
-local utf8sub = require "utils_lib".utf8sub
-local split = require "utils_lib".split
-local trim = require "utils_lib".trim
+local utf8len = require("utils_lib").utf8len
+local utf8sub = require("utils_lib").utf8sub
+local split = require("utils_lib").split
+local trim = require("utils_lib").trim
 
 -- 背景不透明度
 local background_opacity = 0.8
@@ -48,7 +48,7 @@ local started = false
 local hotkey_binding = nil
 
 local function bind(modifiers, key, message, pressedfn, releasedfn, repeatfn)
-    return hotkey_helper.bind(modifiers, key, message, pressedfn, releasedfn, repeatfn, { logger = log })
+	return hotkey_helper.bind(modifiers, key, message, pressedfn, releasedfn, repeatfn, { logger = log })
 end
 
 local canvas_width = 0
@@ -57,443 +57,426 @@ local canvas_height = 0
 local canvas = nil
 
 local function createCanvas()
-    local nextCanvas = hs.canvas.new({x = 0, y = 0, w = 0, h = 0})
+	local nextCanvas = hs.canvas.new({ x = 0, y = 0, w = 0, h = 0 })
 
-    nextCanvas:appendElements(
-        {
-            id = "pannel",
-            action = "fill",
-            fillColor = {alpha = background_opacity, red = 0, green = 0, blue = 0},
-            type = "rectangle"
-        }
-    )
+	nextCanvas:appendElements({
+		id = "pannel",
+		action = "fill",
+		fillColor = { alpha = background_opacity, red = 0, green = 0, blue = 0 },
+		type = "rectangle",
+	})
 
-    return nextCanvas
+	return nextCanvas
 end
 
 local function styleText(text)
-    return hs.styledtext.new(
-        text,
-        {
-            font = {
-                name = font_name,
-                size = font_size
-            },
-            color = {hex = font_color},
-            paragraphStyle = {
-                lineSpacing = line_spacing
-            }
-        }
-    )
+	return hs.styledtext.new(text, {
+		font = {
+			name = font_name,
+			size = font_size,
+		},
+		color = { hex = font_color },
+		paragraphStyle = {
+			lineSpacing = line_spacing,
+		},
+	})
 end
 
 local function resolveTargetScreenFrame()
-    local targetScreen = nil
-    local focusedWindow = hs.window.focusedWindow()
+	local targetScreen = nil
+	local focusedWindow = hs.window.focusedWindow()
 
-    if focusedWindow ~= nil then
-        targetScreen = focusedWindow:screen()
-    end
+	if focusedWindow ~= nil then
+		targetScreen = focusedWindow:screen()
+	end
 
-    if targetScreen == nil then
-        targetScreen = hs.screen.mainScreen()
-    end
+	if targetScreen == nil then
+		targetScreen = hs.screen.mainScreen()
+	end
 
-    if targetScreen == nil then
-        return nil
-    end
+	if targetScreen == nil then
+		return nil
+	end
 
-    return targetScreen:frame()
+	return targetScreen:frame()
 end
 
 local function positionCanvas()
-    if canvas == nil then
-        return
-    end
+	if canvas == nil then
+		return
+	end
 
-    local screen = resolveTargetScreenFrame()
+	local screen = resolveTargetScreenFrame()
 
-    if screen == nil then
-        return
-    end
+	if screen == nil then
+		return
+	end
 
-    canvas:frame(
-        {
-            x = screen.x + (screen.w - canvas_width) / 2,
-            y = screen.y + (screen.h - canvas_height) / 2,
-            w = canvas_width,
-            h = canvas_height
-        }
-    )
+	canvas:frame({
+		x = screen.x + (screen.w - canvas_width) / 2,
+		y = screen.y + (screen.h - canvas_height) / 2,
+		w = canvas_width,
+		h = canvas_height,
+	})
 end
 
 local function formatText()
-    -- 加载所有绑定的快捷键
-    local hotkeys = hs.hotkey.getHotkeys()
-    local renderText = {}
+	-- 加载所有绑定的快捷键
+	local hotkeys = hs.hotkey.getHotkeys()
+	local renderText = {}
 
-    local keybindingsCheatsheet = {}
-    table.insert(keybindingsCheatsheet, {msg = "[Cheatsheet]"})
-    table.insert(keybindingsCheatsheet, {msg = keybindings_cheatsheet.description})
+	local keybindingsCheatsheet = {}
+	table.insert(keybindingsCheatsheet, { msg = "[Cheatsheet]" })
+	table.insert(keybindingsCheatsheet, { msg = keybindings_cheatsheet.description })
 
-    local inputMethods = {}
-    table.insert(inputMethods, {msg = "[Input Methods]"})
+	local inputMethods = {}
+	table.insert(inputMethods, { msg = "[Input Methods]" })
 
-    local systemManagement = {}
-    table.insert(systemManagement, {msg = "[System Management]"})
+	local systemManagement = {}
+	table.insert(systemManagement, { msg = "[System Management]" })
 
-    local clipboardCenter = {}
-    table.insert(clipboardCenter, {msg = "[Clipboard Center]"})
+	local clipboardCenter = {}
+	table.insert(clipboardCenter, { msg = "[Clipboard Center]" })
 
-    local WebsiteOpen = {}
-    table.insert(WebsiteOpen, {msg = "[Website Open]"})
+	local WebsiteOpen = {}
+	table.insert(WebsiteOpen, { msg = "[Website Open]" })
 
-    local applicationLaunch = {}
-    table.insert(applicationLaunch, {msg = "[App Launch Or Hide]"})
+	local applicationLaunch = {}
+	table.insert(applicationLaunch, { msg = "[App Launch Or Hide]" })
 
-    local windowPosition = {}
-    table.insert(windowPosition, {msg = "[Window Position]"})
+	local windowPosition = {}
+	table.insert(windowPosition, { msg = "[Window Position]" })
 
-    local windowMovement = {}
-    table.insert(windowMovement, {msg = "[Window Movement]"})
+	local windowMovement = {}
+	table.insert(windowMovement, { msg = "[Window Movement]" })
 
-    local windowResize = {}
-    table.insert(windowResize, {msg = "[Window Resize]"})
+	local windowResize = {}
+	table.insert(windowResize, { msg = "[Window Resize]" })
 
-    local windowMonitor = {}
-    table.insert(windowMonitor, {msg = "[Window Monitor]"})
+	local windowMonitor = {}
+	table.insert(windowMonitor, { msg = "[Window Monitor]" })
 
-    local windowBatch = {}
-    table.insert(windowBatch, {msg = "[Window Batch]"})
+	local windowBatch = {}
+	table.insert(windowBatch, { msg = "[Window Batch]" })
 
-    -- 快捷键分类
-    for _, v in ipairs(hotkeys) do
-        local _msg = trim(split(v.msg, ":")[2])
+	-- 快捷键分类
+	for _, v in ipairs(hotkeys) do
+		local _msg = trim(split(v.msg, ":")[2])
 
-        -- Input methods
-        for _, i in pairs(input_methods) do
-            if _msg == i.message then
-                table.insert(inputMethods, {msg = v.msg})
-                goto continue
-            end
-        end
+		-- Input methods
+		for _, i in pairs(input_methods) do
+			if _msg == i.message then
+				table.insert(inputMethods, { msg = v.msg })
+				goto continue
+			end
+		end
 
-        -- System management
-        for _, s in pairs(system) do
-            if _msg == s.message then
-                table.insert(systemManagement, {msg = v.msg})
-                goto continue
-            end
-        end
+		-- System management
+		for _, s in pairs(system) do
+			if _msg == s.message then
+				table.insert(systemManagement, { msg = v.msg })
+				goto continue
+			end
+		end
 
-        -- Clipboard center
-        if _msg == clipboard.message then
-            table.insert(clipboardCenter, {msg = v.msg})
-            goto continue
-        end
+		-- Clipboard center
+		if _msg == clipboard.message then
+			table.insert(clipboardCenter, { msg = v.msg })
+			goto continue
+		end
 
-        -- Open URL.
-        for _, u in pairs(websites) do
-            if _msg == u.message then
-                table.insert(WebsiteOpen, {msg = v.msg})
-                goto continue
-            end
-        end
+		-- Open URL.
+		for _, u in pairs(websites) do
+			if _msg == u.message then
+				table.insert(WebsiteOpen, { msg = v.msg })
+				goto continue
+			end
+		end
 
-        -- Application launch or switch
-        for _, a in pairs(apps) do
-            if _msg == a.message then
-                table.insert(applicationLaunch, {msg = v.msg})
-                goto continue
-            end
-        end
+		-- Application launch or switch
+		for _, a in pairs(apps) do
+			if _msg == a.message then
+				table.insert(applicationLaunch, { msg = v.msg })
+				goto continue
+			end
+		end
 
-        -- Window position
-        for _, wp in pairs(window_position) do
-            if _msg == wp.message then
-                table.insert(windowPosition, {msg = v.msg})
-                goto continue
-            end
-        end
+		-- Window position
+		for _, wp in pairs(window_position) do
+			if _msg == wp.message then
+				table.insert(windowPosition, { msg = v.msg })
+				goto continue
+			end
+		end
 
-        -- Window movement
-        for _, wm in pairs(window_movement) do
-            if _msg == wm.message then
-                table.insert(windowMovement, {msg = v.msg})
-                goto continue
-            end
-        end
+		-- Window movement
+		for _, wm in pairs(window_movement) do
+			if _msg == wm.message then
+				table.insert(windowMovement, { msg = v.msg })
+				goto continue
+			end
+		end
 
-        -- Window resize
-        for _, wr in pairs(window_resize) do
-            if _msg == wr.message then
-                table.insert(windowResize, {msg = v.msg})
-                goto continue
-            end
-        end
+		-- Window resize
+		for _, wr in pairs(window_resize) do
+			if _msg == wr.message then
+				table.insert(windowResize, { msg = v.msg })
+				goto continue
+			end
+		end
 
-        -- Window monitor
-        for _, wm in pairs(window_monitor) do
-            if _msg == wm.message then
-                table.insert(windowMonitor, {msg = v.msg})
-                goto continue
-            end
-        end
+		-- Window monitor
+		for _, wm in pairs(window_monitor) do
+			if _msg == wm.message then
+				table.insert(windowMonitor, { msg = v.msg })
+				goto continue
+			end
+		end
 
-        -- Window batch
-        for _, wb in pairs(window_batch) do
-            if _msg == wb.message then
-                table.insert(windowBatch, {msg = v.msg})
-                goto continue
-            end
-        end
+		-- Window batch
+		for _, wb in pairs(window_batch) do
+			if _msg == wb.message then
+				table.insert(windowBatch, { msg = v.msg })
+				goto continue
+			end
+		end
 
-        ::continue::
-    end
+		::continue::
+	end
 
-    hotkeys = {}
+	hotkeys = {}
 
-    for _, v in ipairs(keybindingsCheatsheet) do
-        table.insert(hotkeys, {msg = v.msg})
-    end
+	for _, v in ipairs(keybindingsCheatsheet) do
+		table.insert(hotkeys, { msg = v.msg })
+	end
 
-    table.insert(hotkeys, {msg = ""})
+	table.insert(hotkeys, { msg = "" })
 
-    for _, v in ipairs(inputMethods) do
-        table.insert(hotkeys, {msg = v.msg})
-    end
+	for _, v in ipairs(inputMethods) do
+		table.insert(hotkeys, { msg = v.msg })
+	end
 
-    table.insert(hotkeys, {msg = ""})
+	table.insert(hotkeys, { msg = "" })
 
-    for _, v in ipairs(systemManagement) do
-        table.insert(hotkeys, {msg = v.msg})
-    end
+	for _, v in ipairs(systemManagement) do
+		table.insert(hotkeys, { msg = v.msg })
+	end
 
-    table.insert(hotkeys, {msg = ""})
+	table.insert(hotkeys, { msg = "" })
 
-    for _, v in ipairs(clipboardCenter) do
-        table.insert(hotkeys, {msg = v.msg})
-    end
+	for _, v in ipairs(clipboardCenter) do
+		table.insert(hotkeys, { msg = v.msg })
+	end
 
-    table.insert(hotkeys, {msg = ""})
+	table.insert(hotkeys, { msg = "" })
 
-    for _, v in ipairs(WebsiteOpen) do
-        table.insert(hotkeys, {msg = v.msg})
-    end
+	for _, v in ipairs(WebsiteOpen) do
+		table.insert(hotkeys, { msg = v.msg })
+	end
 
-    table.insert(hotkeys, {msg = ""})
+	table.insert(hotkeys, { msg = "" })
 
-    for _, v in ipairs(applicationLaunch) do
-        table.insert(hotkeys, {msg = v.msg})
-    end
+	for _, v in ipairs(applicationLaunch) do
+		table.insert(hotkeys, { msg = v.msg })
+	end
 
-    table.insert(hotkeys, {msg = ""})
+	table.insert(hotkeys, { msg = "" })
 
-    for _, v in ipairs(windowPosition) do
-        table.insert(hotkeys, {msg = v.msg})
-    end
+	for _, v in ipairs(windowPosition) do
+		table.insert(hotkeys, { msg = v.msg })
+	end
 
-    table.insert(hotkeys, {msg = ""})
+	table.insert(hotkeys, { msg = "" })
 
-    for _, v in ipairs(windowMovement) do
-        table.insert(hotkeys, {msg = v.msg})
-    end
+	for _, v in ipairs(windowMovement) do
+		table.insert(hotkeys, { msg = v.msg })
+	end
 
-    table.insert(hotkeys, {msg = ""})
+	table.insert(hotkeys, { msg = "" })
 
-    for _, v in ipairs(windowResize) do
-        table.insert(hotkeys, {msg = v.msg})
-    end
+	for _, v in ipairs(windowResize) do
+		table.insert(hotkeys, { msg = v.msg })
+	end
 
-    table.insert(hotkeys, {msg = ""})
+	table.insert(hotkeys, { msg = "" })
 
-    for _, v in ipairs(windowMonitor) do
-        table.insert(hotkeys, {msg = v.msg})
-    end
+	for _, v in ipairs(windowMonitor) do
+		table.insert(hotkeys, { msg = v.msg })
+	end
 
-    table.insert(hotkeys, {msg = ""})
+	table.insert(hotkeys, { msg = "" })
 
-    for _, v in ipairs(windowBatch) do
-        table.insert(hotkeys, {msg = v.msg})
-    end
+	for _, v in ipairs(windowBatch) do
+		table.insert(hotkeys, { msg = v.msg })
+	end
 
-    -- 文本定长
-    for _, v in ipairs(hotkeys) do
-        local msg = v.msg
-        local len = utf8len(msg)
+	-- 文本定长
+	for _, v in ipairs(hotkeys) do
+		local msg = v.msg
+		local len = utf8len(msg)
 
-        -- 超过最大长度, 截断多余部分, 截断的部分作为新的一行.
-        while len > max_line_length do
-            local substr = utf8sub(msg, 1, max_line_length)
-            table.insert(renderText, {line = substr})
+		-- 超过最大长度, 截断多余部分, 截断的部分作为新的一行.
+		while len > max_line_length do
+			local substr = utf8sub(msg, 1, max_line_length)
+			table.insert(renderText, { line = substr })
 
-            msg = utf8sub(msg, max_line_length + 1, len)
-            len = utf8len(msg)
-        end
+			msg = utf8sub(msg, max_line_length + 1, len)
+			len = utf8len(msg)
+		end
 
-        for _ = 1, max_line_length - utf8len(msg), 1 do
-            msg = msg .. " "
-        end
+		for _ = 1, max_line_length - utf8len(msg), 1 do
+			msg = msg .. " "
+		end
 
-        table.insert(renderText, {line = msg})
-    end
+		table.insert(renderText, { line = msg })
+	end
 
-    return renderText
+	return renderText
 end
 
 local function drawText(renderText)
-    local w = 0
-    local h = 0
-    local totalLines = #renderText
+	local w = 0
+	local h = 0
+	local totalLines = #renderText
 
-    -- 每一列需要显示的文本
-    local column = ""
+	-- 每一列需要显示的文本
+	local column = ""
 
-    for k, v in ipairs(renderText) do
-        local line = v.line
-        if math.fmod(k, max_line_number) == 0 then
-            column = column .. line .. "  "
-        else
-            column = column .. line .. "  \n"
-        end
+	for k, v in ipairs(renderText) do
+		local line = v.line
+		if math.fmod(k, max_line_number) == 0 then
+			column = column .. line .. "  "
+		else
+			column = column .. line .. "  \n"
+		end
 
-        -- k mod max_line_number
-        if math.fmod(k, max_line_number) == 0 then
-            local itemText = styleText(column)
-            local size = canvas:minimumTextSize(itemText)
+		-- k mod max_line_number
+		if math.fmod(k, max_line_number) == 0 then
+			local itemText = styleText(column)
+			local size = canvas:minimumTextSize(itemText)
 
-            w = w + size.w
-            if k == max_line_number then
-                h = size.h
-            end
+			w = w + size.w
+			if k == max_line_number then
+				h = size.h
+			end
 
-            canvas:appendElements(
-                {
-                    type = "text",
-                    text = itemText,
-                    frame = {
-                        x = (k / max_line_number - 1) * size.w + seperator_spacing,
-                        y = 0,
-                        w = size.w + seperator_spacing,
-                        h = size.h
-                    }
-                }
-            )
+			canvas:appendElements({
+				type = "text",
+				text = itemText,
+				frame = {
+					x = (k / max_line_number - 1) * size.w + seperator_spacing,
+					y = 0,
+					w = size.w + seperator_spacing,
+					h = size.h,
+				},
+			})
 
-            canvas:appendElements(
-                {
-                    type = "segments",
-                    closed = false,
-                    strokeColor = {hex = stroke_color},
-                    action = "stroke",
-                    strokeWidth = stroke_width,
-                    coordinates = {
-                        {x = (k / max_line_number) * size.w - seperator_spacing, y = 0},
-                        {x = (k / max_line_number) * size.w - seperator_spacing, y = h}
-                    }
-                }
-            )
+			canvas:appendElements({
+				type = "segments",
+				closed = false,
+				strokeColor = { hex = stroke_color },
+				action = "stroke",
+				strokeWidth = stroke_width,
+				coordinates = {
+					{ x = (k / max_line_number) * size.w - seperator_spacing, y = 0 },
+					{ x = (k / max_line_number) * size.w - seperator_spacing, y = h },
+				},
+			})
 
-            column = ""
-        end
-    end
+			column = ""
+		end
+	end
 
-    if column ~= "" then
-        local itemText = styleText(column)
-        local size = canvas:minimumTextSize(itemText)
+	if column ~= "" then
+		local itemText = styleText(column)
+		local size = canvas:minimumTextSize(itemText)
 
-        w = w + size.w
+		w = w + size.w
 
-        canvas:appendElements(
-            {
-                type = "text",
-                text = itemText,
-                frame = {
-                    x = math.ceil(totalLines / max_line_number - 1) * size.w + seperator_spacing,
-                    y = 0,
-                    w = size.w + seperator_spacing,
-                    h = size.h
-                }
-            }
-        )
-    end
+		canvas:appendElements({
+			type = "text",
+			text = itemText,
+			frame = {
+				x = math.ceil(totalLines / max_line_number - 1) * size.w + seperator_spacing,
+				y = 0,
+				w = size.w + seperator_spacing,
+				h = size.h,
+			},
+		})
+	end
 
-    canvas_width = w
-    canvas_height = h
-    positionCanvas()
+	canvas_width = w
+	canvas_height = h
+	positionCanvas()
 end
 
 local function rebuildCanvas()
-    local renderText = formatText()
+	local renderText = formatText()
 
-    if canvas ~= nil then
-        canvas:hide(0)
-        canvas:delete()
-    end
+	if canvas ~= nil then
+		canvas:hide(0)
+		canvas:delete()
+	end
 
-    canvas_width = 0
-    canvas_height = 0
-    canvas = createCanvas()
-    drawText(renderText)
+	canvas_width = 0
+	canvas_height = 0
+	canvas = createCanvas()
+	drawText(renderText)
 end
 
 local function destroyCanvas()
-    if canvas == nil then
-        return
-    end
+	if canvas == nil then
+		return
+	end
 
-    canvas:hide(0)
-    canvas:delete()
-    canvas = nil
-    canvas_width = 0
-    canvas_height = 0
+	canvas:hide(0)
+	canvas:delete()
+	canvas = nil
+	canvas_width = 0
+	canvas_height = 0
 end
 
 -- 默认不显示
 local show = false
 local function toggleKeybindingsCheatsheet()
-    if show then
-        -- 0.3s 过渡
-        if canvas ~= nil then
-            canvas:hide(.3)
-        end
-    else
-        rebuildCanvas()
-        positionCanvas()
-        canvas:show(.3)
-    end
+	if show then
+		-- 0.3s 过渡
+		if canvas ~= nil then
+			canvas:hide(0.3)
+		end
+	else
+		rebuildCanvas()
+		positionCanvas()
+		canvas:show(0.3)
+	end
 
-    show = not show
+	show = not show
 end
 
 function _M.start()
-    if started == true then
-        return true
-    end
+	if started == true then
+		return true
+	end
 
-    rebuildCanvas()
-    hotkey_binding = bind(
-        keybindings_cheatsheet.prefix,
-        keybindings_cheatsheet.key,
-        keybindings_cheatsheet.message,
-        toggleKeybindingsCheatsheet
-    )
-    started = true
+	rebuildCanvas()
+	hotkey_binding =
+		bind(keybindings_cheatsheet.prefix, keybindings_cheatsheet.key, keybindings_cheatsheet.message, toggleKeybindingsCheatsheet)
+	started = true
 
-    return true
+	return true
 end
 
 function _M.stop()
-    if hotkey_binding ~= nil then
-        hotkey_binding:delete()
-        hotkey_binding = nil
-    end
+	if hotkey_binding ~= nil then
+		hotkey_binding:delete()
+		hotkey_binding = nil
+	end
 
-    destroyCanvas()
-    show = false
-    started = false
+	destroyCanvas()
+	show = false
+	started = false
 
-    return true
+	return true
 end
 
 return _M

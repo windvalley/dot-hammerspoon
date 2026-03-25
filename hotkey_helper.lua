@@ -99,12 +99,9 @@ function _M.normalize_hotkey_modifiers(raw_modifiers)
 		end
 	end
 
-	table.sort(
-		normalized,
-		function(left, right)
-			return _M.modifier_order[left] < _M.modifier_order[right]
-		end
-	)
+	table.sort(normalized, function(left, right)
+		return _M.modifier_order[left] < _M.modifier_order[right]
+	end)
 
 	return normalized
 end
@@ -159,11 +156,9 @@ function _M.bind(modifiers, key, message, pressedfn, releasedfn, repeatfn, optio
 		end
 	end
 
-	local ok, binding_or_error = pcall(
-		function()
-			return hs.hotkey.bind(modifiers, key, message, pressedfn, releasedfn, repeatfn)
-		end
-	)
+	local ok, binding_or_error = pcall(function()
+		return hs.hotkey.bind(modifiers, key, message, pressedfn, releasedfn, repeatfn)
+	end)
 
 	if ok ~= true or binding_or_error == nil then
 		if binding_or_error ~= nil then

@@ -3,6 +3,60 @@ local _M = {}
 _M.name = "clipboard_center"
 _M.description = "剪贴板历史"
 
+-------------------------------------------------------------------------------
+-- 模块架构说明
+--
+-- 本模块实现了一个支持文本和图片的剪贴板历史管理器，
+-- 包含 chooser 面板、预览窗口和菜单栏图标三个 UI 组件。
+--
+-- [配置与状态] L1-80
+--   从 keybindings_config.clipboard 读取配置
+--   state 表管理运行时状态（watcher/chooser/menubar/preview 等）
+--   支持运行时动态调整菜单显示条数
+--
+-- [工具函数] L80-170
+--   normalize_number / normalize_menu_history_size — 配置值校验
+--   next_history_id — 生成唯一项目 ID
+--   normalize_hotkey_key — 快捷键标准化
+--
+-- [布局计算] L170-330
+--   resolve_target_screen_frame — 获取当前屏幕尺寸
+--   chooser_layout — 计算 chooser + preview 面板的位置和尺寸
+--   支持 preview 面板与 chooser 自动对齐居中
+--
+-- [剪贴板操作] L330-650
+--   文本去重（duplicate_suppression_seconds 秒内相同内容不重复记录）
+--   图片缓存管理（保存到磁盘，删除时清理缓存文件）
+--   历史记录持久化到 hs.settings
+--   sanitize_text / capture_clipboard — 输入清洗与捕获
+--
+-- [预览面板] L650-900
+--   hs.canvas 实现的富文本/图片预览窗口
+--   支持深色/浅色主题自动适配
+--   preview_signature 防止无变化时重复渲染
+--   poll timer 轮询 chooser 选中项变化
+--
+-- [Chooser 面板] L900-1200
+--   hs.chooser 实现的搜索/选择界面
+--   支持行内图片缩略图
+--   选中后自动粘贴到前台应用
+--
+-- [菜单栏] L1200-1700
+--   矢量图标绘制（剪贴板图标）
+--   右键菜单：最近记录（可配置条数）、清空历史、快捷键设置
+--   支持运行时修改快捷键并持久化
+--
+-- [公共 API 与生命周期] L1700-2010
+--   _M.start() / _M.stop() 模块生命周期
+--   hs.pasteboard.watcher 监听剪贴板变化
+--   启动时从 hs.settings 恢复历史和配置
+--
+-- 关键设计决策：
+-- 1. 图片以文件路径形式存储在 history 中，实际文件缓存在 Library/Caches
+-- 2. chooser 和 preview 面板位置根据当前屏幕动态计算
+-- 3. 支持运行时通过菜单栏修改快捷键，修改后持久化到 hs.settings
+-------------------------------------------------------------------------------
+
 local clipboard = require("keybindings_config").clipboard or {}
 local hotkey_helper = require("hotkey_helper")
 local utils_lib = require("utils_lib")
@@ -89,8 +143,6 @@ local state = {
 	menubar_icon = nil,
 }
 
-
-
 local function normalize_number(value, fallback, minimum)
 	local number = tonumber(value)
 
@@ -118,15 +170,8 @@ end
 local function next_history_id()
 	history_id_counter = history_id_counter + 1
 
-	return string.format(
-		"history-%d-%d-%d",
-		os.time(),
-		math.floor(tonumber(hs.timer.absoluteTime()) or 0),
-		history_id_counter
-	)
+	return string.format("history-%d-%d-%d", os.time(), math.floor(tonumber(hs.timer.absoluteTime()) or 0), history_id_counter)
 end
-
-
 
 local function resolve_cache_dir()
 	local configured = trim(tostring(clipboard.image_cache_dir or ""))
@@ -236,8 +281,6 @@ local function preview_colors()
 		shadow = { alpha = 0.18, white = 0 },
 	}
 end
-
-
 
 local function safe_remove_file(path)
 	if file_exists(path) ~= true then
@@ -584,37 +627,33 @@ local function build_menubar_icon()
 
 	local icon_color = { red = 0, green = 0, blue = 0, alpha = 1 }
 
-	canvas:appendElements(
-		{
-			type = "rectangle",
-			action = "stroke",
-			strokeColor = icon_color,
-			strokeWidth = 1.35,
-			roundedRectRadii = { xRadius = 2.2, yRadius = 2.2 },
-			frame = { x = 4.2, y = 4.9, w = 9.6, h = 9.8 },
+	canvas:appendElements({
+		type = "rectangle",
+		action = "stroke",
+		strokeColor = icon_color,
+		strokeWidth = 1.35,
+		roundedRectRadii = { xRadius = 2.2, yRadius = 2.2 },
+		frame = { x = 4.2, y = 4.9, w = 9.6, h = 9.8 },
+	}, {
+		type = "segments",
+		action = "stroke",
+		closed = false,
+		strokeWidth = 1.35,
+		strokeCapStyle = "round",
+		strokeColor = icon_color,
+		coordinates = {
+			{ x = 7.0, y = 5.0 },
+			{ x = 7.0, y = 4.2 },
+			{ x = 11.0, y = 4.2 },
+			{ x = 11.0, y = 5.0 },
 		},
-		{
-			type = "segments",
-			action = "stroke",
-			closed = false,
-			strokeWidth = 1.35,
-			strokeCapStyle = "round",
-			strokeColor = icon_color,
-			coordinates = {
-				{ x = 7.0, y = 5.0 },
-				{ x = 7.0, y = 4.2 },
-				{ x = 11.0, y = 4.2 },
-				{ x = 11.0, y = 5.0 },
-			},
-		},
-		{
-			type = "rectangle",
-			action = "fill",
-			fillColor = icon_color,
-			roundedRectRadii = { xRadius = 1.6, yRadius = 1.6 },
-			frame = { x = 6.3, y = 2.3, w = 5.4, h = 2.7 },
-		}
-	)
+	}, {
+		type = "rectangle",
+		action = "fill",
+		fillColor = icon_color,
+		roundedRectRadii = { xRadius = 1.6, yRadius = 1.6 },
+		frame = { x = 6.3, y = 2.3, w = 5.4, h = 2.7 },
+	})
 
 	local icon = canvas:imageFromCanvas()
 
@@ -1153,7 +1192,9 @@ local function build_choice_preview(choice)
 			signature = item_signature(item),
 			item = item,
 			image = image,
-			detail = trim(tostring(choice.preview_detail or string.format("%s · %s", image_dimensions(item), format_timestamp(item.stored_at)))),
+			detail = trim(
+				tostring(choice.preview_detail or string.format("%s · %s", image_dimensions(item), format_timestamp(item.stored_at)))
+			),
 		}
 	end
 
@@ -1205,9 +1246,7 @@ local function update_preview()
 
 	if state.preview_signature ~= preview.signature or canvas:isShowing() ~= true then
 		if preview.kind == "image" then
-			canvas:replaceElements(
-				table.unpack(build_image_preview_elements(layout.preview_frame, preview.image, preview.detail))
-			)
+			canvas:replaceElements(table.unpack(build_image_preview_elements(layout.preview_frame, preview.image, preview.detail)))
 		else
 			canvas:replaceElements(table.unpack(build_text_preview_elements(layout.preview_frame, preview.text_preview)))
 		end
@@ -1302,11 +1341,7 @@ end
 
 local function history_choice(item, index)
 	if item.kind == "image" then
-		local detail = string.format(
-			"历史 #%d · %s · 图片",
-			index,
-			format_timestamp(item.stored_at)
-		)
+		local detail = string.format("历史 #%d · %s · 图片", index, format_timestamp(item.stored_at))
 
 		return {
 			text = "图片 " .. image_dimensions(item),
@@ -1322,22 +1357,15 @@ local function history_choice(item, index)
 			width = item.width,
 			height = item.height,
 			stored_at = item.stored_at,
-			search_text = normalize_search_text(
-				table.concat({
-					"图片 " .. image_dimensions(item),
-					detail,
-					string.format("历史 #%d %s %s", index, format_timestamp(item.stored_at), image_dimensions(item)),
-				}, "\n")
-			),
+			search_text = normalize_search_text(table.concat({
+				"图片 " .. image_dimensions(item),
+				detail,
+				string.format("历史 #%d %s %s", index, format_timestamp(item.stored_at), image_dimensions(item)),
+			}, "\n")),
 		}
 	end
 
-	local detail = string.format(
-		"历史 #%d · %s · 文本 · %s",
-		index,
-		format_timestamp(item.stored_at),
-		describe_text(item.content)
-	)
+	local detail = string.format("历史 #%d · %s · 文本 · %s", index, format_timestamp(item.stored_at), describe_text(item.content))
 
 	return {
 		text = compact_preview(item.content, history_preview_length),
@@ -1348,12 +1376,10 @@ local function history_choice(item, index)
 		history_id = item.id,
 		kind = "text",
 		content = item.content,
-		search_text = normalize_search_text(
-			table.concat({
-				item.content,
-				detail,
-			}, "\n")
-		),
+		search_text = normalize_search_text(table.concat({
+			item.content,
+			detail,
+		}, "\n")),
 	}
 end
 
@@ -1595,56 +1621,47 @@ local function build_menu_history_size_menu()
 	}
 
 	for _, value in ipairs(values) do
-		table.insert(
-			menu,
-			{
-				title = string.format("%d 条", value),
-				checked = current == value,
-				fn = function()
-					set_menu_history_size(value)
-				end,
-			}
-		)
+		table.insert(menu, {
+			title = string.format("%d 条", value),
+			checked = current == value,
+			fn = function()
+				set_menu_history_size(value)
+			end,
+		})
 	end
 
-	table.insert(
-		menu,
-		{
-			title = "自定义...",
-			fn = function()
-				local raw_value = prompt_text(
-					"最近历史显示数量",
-					"请输入菜单栏主菜单中直接显示的最近历史条数，最小为 1。",
-					tostring(current)
-				)
+	table.insert(menu, {
+		title = "自定义...",
+		fn = function()
+			local raw_value = prompt_text(
+				"最近历史显示数量",
+				"请输入菜单栏主菜单中直接显示的最近历史条数，最小为 1。",
+				tostring(current)
+			)
 
-				if raw_value == nil then
-					return
-				end
+			if raw_value == nil then
+				return
+			end
 
-				local normalized = normalize_menu_history_size(raw_value, nil)
+			local normalized = normalize_menu_history_size(raw_value, nil)
 
-				if normalized == nil then
-					hs.alert.show("请输入有效数字")
-					return
-				end
+			if normalized == nil then
+				hs.alert.show("请输入有效数字")
+				return
+			end
 
-				set_menu_history_size(normalized)
-			end,
-		}
-	)
+			set_menu_history_size(normalized)
+		end,
+	})
 
 	table.insert(menu, { title = "-" })
-	table.insert(
-		menu,
-		{
-			title = string.format("恢复默认 (%d)", default_menu_history_size),
-			disabled = current == default_menu_history_size,
-			fn = function()
-				set_menu_history_size(default_menu_history_size)
-			end,
-		}
-	)
+	table.insert(menu, {
+		title = string.format("恢复默认 (%d)", default_menu_history_size),
+		disabled = current == default_menu_history_size,
+		fn = function()
+			set_menu_history_size(default_menu_history_size)
+		end,
+	})
 
 	return menu
 end
@@ -1652,13 +1669,10 @@ end
 local function append_history_menu_items(menu)
 	local count = math.min(#state.history, state.menu_history_size or default_menu_history_size)
 
-	table.insert(
-		menu,
-		{
-			title = string.format("最近历史 (%d/%d)", count, #state.history),
-			disabled = true,
-		}
-	)
+	table.insert(menu, {
+		title = string.format("最近历史 (%d/%d)", count, #state.history),
+		disabled = true,
+	})
 
 	if count == 0 then
 		table.insert(menu, { title = "暂无历史", disabled = true })
@@ -1671,23 +1685,20 @@ local function append_history_menu_items(menu)
 		local item = state.history[index]
 		local choice = history_menu_choice(item)
 
-		table.insert(
-			menu,
-			{
-				title = history_menu_title(item),
-				tooltip = history_menu_tooltip(item),
-				image = menu_thumbnail(item),
-				shortcut = index <= menu_history_shortcut_limit and tostring(index) or nil,
-				fn = function(modifiers)
-					if type(modifiers) == "table" and modifiers.cmd == true then
-						delete_history_choice(choice)
-						return
-					end
+		table.insert(menu, {
+			title = history_menu_title(item),
+			tooltip = history_menu_tooltip(item),
+			image = menu_thumbnail(item),
+			shortcut = index <= menu_history_shortcut_limit and tostring(index) or nil,
+			fn = function(modifiers)
+				if type(modifiers) == "table" and modifiers.cmd == true then
+					delete_history_choice(choice)
+					return
+				end
 
-					activate_choice(choice)
-				end,
-			}
-		)
+				activate_choice(choice)
+			end,
+		})
 	end
 end
 
@@ -1858,15 +1869,8 @@ local function bind_hotkey()
 		return
 	end
 
-	local binding = hotkey_helper.bind(
-		copy_list(modifiers),
-		key,
-		clipboard.message or "Clipboard Center",
-		show_chooser,
-		nil,
-		nil,
-		{ logger = log }
-	)
+	local binding =
+		hotkey_helper.bind(copy_list(modifiers), key, clipboard.message or "Clipboard Center", show_chooser, nil, nil, { logger = log })
 
 	if binding == nil then
 		return

@@ -28,13 +28,10 @@ local module_specs = {
 }
 
 local function push_startup_notice(level, message)
-	table.insert(
-		startup_notices,
-		{
-			level = level,
-			message = message,
-		}
-	)
+	table.insert(startup_notices, {
+		level = level,
+		message = message,
+	})
 
 	if level == "error" then
 		log.e(message)
@@ -58,7 +55,10 @@ local function check_accessibility_permission()
 	end
 
 	if enabled ~= true then
-		push_startup_notice("warning", "未授予 Hammerspoon 辅助功能权限，窗口操作、输入监听等模块可能无法正常工作")
+		push_startup_notice(
+			"warning",
+			"未授予 Hammerspoon 辅助功能权限，窗口操作、输入监听等模块可能无法正常工作"
+		)
 		return false
 	end
 
@@ -76,12 +76,9 @@ local function invoke_module_hook(module_name, module, hook_name)
 		return true
 	end
 
-	local ok, err = xpcall(
-		function()
-			hook(module)
-		end,
-		debug.traceback
-	)
+	local ok, err = xpcall(function()
+		hook(module)
+	end, debug.traceback)
 
 	if ok ~= true then
 		push_startup_notice("error", string.format("模块 %s 的 %s() 执行失败，详见 Console", module_name, hook_name))
@@ -94,12 +91,9 @@ end
 
 local function safe_require(spec)
 	local module_label = spec.description or spec.name
-	local ok, module_or_err = xpcall(
-		function()
-			return require(spec.name)
-		end,
-		debug.traceback
-	)
+	local ok, module_or_err = xpcall(function()
+		return require(spec.name)
+	end, debug.traceback)
 
 	if ok ~= true then
 		push_startup_notice("error", string.format("模块加载失败: %s (%s)，详见 Console", spec.name, module_label))
@@ -157,12 +151,9 @@ hs.shutdownCallback = function(...)
 	stop_loaded_modules()
 
 	if type(previous_shutdown_callback) == "function" then
-		local ok, err = xpcall(
-			function()
-				previous_shutdown_callback(table.unpack(shutdown_args))
-			end,
-			debug.traceback
-		)
+		local ok, err = xpcall(function()
+			previous_shutdown_callback(table.unpack(shutdown_args))
+		end, debug.traceback)
 
 		if ok ~= true then
 			log.e(err)
@@ -196,12 +187,9 @@ for _, spec in ipairs(module_specs) do
 end
 
 if #startup_notices > 0 then
-	hs.timer.doAfter(
-		0,
-		function()
-			flush_startup_notices()
-		end
-	)
+	hs.timer.doAfter(0, function()
+		flush_startup_notices()
+	end)
 end
 
 return _M

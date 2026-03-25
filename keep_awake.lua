@@ -32,8 +32,6 @@ local build_menu = nil
 local hotkey_binding = nil
 local started = false
 
-
-
 local function same_list(left, right)
 	if #left ~= #right then
 		return false
@@ -102,8 +100,6 @@ local function format_hotkey_for_prompt(modifiers, key)
 
 	return table.concat(modifier_names, "+"), key or ""
 end
-
-
 
 default_hotkey_modifiers = normalize_hotkey_modifiers(default_hotkey_modifiers) or {}
 default_hotkey_key = normalize_hotkey_key(default_hotkey_key)
@@ -197,13 +193,10 @@ local function circle_path_coordinates(start_radians, end_radians, center_x, cen
 		local ratio = index / steps
 		local angle = start_radians + (radians_span * ratio)
 
-		table.insert(
-			coordinates,
-			{
-				x = center_x + (math.cos(angle) * radius),
-				y = center_y + (math.sin(angle) * radius),
-			}
-		)
+		table.insert(coordinates, {
+			x = center_x + (math.cos(angle) * radius),
+			y = center_y + (math.sin(angle) * radius),
+		})
 	end
 
 	return coordinates
@@ -229,44 +222,39 @@ local function build_menubar_icon()
 	local outer_ring_color = icon_color(outer_ring_alpha)
 	local outer_ring_stroke_width = state.keep_display_awake == true and 3.0 or 1.7
 
-	canvas:appendElements(
-		{
-			type = "segments",
-			action = "stroke",
-			closed = false,
-			strokeWidth = 2.1,
-			strokeCapStyle = "round",
-			strokeJoinStyle = "round",
-			strokeColor = power_color,
-			coordinates = circle_path_coordinates(math.rad(40), math.rad(320), center_x, center_y, 9.4),
+	canvas:appendElements({
+		type = "segments",
+		action = "stroke",
+		closed = false,
+		strokeWidth = 2.1,
+		strokeCapStyle = "round",
+		strokeJoinStyle = "round",
+		strokeColor = power_color,
+		coordinates = circle_path_coordinates(math.rad(40), math.rad(320), center_x, center_y, 9.4),
+	}, {
+		type = "segments",
+		action = "stroke",
+		closed = false,
+		strokeWidth = 2.1,
+		strokeCapStyle = "round",
+		strokeJoinStyle = "round",
+		strokeColor = power_color,
+		coordinates = {
+			{ x = center_x, y = 8.1 },
+			{ x = center_x, y = 17.2 },
 		},
-		{
-			type = "segments",
-			action = "stroke",
-			closed = false,
-			strokeWidth = 2.1,
-			strokeCapStyle = "round",
-			strokeJoinStyle = "round",
-			strokeColor = power_color,
-			coordinates = {
-				{ x = center_x, y = 8.1 },
-				{ x = center_x, y = 17.2 },
-			},
-		}
-	)
+	})
 
-	canvas:appendElements(
-		{
-			type = "segments",
-			action = "stroke",
-			closed = false,
-			strokeWidth = outer_ring_stroke_width,
-			strokeCapStyle = "round",
-			strokeJoinStyle = "round",
-			strokeColor = outer_ring_color,
-			coordinates = circle_path_coordinates(0, math.rad(359), center_x, center_y, 13.6),
-		}
-	)
+	canvas:appendElements({
+		type = "segments",
+		action = "stroke",
+		closed = false,
+		strokeWidth = outer_ring_stroke_width,
+		strokeCapStyle = "round",
+		strokeJoinStyle = "round",
+		strokeColor = outer_ring_color,
+		coordinates = circle_path_coordinates(0, math.rad(359), center_x, center_y, 13.6),
+	})
 
 	local icon = canvas:imageFromCanvas()
 
@@ -383,13 +371,7 @@ local function set_show_menubar(show_menubar, reason)
 	end
 
 	state.show_menubar = show_menubar
-	log.i(
-		string.format(
-			"keep awake menubar visibility updated (%s): show_menubar=%s",
-			reason or "unknown",
-			tostring(state.show_menubar)
-		)
-	)
+	log.i(string.format("keep awake menubar visibility updated (%s): show_menubar=%s", reason or "unknown", tostring(state.show_menubar)))
 	refresh_menubar()
 
 	if state.show_menubar == true then
@@ -404,17 +386,9 @@ local function create_hotkey_binding(modifiers, key)
 		return true, nil
 	end
 
-	local binding, binding_or_error = hotkey_helper.bind(
-		modifiers,
-		key,
-		hotkey_message,
-		function()
-			set_enabled(not state.enabled, "hotkey toggle")
-		end,
-		nil,
-		nil,
-		{ logger = log }
-	)
+	local binding, binding_or_error = hotkey_helper.bind(modifiers, key, hotkey_message, function()
+		set_enabled(not state.enabled, "hotkey toggle")
+	end, nil, nil, { logger = log })
 
 	if binding == nil then
 		return false, binding_or_error
@@ -435,13 +409,7 @@ local function apply_hotkey_binding(reason)
 	local ok, binding_or_error = create_hotkey_binding(state.hotkey_modifiers, state.hotkey_key)
 
 	if ok ~= true then
-		log.e(
-			string.format(
-				"failed to bind keep awake hotkey (%s): %s",
-				reason or "unknown",
-				tostring(binding_or_error)
-			)
-		)
+		log.e(string.format("failed to bind keep awake hotkey (%s): %s", reason or "unknown", tostring(binding_or_error)))
 		return false, binding_or_error
 	end
 

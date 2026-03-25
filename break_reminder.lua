@@ -3,6 +3,62 @@ local _M = {}
 _M.name = "break_reminder"
 _M.description = "每工作一段时间后强制休息"
 
+-------------------------------------------------------------------------------
+-- 模块架构说明
+--
+-- 本模块是项目中最复杂的功能模块，实现了 gamified 休息提醒系统。
+-- 内部结构按以下职责区域组织：
+--
+-- [配置与状态] L1-180
+--   base_config / runtime_overrides / state 三层配置合并机制
+--   normalize_config() 将用户配置标准化并填充默认值
+--   18 个前向声明的 local 函数（因相互调用需要）
+--
+-- [Gamification 引擎] L180-530
+--   gamification_metrics 持久化到 hs.settings
+--   积分计算（gamification_points）、称号（gamification_rank_label）
+--   连续达标天数追踪（current_streak_days）
+--   跳过惩罚机制（current_skip_penalty_seconds）
+--   每日专注时长记录（add_today_focus_seconds）
+--
+-- [UI 渲染] L530-1060
+--   样式辅助函数（style_text / style_icon_text / append_centered_text）
+--   全屏遮罩 overlay（create_overlay / render_overlays / update_overlays）
+--   友好提醒弹窗（show_friendly_reminder / destroy_friendly_reminder_popup）
+--
+-- [计时器与状态机] L1060-1950
+--   work_timer → friendly_reminder_timer → break 触发 → break_timer → finish
+--   会话生命周期（active / inactive / waiting_for_resume_input）
+--   输入阻断器（input_blocker，hard 模式下拦截键盘鼠标）
+--   caffeinate_watcher 处理锁屏/睡眠/唤醒状态转换
+--
+-- [菜单栏] L1170-1570
+--   三种皮肤（coffee / hourglass / bars）的矢量图标绘制
+--   tooltip 和状态更新（update_menubar_status）
+--   render_signature 防止无变化时重复渲染
+--
+-- [运行时配置管理] L1570-2040
+--   runtime_overrides 持久化到 hs.settings
+--   apply_current_configuration() 热更新配置（不中断当前休息）
+--   export_current_config_to_file() 写回 keybindings_config.lua
+--
+-- [菜单构建] L2040-2900
+--   build_menu() 构建完整菜单栏下拉菜单
+--   各子菜单（工作时长/休息时长/遮罩/友好提醒/gamification 等）
+--   prompt_number() 自定义数值输入
+--
+-- [公共 API 与生命周期] L2900-3120
+--   _M.start() / _M.stop() 模块生命周期
+--   _M.start_break_now / skip_break_now / reset_cycle 外部调用接口
+--   _M.get_state() 返回完整运行时状态快照
+--
+-- 关键设计决策：
+-- 1. 大量 local 前向声明是因为函数之间有循环调用关系
+--    （如 finish_break → schedule_next_break → start_break → finish_break）
+-- 2. state 表由 normalize_config(merged_config()) 生成，不可直接修改
+-- 3. gamification_metrics 按日期 key 存储，支持跨天自动归档
+-------------------------------------------------------------------------------
+
 local base_config = require("keybindings_config").break_reminder or {}
 local prompt_text = require("utils_lib").prompt_text
 
@@ -176,11 +232,7 @@ local function normalize_config(config)
 		friendly_reminder_seconds = resolve_integer_seconds(config.friendly_reminder_seconds, 0, 0),
 		friendly_reminder_duration_seconds = resolve_number(config.friendly_reminder_duration_seconds, 1.5, 0),
 		friendly_reminder_message = tostring(config.friendly_reminder_message or "还有 {{remaining}} 开始休息"),
-		overlay_opacity = clamp_number(
-			resolve_number(config.overlay_opacity, default_overlay_opacity[mode], 0),
-			0,
-			1
-		),
+		overlay_opacity = clamp_number(resolve_number(config.overlay_opacity, default_overlay_opacity[mode], 0), 0, 1),
 	}
 end
 
@@ -271,15 +323,17 @@ local function serialize_lua_value(value)
 end
 
 local function render_template(template, variables)
-	return (template:gsub("{{%s*([%w_]+)%s*}}", function(key)
-		local value = variables[key]
+	return (
+		template:gsub("{{%s*([%w_]+)%s*}}", function(key)
+			local value = variables[key]
 
-		if value == nil then
-			return "{{" .. key .. "}}"
-		end
+			if value == nil then
+				return "{{" .. key .. "}}"
+			end
 
-		return tostring(value)
-	end))
+			return tostring(value)
+		end)
+	)
 end
 
 local function mode_label(mode)
@@ -490,47 +544,39 @@ for _, name in ipairs(resume_input_event_type_names) do
 end
 
 local function style_text(text, size, color)
-	return hs.styledtext.new(
-		text,
-		{
-			font = {
-				name = font_name,
-				size = size,
-			},
-			color = color,
-		}
-	)
+	return hs.styledtext.new(text, {
+		font = {
+			name = font_name,
+			size = size,
+		},
+		color = color,
+	})
 end
 
 local function style_icon_text(text, size)
-	return hs.styledtext.new(
-		text,
-		{
-			font = {
-				name = icon_font_name,
-				size = size,
-			},
-		}
-	)
+	return hs.styledtext.new(text, {
+		font = {
+			name = icon_font_name,
+			size = size,
+		},
+	})
 end
 
 local function append_centered_text(canvas, id, styled_text, y)
 	local size = canvas:minimumTextSize(styled_text)
 	local frame = canvas:frame()
 
-	canvas:appendElements(
-		{
-			id = id,
-			type = "text",
-			text = styled_text,
-			frame = {
-				x = math.floor((frame.w - size.w) / 2),
-				y = y,
-				w = size.w,
-				h = size.h,
-			},
-		}
-	)
+	canvas:appendElements({
+		id = id,
+		type = "text",
+		text = styled_text,
+		frame = {
+			x = math.floor((frame.w - size.w) / 2),
+			y = y,
+			w = size.w,
+			h = size.h,
+		},
+	})
 end
 
 local function start_next_cycle_label(mode)
@@ -589,10 +635,7 @@ local function current_skip_penalty_seconds()
 		return 0
 	end
 
-	return math.min(
-		state.max_rest_penalty_seconds,
-		gamification_metrics.today_skipped_breaks * state.rest_penalty_seconds_per_skip
-	)
+	return math.min(state.max_rest_penalty_seconds, gamification_metrics.today_skipped_breaks * state.rest_penalty_seconds_per_skip)
 end
 
 local function effective_rest_seconds()
@@ -729,17 +772,9 @@ local function maybe_unlock_focus_goal_reward()
 
 	gamification_metrics.today_goal_reached = true
 	gamification_metrics.last_goal_day_key = today
-	gamification_metrics.best_streak_days = math.max(
-		gamification_metrics.best_streak_days,
-		gamification_metrics.streak_days
-	)
+	gamification_metrics.best_streak_days = math.max(gamification_metrics.best_streak_days, gamification_metrics.streak_days)
 	persist_gamification_metrics()
-	show_message(
-		string.format(
-			"今日专注目标达成，连续达标 %d 天",
-			current_streak_days()
-		)
-	)
+	show_message(string.format("今日专注目标达成，连续达标 %d 天", current_streak_days()))
 end
 
 local function add_today_focus_seconds(seconds, reason)
@@ -885,27 +920,24 @@ local function start_resume_input_watcher()
 	end
 
 	if _M.resume_input_watcher == nil then
-		_M.resume_input_watcher = hs.eventtap.new(
-			resume_input_event_types,
-			function()
-				if waiting_for_resume_input ~= true then
-					return false
-				end
-
-				waiting_for_resume_input = false
-				stop_resume_input_watcher()
-
-				if state.enabled ~= true or session_is_inactive == true or break_ends_at ~= nil then
-					update_menubar_status()
-					return false
-				end
-
-				log.i("work timer restarted on first input after break")
-				schedule_next_break("first input after break")
-
+		_M.resume_input_watcher = hs.eventtap.new(resume_input_event_types, function()
+			if waiting_for_resume_input ~= true then
 				return false
 			end
-		)
+
+			waiting_for_resume_input = false
+			stop_resume_input_watcher()
+
+			if state.enabled ~= true or session_is_inactive == true or break_ends_at ~= nil then
+				update_menubar_status()
+				return false
+			end
+
+			log.i("work timer restarted on first input after break")
+			schedule_next_break("first input after break")
+
+			return false
+		end)
 	end
 
 	_M.resume_input_watcher:start()
@@ -924,12 +956,9 @@ local function start_input_blocker()
 	end
 
 	if _M.input_blocker == nil then
-		_M.input_blocker = hs.eventtap.new(
-			blocked_event_types,
-			function()
-				return true
-			end
-		)
+		_M.input_blocker = hs.eventtap.new(blocked_event_types, function()
+			return true
+		end)
 	end
 
 	_M.input_blocker:start()
@@ -987,20 +1016,15 @@ local function restore_frontmost_app()
 		return
 	end
 
-	hs.timer.doAfter(
-		0,
-		function()
-			if break_ends_at == nil or frontmost_app == nil then
-				return
-			end
-
-			pcall(
-				function()
-					frontmost_app:activate()
-				end
-			)
+	hs.timer.doAfter(0, function()
+		if break_ends_at == nil or frontmost_app == nil then
+			return
 		end
-	)
+
+		pcall(function()
+			frontmost_app:activate()
+		end)
+	end)
 end
 
 local function create_overlay(screen, remaining_seconds)
@@ -1015,20 +1039,18 @@ local function create_overlay(screen, remaining_seconds)
 	})
 	canvas:clickActivating(false)
 	canvas:level(hs.canvas.windowLevels.screenSaver)
-	canvas:appendElements(
-		{
-			id = "background",
-			type = "rectangle",
-			action = "fill",
-			fillColor = overlay_background(),
-			frame = {
-				x = 0,
-				y = 0,
-				w = frame.w,
-				h = frame.h,
-			},
-		}
-	)
+	canvas:appendElements({
+		id = "background",
+		type = "rectangle",
+		action = "fill",
+		fillColor = overlay_background(),
+		frame = {
+			x = 0,
+			y = 0,
+			w = frame.w,
+			h = frame.h,
+		},
+	})
 
 	if state.minimal_display then
 		local icon = style_icon_text("☕️", math.floor(math.min(frame.w, frame.h) * 0.22))
@@ -1044,11 +1066,7 @@ local function create_overlay(screen, remaining_seconds)
 	local worked_seconds = last_work_session_seconds or state.work_seconds
 	local rest_seconds = current_break_duration_seconds or effective_rest_seconds()
 	local description = style_text(
-		string.format(
-			"你已经连续工作 %s\n请离开屏幕休息 %s",
-			format_duration(worked_seconds),
-			format_duration(rest_seconds)
-		),
+		string.format("你已经连续工作 %s\n请离开屏幕休息 %s", format_duration(worked_seconds), format_duration(rest_seconds)),
 		24,
 		description_color
 	)
@@ -1127,18 +1145,15 @@ start_inactive_resume_timer = function()
 		return
 	end
 
-	inactive_resume_timer = hs.timer.doEvery(
-		1,
-		function()
-			if try_resume_after_inactive_session ~= nil then
-				try_resume_after_inactive_session("inactive resume retry timer")
-			end
-
-			if session_is_inactive ~= true then
-				stop_inactive_resume_timer()
-			end
+	inactive_resume_timer = hs.timer.doEvery(1, function()
+		if try_resume_after_inactive_session ~= nil then
+			try_resume_after_inactive_session("inactive resume retry timer")
 		end
-	)
+
+		if session_is_inactive ~= true then
+			stop_inactive_resume_timer()
+		end
+	end)
 end
 
 local function current_status()
@@ -1157,7 +1172,12 @@ local function current_status()
 	if break_ends_at ~= nil then
 		local remaining_seconds = math.max(0, break_ends_at - os.time())
 
-		return "休息中", string.format("距离结束还有 %s，当前休息目标 %s", format_seconds(remaining_seconds), format_duration(current_break_duration_seconds or effective_rest_seconds()))
+		return "休息中",
+			string.format(
+				"距离结束还有 %s，当前休息目标 %s",
+				format_seconds(remaining_seconds),
+				format_duration(current_break_duration_seconds or effective_rest_seconds())
+			)
 	end
 
 	if next_break_at ~= nil then
@@ -1194,16 +1214,13 @@ local function menubar_visual_state()
 end
 
 local function menubar_render_signature(status_title, status_detail, tooltip, visual_state)
-	return table.concat(
-		{
-			tostring(status_title or ""),
-			tostring(status_detail or ""),
-			tostring(tooltip or ""),
-			tostring(state.menubar_skin),
-			tostring(visual_state.icon_color and visual_state.icon_color.alpha or ""),
-		},
-		"|"
-	)
+	return table.concat({
+		tostring(status_title or ""),
+		tostring(status_detail or ""),
+		tostring(tooltip or ""),
+		tostring(state.menubar_skin),
+		tostring(visual_state.icon_color and visual_state.icon_color.alpha or ""),
+	}, "|")
 end
 
 local function menubar_tooltip_status_detail()
@@ -1220,7 +1237,10 @@ local function menubar_tooltip_status_detail()
 	end
 
 	if break_ends_at ~= nil then
-		return string.format("休息进行中，目标时长 %s", format_duration(current_break_duration_seconds or effective_rest_seconds()))
+		return string.format(
+			"休息进行中，目标时长 %s",
+			format_duration(current_break_duration_seconds or effective_rest_seconds())
+		)
 	end
 
 	if next_break_at ~= nil then
@@ -1247,13 +1267,10 @@ local function build_menubar_icon(visual_state)
 		local transformed = {}
 
 		for _, point in ipairs(coordinates) do
-			table.insert(
-				transformed,
-				{
-					x = center_x + ((point.x - center_x) * scale) + offset_x,
-					y = center_y + ((point.y - center_y) * scale) + offset_y,
-				}
-			)
+			table.insert(transformed, {
+				x = center_x + ((point.x - center_x) * scale) + offset_x,
+				y = center_y + ((point.y - center_y) * scale) + offset_y,
+			})
 		end
 
 		return transformed
@@ -1267,113 +1284,95 @@ local function build_menubar_icon(visual_state)
 			return transform_coordinates(coordinates, icon_scale, icon_offset_x, icon_offset_y)
 		end
 
-		table.insert(
-			elements,
-			{
-				type = "segments",
-				action = "stroke",
-				closed = false,
-				strokeWidth = 1.95,
-				strokeCapStyle = "round",
-				strokeJoinStyle = "round",
-				strokeColor = icon_color,
-				coordinates = transform({
-					{ x = 11.6, y = 16.6 },
-					{ x = 11.6, y = 23.3 },
-					{ x = 13.1, y = 25.1 },
-					{ x = 20.8, y = 25.1 },
-					{ x = 22.3, y = 23.3 },
-					{ x = 22.3, y = 16.6 },
-				}),
-			}
-		)
-		table.insert(
-			elements,
-			{
-				type = "segments",
-				action = "stroke",
-				closed = false,
-				strokeWidth = 1.85,
-				strokeCapStyle = "round",
-				strokeJoinStyle = "round",
-				strokeColor = icon_color,
-				coordinates = transform({
-					{ x = 12.5, y = 16.3 },
-					{ x = 21.4, y = 16.3 },
-				}),
-			}
-		)
-		table.insert(
-			elements,
-			{
-				type = "segments",
-				action = "stroke",
-				closed = false,
-				strokeWidth = 1.95,
-				strokeCapStyle = "round",
-				strokeJoinStyle = "round",
-				strokeColor = icon_color,
-				coordinates = transform({
-					{ x = 22.2, y = 17.9 },
-					{ x = 24.9, y = 18.1 },
-					{ x = 25.5, y = 20.7 },
-					{ x = 24.9, y = 23.2 },
-					{ x = 22.1, y = 23.4 },
-				}),
-			}
-		)
-		table.insert(
-			elements,
-			{
-				type = "segments",
-				action = "stroke",
-				closed = false,
-				strokeWidth = 1.55,
-				strokeCapStyle = "round",
-				strokeJoinStyle = "round",
-				strokeColor = icon_color,
-				coordinates = transform({
-					{ x = 14.2, y = 12.8 },
-					{ x = 13.3, y = 11.2 },
-					{ x = 14.4, y = 9.8 },
-					{ x = 13.8, y = 8.5 },
-				}),
-			}
-		)
-		table.insert(
-			elements,
-			{
-				type = "segments",
-				action = "stroke",
-				closed = false,
-				strokeWidth = 1.55,
-				strokeCapStyle = "round",
-				strokeJoinStyle = "round",
-				strokeColor = icon_color,
-				coordinates = transform({
-					{ x = 18.9, y = 12.5 },
-					{ x = 18.0, y = 10.9 },
-					{ x = 19.0, y = 9.5 },
-					{ x = 18.5, y = 8.2 },
-				}),
-			}
-		)
-		table.insert(
-			elements,
-			{
-				type = "segments",
-				action = "stroke",
-				closed = false,
-				strokeWidth = 1.75,
-				strokeCapStyle = "round",
-				strokeJoinStyle = "round",
-				strokeColor = icon_color,
-				coordinates = transform({
-					{ x = 10.4, y = 27.9 },
-					{ x = 24.3, y = 27.9 },
-				}),
-			}
-		)
+		table.insert(elements, {
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = 1.95,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = icon_color,
+			coordinates = transform({
+				{ x = 11.6, y = 16.6 },
+				{ x = 11.6, y = 23.3 },
+				{ x = 13.1, y = 25.1 },
+				{ x = 20.8, y = 25.1 },
+				{ x = 22.3, y = 23.3 },
+				{ x = 22.3, y = 16.6 },
+			}),
+		})
+		table.insert(elements, {
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = 1.85,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = icon_color,
+			coordinates = transform({
+				{ x = 12.5, y = 16.3 },
+				{ x = 21.4, y = 16.3 },
+			}),
+		})
+		table.insert(elements, {
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = 1.95,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = icon_color,
+			coordinates = transform({
+				{ x = 22.2, y = 17.9 },
+				{ x = 24.9, y = 18.1 },
+				{ x = 25.5, y = 20.7 },
+				{ x = 24.9, y = 23.2 },
+				{ x = 22.1, y = 23.4 },
+			}),
+		})
+		table.insert(elements, {
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = 1.55,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = icon_color,
+			coordinates = transform({
+				{ x = 14.2, y = 12.8 },
+				{ x = 13.3, y = 11.2 },
+				{ x = 14.4, y = 9.8 },
+				{ x = 13.8, y = 8.5 },
+			}),
+		})
+		table.insert(elements, {
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = 1.55,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = icon_color,
+			coordinates = transform({
+				{ x = 18.9, y = 12.5 },
+				{ x = 18.0, y = 10.9 },
+				{ x = 19.0, y = 9.5 },
+				{ x = 18.5, y = 8.2 },
+			}),
+		})
+		table.insert(elements, {
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = 1.75,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = icon_color,
+			coordinates = transform({
+				{ x = 10.4, y = 27.9 },
+				{ x = 24.3, y = 27.9 },
+			}),
+		})
 	end
 
 	local function append_hourglass_skin()
@@ -1385,73 +1384,61 @@ local function build_menubar_icon(visual_state)
 		end
 		local stroke_width = 1.95
 
-		table.insert(
-			elements,
-			{
-				type = "segments",
-				action = "stroke",
-				closed = false,
-				strokeWidth = stroke_width,
-				strokeCapStyle = "round",
-				strokeJoinStyle = "round",
-				strokeColor = icon_color,
-				coordinates = transform({
-					{ x = 11.7, y = 8.9 },
-					{ x = 24.3, y = 8.9 },
-				}),
-			}
-		)
-		table.insert(
-			elements,
-			{
-				type = "segments",
-				action = "stroke",
-				closed = false,
-				strokeWidth = stroke_width,
-				strokeCapStyle = "round",
-				strokeJoinStyle = "round",
-				strokeColor = icon_color,
-				coordinates = transform({
-					{ x = 11.7, y = 27.1 },
-					{ x = 24.3, y = 27.1 },
-				}),
-			}
-		)
-		table.insert(
-			elements,
-			{
-				type = "segments",
-				action = "stroke",
-				closed = false,
-				strokeWidth = stroke_width,
-				strokeCapStyle = "round",
-				strokeJoinStyle = "round",
-				strokeColor = icon_color,
-				coordinates = transform({
-					{ x = 12.8, y = 10.8 },
-					{ x = 21.8, y = 10.8 },
-					{ x = 18.0, y = 17.6 },
-					{ x = 14.2, y = 24.9 },
-					{ x = 23.2, y = 24.9 },
-				}),
-			}
-		)
-		table.insert(
-			elements,
-			{
-				type = "segments",
-				action = "stroke",
-				closed = false,
-				strokeWidth = 1.5,
-				strokeCapStyle = "round",
-				strokeJoinStyle = "round",
-				strokeColor = icon_color,
-				coordinates = transform({
-					{ x = 18.0, y = 17.6 },
-					{ x = 18.0, y = 18.9 },
-				}),
-			}
-		)
+		table.insert(elements, {
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = stroke_width,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = icon_color,
+			coordinates = transform({
+				{ x = 11.7, y = 8.9 },
+				{ x = 24.3, y = 8.9 },
+			}),
+		})
+		table.insert(elements, {
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = stroke_width,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = icon_color,
+			coordinates = transform({
+				{ x = 11.7, y = 27.1 },
+				{ x = 24.3, y = 27.1 },
+			}),
+		})
+		table.insert(elements, {
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = stroke_width,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = icon_color,
+			coordinates = transform({
+				{ x = 12.8, y = 10.8 },
+				{ x = 21.8, y = 10.8 },
+				{ x = 18.0, y = 17.6 },
+				{ x = 14.2, y = 24.9 },
+				{ x = 23.2, y = 24.9 },
+			}),
+		})
+		table.insert(elements, {
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = 1.5,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = icon_color,
+			coordinates = transform({
+				{ x = 18.0, y = 17.6 },
+				{ x = 18.0, y = 18.9 },
+			}),
+		})
 	end
 
 	local function append_bars_skin()
@@ -1471,21 +1458,18 @@ local function build_menubar_icon(visual_state)
 		for _, bar in ipairs(bars) do
 			local scaled_height = bar.height * icon_scale
 
-			table.insert(
-				elements,
-				{
-					type = "rectangle",
-					action = "fill",
-					fillColor = icon_color,
-					roundedRectRadii = { xRadius = 1.4, yRadius = 1.4 },
-					frame = {
-						x = bar.x,
-						y = 27.4 - scaled_height + icon_offset_y,
-						w = bar.width,
-						h = scaled_height,
-					},
-				}
-			)
+			table.insert(elements, {
+				type = "rectangle",
+				action = "fill",
+				fillColor = icon_color,
+				roundedRectRadii = { xRadius = 1.4, yRadius = 1.4 },
+				frame = {
+					x = bar.x,
+					y = 27.4 - scaled_height + icon_offset_y,
+					w = bar.width,
+					h = scaled_height,
+				},
+			})
 		end
 	end
 
@@ -1535,7 +1519,12 @@ update_menubar_status = function()
 		gamification_metrics.today_completed_breaks,
 		gamification_metrics.today_skipped_breaks,
 		state.break_goal_count <= 0 and "未启用"
-			or string.format("%d/%d%s", gamification_metrics.today_completed_breaks, state.break_goal_count, break_goal_reached() == true and "（已达成）" or ""),
+			or string.format(
+				"%d/%d%s",
+				gamification_metrics.today_completed_breaks,
+				state.break_goal_count,
+				break_goal_reached() == true and "（已达成）" or ""
+			),
 		break_completion_rate_label(),
 		current_streak_days(),
 		gamification_points(),
@@ -1611,17 +1600,14 @@ local function show_friendly_reminder()
 		return
 	end
 
-	local message = render_template(
-		state.friendly_reminder_message,
-		{
-			remaining = format_duration(state.friendly_reminder_seconds),
-			remaining_seconds = state.friendly_reminder_seconds,
-			remaining_mmss = format_seconds(state.friendly_reminder_seconds),
-			rest = format_duration(rest_seconds),
-			rest_seconds = rest_seconds,
-			rest_mmss = format_seconds(rest_seconds),
-		}
-	)
+	local message = render_template(state.friendly_reminder_message, {
+		remaining = format_duration(state.friendly_reminder_seconds),
+		remaining_seconds = state.friendly_reminder_seconds,
+		remaining_mmss = format_seconds(state.friendly_reminder_seconds),
+		rest = format_duration(rest_seconds),
+		rest_seconds = rest_seconds,
+		rest_mmss = format_seconds(rest_seconds),
+	})
 
 	log.i(string.format("friendly reminder shown, remaining_seconds=%d", state.friendly_reminder_seconds))
 
@@ -1667,47 +1653,43 @@ local function show_friendly_reminder()
 	})
 	friendly_reminder_canvas:clickActivating(false)
 	friendly_reminder_canvas:level(hs.canvas.windowLevels.screenSaver)
-	friendly_reminder_canvas:appendElements(
-		{
-			id = "background",
-			type = "rectangle",
-			action = "strokeAndFill",
-			roundedRectRadii = { xRadius = 12, yRadius = 12 },
-			fillColor = reminder_background_color,
-			strokeColor = reminder_border_color,
-			strokeWidth = 1.2,
-			frame = {
-				x = 0,
-				y = 0,
-				w = popup_width,
-				h = popup_height,
-			},
+	friendly_reminder_canvas:appendElements({
+		id = "background",
+		type = "rectangle",
+		action = "strokeAndFill",
+		roundedRectRadii = { xRadius = 12, yRadius = 12 },
+		fillColor = reminder_background_color,
+		strokeColor = reminder_border_color,
+		strokeWidth = 1.2,
+		frame = {
+			x = 0,
+			y = 0,
+			w = popup_width,
+			h = popup_height,
 		},
-		{
-			id = "message",
-			type = "text",
-			text = body_style,
-			frame = {
-				x = 20,
-				y = 18,
-				w = popup_width - 56,
-				h = popup_height - 30,
-			},
+	}, {
+		id = "message",
+		type = "text",
+		text = body_style,
+		frame = {
+			x = 20,
+			y = 18,
+			w = popup_width - 56,
+			h = popup_height - 30,
 		},
-		{
-			id = "close_button",
-			type = "text",
-			text = style_text("×", 18, reminder_close_color),
-			frame = {
-				x = popup_width - close_button_size - 14,
-				y = 10,
-				w = close_button_size,
-				h = close_button_size,
-			},
-			trackMouseUp = true,
-			trackMouseByBounds = true,
-		}
-	)
+	}, {
+		id = "close_button",
+		type = "text",
+		text = style_text("×", 18, reminder_close_color),
+		frame = {
+			x = popup_width - close_button_size - 14,
+			y = 10,
+			w = close_button_size,
+			h = close_button_size,
+		},
+		trackMouseUp = true,
+		trackMouseByBounds = true,
+	})
 	friendly_reminder_canvas:mouseCallback(function(_, callback_message, element_id)
 		if callback_message == "mouseUp" and element_id == "close_button" then
 			destroy_friendly_reminder_popup()
@@ -1716,12 +1698,9 @@ local function show_friendly_reminder()
 	friendly_reminder_canvas:show(0)
 
 	if state.friendly_reminder_duration_seconds > 0 then
-		friendly_reminder_popup_timer = hs.timer.doAfter(
-			state.friendly_reminder_duration_seconds,
-			function()
-				destroy_friendly_reminder_popup()
-			end
-		)
+		friendly_reminder_popup_timer = hs.timer.doAfter(state.friendly_reminder_duration_seconds, function()
+			destroy_friendly_reminder_popup()
+		end)
 	end
 end
 
@@ -1793,19 +1772,16 @@ start_break = function(reason)
 	update_menubar_status()
 
 	stop_break_timer()
-	break_timer = hs.timer.doEvery(
-		1,
-		function()
-			local remaining_seconds = break_ends_at - os.time()
+	break_timer = hs.timer.doEvery(1, function()
+		local remaining_seconds = break_ends_at - os.time()
 
-			if remaining_seconds <= 0 then
-				finish_break()
-				return
-			end
-
-			update_overlays(remaining_seconds)
+		if remaining_seconds <= 0 then
+			finish_break()
+			return
 		end
-	)
+
+		update_overlays(remaining_seconds)
+	end)
 end
 
 skip_break = function(reason)
@@ -1825,8 +1801,7 @@ skip_break = function(reason)
 
 	local penalty_seconds = current_skip_penalty_seconds()
 	local _, enforced = effective_mode()
-	local penalty_message = penalty_seconds > 0
-			and ("后续休息增加 " .. format_duration(penalty_seconds))
+	local penalty_message = penalty_seconds > 0 and ("后续休息增加 " .. format_duration(penalty_seconds))
 		or "未增加额外休息时长"
 
 	log.i(
@@ -1880,30 +1855,24 @@ schedule_next_break = function(reason)
 	next_break_at = work_cycle_started_at + current_work_cycle_duration_seconds
 
 	if state.friendly_reminder_seconds > 0 and state.friendly_reminder_seconds < current_work_cycle_duration_seconds then
-		friendly_reminder_timer = hs.timer.doAfter(
-			current_work_cycle_duration_seconds - state.friendly_reminder_seconds,
-			function()
-				friendly_reminder_timer = nil
+		friendly_reminder_timer = hs.timer.doAfter(current_work_cycle_duration_seconds - state.friendly_reminder_seconds, function()
+			friendly_reminder_timer = nil
 
-				if break_ends_at ~= nil or state.enabled ~= true then
-					return
-				end
-
-				show_friendly_reminder()
+			if break_ends_at ~= nil or state.enabled ~= true then
+				return
 			end
-		)
+
+			show_friendly_reminder()
+		end)
 	elseif state.friendly_reminder_seconds >= current_work_cycle_duration_seconds then
 		log.w("friendly reminder is not scheduled because it is greater than or equal to work duration")
 	end
 
-	work_timer = hs.timer.doAfter(
-		current_work_cycle_duration_seconds,
-		function()
-			work_timer = nil
-			next_break_at = nil
-			start_break(reason or "work timer reached")
-		end
-	)
+	work_timer = hs.timer.doAfter(current_work_cycle_duration_seconds, function()
+		work_timer = nil
+		next_break_at = nil
+		start_break(reason or "work timer reached")
+	end)
 
 	log.i(string.format("break scheduled in %d seconds, reason=%s", current_work_cycle_duration_seconds, tostring(reason)))
 	update_menubar_status()
@@ -2110,53 +2079,48 @@ local function exportable_config()
 end
 
 local function render_break_reminder_config_block(config)
-	return table.concat(
-		{
-			"_M.break_reminder = {",
-			"\tenabled = " .. serialize_lua_value(config.enabled) .. ",",
-			"\t-- 是否显示菜单栏图标, 可通过菜单直接调整提醒配置",
-			"\tshow_menubar = " .. serialize_lua_value(config.show_menubar) .. ",",
-			"\t-- 菜单栏图标皮肤: \"coffee\" \"hourglass\" \"bars\"",
-			"\tmenubar_skin = " .. serialize_lua_value(config.menubar_skin) .. ",",
-			"\t-- 休息结束后如何开始下一轮工作计时: \"auto\" 或 \"on_input\"",
-			"\tstart_next_cycle = " .. serialize_lua_value(config.start_next_cycle) .. ",",
-			"\t-- 可选: \"soft\" 或 \"hard\"",
-			"\t-- soft: 显示半透明遮罩但不抢占鼠标和键盘",
-			"\t-- hard: 显示遮罩并明确拦截鼠标和键盘",
-			"\tmode = " .. serialize_lua_value(config.mode) .. ",",
-			"\t-- 遮罩透明度, 范围 0~1",
-			"\t-- 默认值: soft=0.32, hard=0.96",
-			"\toverlay_opacity = " .. serialize_lua_value(config.overlay_opacity) .. ",",
-			"\t-- true 时仅显示简洁图标，不显示倒计时和说明文字",
-			"\tminimal_display = " .. serialize_lua_value(config.minimal_display) .. ",",
-			"\t-- 每日专注目标，达到后计入连续达标天数",
-			"\tfocus_goal_minutes = " .. serialize_lua_value(config.focus_goal_minutes) .. ",",
-			"\t-- 每日完成多少次休息算达到休息目标；0 表示禁用",
-			"\tbreak_goal_count = " .. serialize_lua_value(config.break_goal_count) .. ",",
-			"\t-- 当日跳过休息达到该次数后，自动切换为硬性提醒；设为 0 可禁用",
-			"\tstrict_mode_after_skips = " .. serialize_lua_value(config.strict_mode_after_skips) .. ",",
-			"\t-- 每跳过一次休息，为后续每次休息额外增加的惩罚秒数",
-			"\trest_penalty_seconds_per_skip = " .. serialize_lua_value(config.rest_penalty_seconds_per_skip) .. ",",
-			"\t-- 跳过惩罚累计上限，单位为秒",
-			"\tmax_rest_penalty_seconds = " .. serialize_lua_value(config.max_rest_penalty_seconds) .. ",",
-			"\t-- 友好提示文案模板",
-			"\t-- 可用占位符: {{remaining}} {{remaining_seconds}} {{remaining_mmss}} {{rest}} {{rest_seconds}} {{rest_mmss}}",
-			"\tfriendly_reminder_message = " .. serialize_lua_value(config.friendly_reminder_message) .. ",",
-			"\t-- 友好提示默认停留秒数, 0 表示不自动关闭, 只允许手动点 x 关闭",
-			"\tfriendly_reminder_duration_seconds = " .. serialize_lua_value(config.friendly_reminder_duration_seconds) .. ",",
-			"\t-- 距离休息还有多少秒时做一次友好提示, 0 为禁用",
-			"\tfriendly_reminder_seconds = " .. serialize_lua_value(config.friendly_reminder_seconds) .. ",",
-			"\t-- 单位: 分钟",
-			"\twork_minutes = " .. serialize_lua_value(config.work_minutes) .. ",",
-			"\t-- 单位: 秒",
-			"\trest_seconds = " .. serialize_lua_value(config.rest_seconds) .. ",",
-			"}",
-		},
-		"\n"
-	)
+	return table.concat({
+		"_M.break_reminder = {",
+		"\tenabled = " .. serialize_lua_value(config.enabled) .. ",",
+		"\t-- 是否显示菜单栏图标, 可通过菜单直接调整提醒配置",
+		"\tshow_menubar = " .. serialize_lua_value(config.show_menubar) .. ",",
+		'\t-- 菜单栏图标皮肤: "coffee" "hourglass" "bars"',
+		"\tmenubar_skin = " .. serialize_lua_value(config.menubar_skin) .. ",",
+		'\t-- 休息结束后如何开始下一轮工作计时: "auto" 或 "on_input"',
+		"\tstart_next_cycle = " .. serialize_lua_value(config.start_next_cycle) .. ",",
+		'\t-- 可选: "soft" 或 "hard"',
+		"\t-- soft: 显示半透明遮罩但不抢占鼠标和键盘",
+		"\t-- hard: 显示遮罩并明确拦截鼠标和键盘",
+		"\tmode = " .. serialize_lua_value(config.mode) .. ",",
+		"\t-- 遮罩透明度, 范围 0~1",
+		"\t-- 默认值: soft=0.32, hard=0.96",
+		"\toverlay_opacity = " .. serialize_lua_value(config.overlay_opacity) .. ",",
+		"\t-- true 时仅显示简洁图标，不显示倒计时和说明文字",
+		"\tminimal_display = " .. serialize_lua_value(config.minimal_display) .. ",",
+		"\t-- 每日专注目标，达到后计入连续达标天数",
+		"\tfocus_goal_minutes = " .. serialize_lua_value(config.focus_goal_minutes) .. ",",
+		"\t-- 每日完成多少次休息算达到休息目标；0 表示禁用",
+		"\tbreak_goal_count = " .. serialize_lua_value(config.break_goal_count) .. ",",
+		"\t-- 当日跳过休息达到该次数后，自动切换为硬性提醒；设为 0 可禁用",
+		"\tstrict_mode_after_skips = " .. serialize_lua_value(config.strict_mode_after_skips) .. ",",
+		"\t-- 每跳过一次休息，为后续每次休息额外增加的惩罚秒数",
+		"\trest_penalty_seconds_per_skip = " .. serialize_lua_value(config.rest_penalty_seconds_per_skip) .. ",",
+		"\t-- 跳过惩罚累计上限，单位为秒",
+		"\tmax_rest_penalty_seconds = " .. serialize_lua_value(config.max_rest_penalty_seconds) .. ",",
+		"\t-- 友好提示文案模板",
+		"\t-- 可用占位符: {{remaining}} {{remaining_seconds}} {{remaining_mmss}} {{rest}} {{rest_seconds}} {{rest_mmss}}",
+		"\tfriendly_reminder_message = " .. serialize_lua_value(config.friendly_reminder_message) .. ",",
+		"\t-- 友好提示默认停留秒数, 0 表示不自动关闭, 只允许手动点 x 关闭",
+		"\tfriendly_reminder_duration_seconds = " .. serialize_lua_value(config.friendly_reminder_duration_seconds) .. ",",
+		"\t-- 距离休息还有多少秒时做一次友好提示, 0 为禁用",
+		"\tfriendly_reminder_seconds = " .. serialize_lua_value(config.friendly_reminder_seconds) .. ",",
+		"\t-- 单位: 分钟",
+		"\twork_minutes = " .. serialize_lua_value(config.work_minutes) .. ",",
+		"\t-- 单位: 秒",
+		"\trest_seconds = " .. serialize_lua_value(config.rest_seconds) .. ",",
+		"}",
+	}, "\n")
 end
-
-
 
 local function prompt_number(message, informative_text, default_value, minimum_value, maximum_value)
 	local raw_value = prompt_text(message, informative_text, tostring(default_value or ""))
@@ -2201,13 +2165,9 @@ export_current_config_to_file = function()
 	end
 
 	local replacement = render_break_reminder_config_block(exportable_config())
-	local updated_content, replaced_count = content:gsub(
-		"_M%.break_reminder%s*=%s*%b{}",
-		function()
-			return replacement
-		end,
-		1
-	)
+	local updated_content, replaced_count = content:gsub("_M%.break_reminder%s*=%s*%b{}", function()
+		return replacement
+	end, 1)
 
 	if replaced_count ~= 1 then
 		show_message("导出失败: 未找到 _M.break_reminder 配置块")
@@ -2224,39 +2184,27 @@ export_current_config_to_file = function()
 	runtime_overrides = {}
 	hs.settings.clear(settings_key)
 	show_message("已导出到 keybindings_config.lua，正在重载配置")
-	hs.timer.doAfter(
-		0.3,
-		function()
-			hs.reload()
-		end
-	)
+	hs.timer.doAfter(0.3, function()
+		hs.reload()
+	end)
 end
 
 local function menu_item_set_work_minutes(minutes)
-	update_runtime_overrides(
-		{
-			work_minutes = minutes,
-		},
-		string.format("工作时长已更新为 %s", format_minutes(math.floor(minutes * 60)))
-	)
+	update_runtime_overrides({
+		work_minutes = minutes,
+	}, string.format("工作时长已更新为 %s", format_minutes(math.floor(minutes * 60))))
 end
 
 local function menu_item_set_rest_seconds(seconds)
-	update_runtime_overrides(
-		{
-			rest_seconds = seconds,
-		},
-		string.format("休息时长已更新为 %s", format_duration(seconds))
-	)
+	update_runtime_overrides({
+		rest_seconds = seconds,
+	}, string.format("休息时长已更新为 %s", format_duration(seconds)))
 end
 
 local function menu_item_set_friendly_reminder_seconds(seconds)
-	update_runtime_overrides(
-		{
-			friendly_reminder_seconds = seconds,
-		},
-		seconds <= 0 and "已关闭友好提醒" or string.format("友好提醒已调整为提前 %s", format_duration(seconds))
-	)
+	update_runtime_overrides({
+		friendly_reminder_seconds = seconds,
+	}, seconds <= 0 and "已关闭友好提醒" or string.format("友好提醒已调整为提前 %s", format_duration(seconds)))
 end
 
 local function menu_item_set_friendly_reminder_duration(seconds)
@@ -2264,17 +2212,15 @@ local function menu_item_set_friendly_reminder_duration(seconds)
 		{
 			friendly_reminder_duration_seconds = seconds,
 		},
-		seconds <= 0 and "友好提醒已改为手动关闭" or string.format("友好提醒停留时长已更新为 %s", format_duration(seconds))
+		seconds <= 0 and "友好提醒已改为手动关闭"
+			or string.format("友好提醒停留时长已更新为 %s", format_duration(seconds))
 	)
 end
 
 local function menu_item_set_overlay_opacity(opacity)
-	update_runtime_overrides(
-		{
-			overlay_opacity = opacity,
-		},
-		string.format("遮罩透明度已更新为 %s", format_decimal(opacity))
-	)
+	update_runtime_overrides({
+		overlay_opacity = opacity,
+	}, string.format("遮罩透明度已更新为 %s", format_decimal(opacity)))
 end
 
 local function menu_item_set_minimal_display(minimal_display)
@@ -2282,30 +2228,21 @@ local function menu_item_set_minimal_display(minimal_display)
 		return
 	end
 
-	update_runtime_overrides(
-		{
-			minimal_display = minimal_display,
-		},
-		minimal_display and "已切换为仅显示咖啡图标" or "已切换为显示丰富信息"
-	)
+	update_runtime_overrides({
+		minimal_display = minimal_display,
+	}, minimal_display and "已切换为仅显示咖啡图标" or "已切换为显示丰富信息")
 end
 
 local function menu_item_set_focus_goal_minutes(minutes)
-	update_runtime_overrides(
-		{
-			focus_goal_minutes = minutes,
-		},
-		string.format("每日专注目标已更新为 %s", format_minutes(math.floor(minutes * 60)))
-	)
+	update_runtime_overrides({
+		focus_goal_minutes = minutes,
+	}, string.format("每日专注目标已更新为 %s", format_minutes(math.floor(minutes * 60))))
 end
 
 local function menu_item_set_break_goal_count(count)
-	update_runtime_overrides(
-		{
-			break_goal_count = count,
-		},
-		count <= 0 and "已关闭每日休息目标" or string.format("每日休息目标已更新为 %d 次", count)
-	)
+	update_runtime_overrides({
+		break_goal_count = count,
+	}, count <= 0 and "已关闭每日休息目标" or string.format("每日休息目标已更新为 %d 次", count))
 end
 
 local function menu_item_set_menubar_skin(skin)
@@ -2313,21 +2250,15 @@ local function menu_item_set_menubar_skin(skin)
 		return
 	end
 
-	update_runtime_overrides(
-		{
-			menubar_skin = skin,
-		},
-		string.format("菜单栏图标已切换为%s", menubar_skin_label(skin))
-	)
+	update_runtime_overrides({
+		menubar_skin = skin,
+	}, string.format("菜单栏图标已切换为%s", menubar_skin_label(skin)))
 end
 
 local function menu_item_set_strict_mode_after_skips(count)
-	update_runtime_overrides(
-		{
-			strict_mode_after_skips = count,
-		},
-		count <= 0 and "已关闭跳过后自动升级硬性提醒" or string.format("跳过 %d 次后将升级为硬性提醒", count)
-	)
+	update_runtime_overrides({
+		strict_mode_after_skips = count,
+	}, count <= 0 and "已关闭跳过后自动升级硬性提醒" or string.format("跳过 %d 次后将升级为硬性提醒", count))
 end
 
 local function menu_item_set_rest_penalty_seconds_per_skip(seconds)
@@ -2335,17 +2266,15 @@ local function menu_item_set_rest_penalty_seconds_per_skip(seconds)
 		{
 			rest_penalty_seconds_per_skip = seconds,
 		},
-		seconds <= 0 and "已关闭跳过休息的时长惩罚" or string.format("每次跳过将额外增加 %s 休息惩罚", format_duration(seconds))
+		seconds <= 0 and "已关闭跳过休息的时长惩罚"
+			or string.format("每次跳过将额外增加 %s 休息惩罚", format_duration(seconds))
 	)
 end
 
 local function menu_item_set_max_rest_penalty_seconds(seconds)
-	update_runtime_overrides(
-		{
-			max_rest_penalty_seconds = seconds,
-		},
-		string.format("跳过休息惩罚上限已更新为 %s", format_duration(seconds))
-	)
+	update_runtime_overrides({
+		max_rest_penalty_seconds = seconds,
+	}, string.format("跳过休息惩罚上限已更新为 %s", format_duration(seconds)))
 end
 
 local function build_work_duration_menu()
@@ -2356,39 +2285,33 @@ local function build_work_duration_menu()
 	local presets = { 25, 28, 30, 45, 50 }
 
 	for _, minutes in ipairs(presets) do
-		table.insert(
-			menu,
-			{
-				title = string.format("%s", format_minutes(minutes * 60)),
-				checked = math.abs(current_minutes - minutes) < 0.001,
-				fn = function()
-					menu_item_set_work_minutes(minutes)
-				end,
-			}
-		)
-	end
-
-	table.insert(
-		menu,
-		{
-			title = "自定义...",
+		table.insert(menu, {
+			title = string.format("%s", format_minutes(minutes * 60)),
+			checked = math.abs(current_minutes - minutes) < 0.001,
 			fn = function()
-				local minutes = prompt_number(
-					"工作时长",
-					"请输入工作时长，单位为分钟，可输入小数，例如 28.5",
-					format_decimal(current_minutes),
-					1,
-					nil
-				)
-
-				if minutes == nil then
-					return
-				end
-
 				menu_item_set_work_minutes(minutes)
 			end,
-		}
-	)
+		})
+	end
+
+	table.insert(menu, {
+		title = "自定义...",
+		fn = function()
+			local minutes = prompt_number(
+				"工作时长",
+				"请输入工作时长，单位为分钟，可输入小数，例如 28.5",
+				format_decimal(current_minutes),
+				1,
+				nil
+			)
+
+			if minutes == nil then
+				return
+			end
+
+			menu_item_set_work_minutes(minutes)
+		end,
+	})
 
 	return menu
 end
@@ -2400,39 +2323,27 @@ local function build_rest_duration_menu()
 	local presets = { 60, 120, 300, 600 }
 
 	for _, seconds in ipairs(presets) do
-		table.insert(
-			menu,
-			{
-				title = format_duration(seconds),
-				checked = state.rest_seconds == seconds,
-				fn = function()
-					menu_item_set_rest_seconds(seconds)
-				end,
-			}
-		)
+		table.insert(menu, {
+			title = format_duration(seconds),
+			checked = state.rest_seconds == seconds,
+			fn = function()
+				menu_item_set_rest_seconds(seconds)
+			end,
+		})
 	end
 
-	table.insert(
-		menu,
-		{
-			title = "自定义...",
-			fn = function()
-				local seconds = prompt_number(
-					"休息时长",
-					"请输入休息时长，单位为秒",
-					state.rest_seconds,
-					1,
-					nil
-				)
+	table.insert(menu, {
+		title = "自定义...",
+		fn = function()
+			local seconds = prompt_number("休息时长", "请输入休息时长，单位为秒", state.rest_seconds, 1, nil)
 
-				if seconds == nil then
-					return
-				end
+			if seconds == nil then
+				return
+			end
 
-				menu_item_set_rest_seconds(math.floor(seconds))
-			end,
-		}
-	)
+			menu_item_set_rest_seconds(math.floor(seconds))
+		end,
+	})
 
 	return menu
 end
@@ -2448,39 +2359,33 @@ local function build_focus_goal_menu()
 	local presets = { 60, 90, 120, 180, 240 }
 
 	for _, minutes in ipairs(presets) do
-		table.insert(
-			menu,
-			{
-				title = format_minutes(minutes * 60),
-				checked = math.abs(current_minutes - minutes) < 0.001,
-				fn = function()
-					menu_item_set_focus_goal_minutes(minutes)
-				end,
-			}
-		)
-	end
-
-	table.insert(
-		menu,
-		{
-			title = "自定义...",
+		table.insert(menu, {
+			title = format_minutes(minutes * 60),
+			checked = math.abs(current_minutes - minutes) < 0.001,
 			fn = function()
-				local minutes = prompt_number(
-					"每日专注目标",
-					"请输入每日专注目标，单位为分钟",
-					format_decimal(current_minutes),
-					1,
-					nil
-				)
-
-				if minutes == nil then
-					return
-				end
-
 				menu_item_set_focus_goal_minutes(minutes)
 			end,
-		}
-	)
+		})
+	end
+
+	table.insert(menu, {
+		title = "自定义...",
+		fn = function()
+			local minutes = prompt_number(
+				"每日专注目标",
+				"请输入每日专注目标，单位为分钟",
+				format_decimal(current_minutes),
+				1,
+				nil
+			)
+
+			if minutes == nil then
+				return
+			end
+
+			menu_item_set_focus_goal_minutes(minutes)
+		end,
+	})
 
 	return menu
 end
@@ -2488,24 +2393,19 @@ end
 local function build_break_goal_menu()
 	local menu = {
 		{
-			title = state.break_goal_count <= 0
-					and "当前: 已关闭"
-				or string.format("当前: %d 次", state.break_goal_count),
+			title = state.break_goal_count <= 0 and "当前: 已关闭" or string.format("当前: %d 次", state.break_goal_count),
 			disabled = true,
 		},
 	}
 
 	for _, count in ipairs({ 0, 2, 3, 4, 6 }) do
-		table.insert(
-			menu,
-			{
-				title = count == 0 and "关闭休息目标" or string.format("%d 次", count),
-				checked = state.break_goal_count == count,
-				fn = function()
-					menu_item_set_break_goal_count(count)
-				end,
-			}
-		)
+		table.insert(menu, {
+			title = count == 0 and "关闭休息目标" or string.format("%d 次", count),
+			checked = state.break_goal_count == count,
+			fn = function()
+				menu_item_set_break_goal_count(count)
+			end,
+		})
 	end
 
 	return menu
@@ -2552,16 +2452,13 @@ local function build_skip_punishment_menu()
 	for _, count in ipairs(strict_presets) do
 		local title = count == 0 and "禁用自动升级" or string.format("%d 次", count)
 
-		table.insert(
-			menu,
-			{
-				title = title,
-				checked = state.strict_mode_after_skips == count,
-				fn = function()
-					menu_item_set_strict_mode_after_skips(count)
-				end,
-			}
-		)
+		table.insert(menu, {
+			title = title,
+			checked = state.strict_mode_after_skips == count,
+			fn = function()
+				menu_item_set_strict_mode_after_skips(count)
+			end,
+		})
 	end
 
 	table.insert(menu, { title = "-" })
@@ -2570,32 +2467,26 @@ local function build_skip_punishment_menu()
 	for _, seconds in ipairs({ 0, 30, 60, 120 }) do
 		local title = seconds == 0 and "禁用时长惩罚" or format_duration(seconds)
 
-		table.insert(
-			menu,
-			{
-				title = title,
-				checked = state.rest_penalty_seconds_per_skip == seconds,
-				fn = function()
-					menu_item_set_rest_penalty_seconds_per_skip(seconds)
-				end,
-			}
-		)
+		table.insert(menu, {
+			title = title,
+			checked = state.rest_penalty_seconds_per_skip == seconds,
+			fn = function()
+				menu_item_set_rest_penalty_seconds_per_skip(seconds)
+			end,
+		})
 	end
 
 	table.insert(menu, { title = "-" })
 	table.insert(menu, { title = "惩罚上限", disabled = true })
 
 	for _, seconds in ipairs({ 60, 180, 300, 600 }) do
-		table.insert(
-			menu,
-			{
-				title = format_duration(seconds),
-				checked = state.max_rest_penalty_seconds == seconds,
-				fn = function()
-					menu_item_set_max_rest_penalty_seconds(seconds)
-				end,
-			}
-		)
+		table.insert(menu, {
+			title = format_duration(seconds),
+			checked = state.max_rest_penalty_seconds == seconds,
+			fn = function()
+				menu_item_set_max_rest_penalty_seconds(seconds)
+			end,
+		})
 	end
 
 	return menu
@@ -2630,39 +2521,33 @@ local function build_overlay_menu()
 	local presets = { 0.20, 0.32, 0.50, 0.80, 0.96 }
 
 	for _, opacity in ipairs(presets) do
-		table.insert(
-			menu,
-			{
-				title = format_decimal(opacity),
-				checked = math.abs(state.overlay_opacity - opacity) < 0.001,
-				fn = function()
-					menu_item_set_overlay_opacity(opacity)
-				end,
-			}
-		)
-	end
-
-	table.insert(
-		menu,
-		{
-			title = "自定义透明度...",
+		table.insert(menu, {
+			title = format_decimal(opacity),
+			checked = math.abs(state.overlay_opacity - opacity) < 0.001,
 			fn = function()
-				local opacity = prompt_number(
-					"遮罩透明度",
-					"请输入 0 到 1 之间的数值，例如 0.32",
-					format_decimal(state.overlay_opacity),
-					0,
-					1
-				)
-
-				if opacity == nil then
-					return
-				end
-
 				menu_item_set_overlay_opacity(opacity)
 			end,
-		}
-	)
+		})
+	end
+
+	table.insert(menu, {
+		title = "自定义透明度...",
+		fn = function()
+			local opacity = prompt_number(
+				"遮罩透明度",
+				"请输入 0 到 1 之间的数值，例如 0.32",
+				format_decimal(state.overlay_opacity),
+				0,
+				1
+			)
+
+			if opacity == nil then
+				return
+			end
+
+			menu_item_set_overlay_opacity(opacity)
+		end,
+	})
 
 	return menu
 end
@@ -2672,8 +2557,7 @@ local function build_friendly_reminder_menu()
 	local duration_label = current_duration <= 0 and "手动关闭" or format_duration(current_duration)
 	local menu = {
 		{
-			title = state.friendly_reminder_seconds <= 0
-				and "当前提前提醒: 已关闭"
+			title = state.friendly_reminder_seconds <= 0 and "当前提前提醒: 已关闭"
 				or string.format("当前提前提醒: %s", format_duration(state.friendly_reminder_seconds)),
 			disabled = true,
 		},
@@ -2683,118 +2567,97 @@ local function build_friendly_reminder_menu()
 	for _, seconds in ipairs(reminder_presets) do
 		local title = seconds == 0 and "关闭提前提醒" or string.format("提前 %s", format_duration(seconds))
 
-		table.insert(
-			menu,
-			{
-				title = title,
-				checked = state.friendly_reminder_seconds == seconds,
-				fn = function()
-					menu_item_set_friendly_reminder_seconds(seconds)
-				end,
-			}
-		)
+		table.insert(menu, {
+			title = title,
+			checked = state.friendly_reminder_seconds == seconds,
+			fn = function()
+				menu_item_set_friendly_reminder_seconds(seconds)
+			end,
+		})
 	end
 
-	table.insert(
-		menu,
-		{
-			title = "自定义提前提醒...",
-			fn = function()
-				local seconds = prompt_number(
-					"友好提醒",
-					"请输入距离休息开始前多少秒显示友好提醒，0 表示关闭",
-					state.friendly_reminder_seconds,
-					0,
-					nil
-				)
+	table.insert(menu, {
+		title = "自定义提前提醒...",
+		fn = function()
+			local seconds = prompt_number(
+				"友好提醒",
+				"请输入距离休息开始前多少秒显示友好提醒，0 表示关闭",
+				state.friendly_reminder_seconds,
+				0,
+				nil
+			)
 
-				if seconds == nil then
-					return
-				end
+			if seconds == nil then
+				return
+			end
 
-				menu_item_set_friendly_reminder_seconds(math.floor(seconds))
-			end,
-		}
-	)
+			menu_item_set_friendly_reminder_seconds(math.floor(seconds))
+		end,
+	})
 
 	table.insert(menu, { title = "-" })
-	table.insert(
-		menu,
-		{
-			title = string.format("当前停留时长: %s", duration_label),
-			disabled = true,
-		}
-	)
+	table.insert(menu, {
+		title = string.format("当前停留时长: %s", duration_label),
+		disabled = true,
+	})
 
 	local duration_presets = { 0, 5, 10, 15 }
 
 	for _, seconds in ipairs(duration_presets) do
 		local title = seconds == 0 and "手动关闭" or format_duration(seconds)
 
-		table.insert(
-			menu,
-			{
-				title = title,
-				checked = math.abs(current_duration - seconds) < 0.001,
-				fn = function()
-					menu_item_set_friendly_reminder_duration(seconds)
-				end,
-			}
-		)
-	end
-
-	table.insert(
-		menu,
-		{
-			title = "自定义停留时长...",
+		table.insert(menu, {
+			title = title,
+			checked = math.abs(current_duration - seconds) < 0.001,
 			fn = function()
-				local seconds = prompt_number(
-					"友好提醒停留时长",
-					"请输入提醒弹窗显示秒数，0 表示不自动关闭",
-					current_duration,
-					0,
-					nil
-				)
-
-				if seconds == nil then
-					return
-				end
-
 				menu_item_set_friendly_reminder_duration(seconds)
 			end,
-		}
-	)
+		})
+	end
+
+	table.insert(menu, {
+		title = "自定义停留时长...",
+		fn = function()
+			local seconds = prompt_number(
+				"友好提醒停留时长",
+				"请输入提醒弹窗显示秒数，0 表示不自动关闭",
+				current_duration,
+				0,
+				nil
+			)
+
+			if seconds == nil then
+				return
+			end
+
+			menu_item_set_friendly_reminder_duration(seconds)
+		end,
+	})
 
 	table.insert(menu, { title = "-" })
-	table.insert(
-		menu,
-		{
-			title = "编辑提示文案...",
-			fn = function()
-				local message = prompt_text(
-					"友好提醒文案",
-					"可用占位符: {{remaining}} {{remaining_seconds}} {{remaining_mmss}} {{rest}} {{rest_seconds}} {{rest_mmss}}",
-					state.friendly_reminder_message
-				)
+	table.insert(menu, {
+		title = "编辑提示文案...",
+		fn = function()
+			local message = prompt_text(
+				"友好提醒文案",
+				"可用占位符: {{remaining}} {{remaining_seconds}} {{remaining_mmss}} {{rest}} {{rest_seconds}} {{rest_mmss}}",
+				state.friendly_reminder_message
+			)
 
-				if message == nil then
-					return
-				end
+			if message == nil then
+				return
+			end
 
-				if message == "" then
-					show_message("提示文案不能为空")
-					return
-				end
+			if message == "" then
+				show_message("提示文案不能为空")
+				return
+			end
 
-				update_runtime_overrides(
-					{
-						friendly_reminder_message = message,
-					},
-					"友好提醒文案已更新"
-				)
-			end,
-		}
-	)
+			update_runtime_overrides({
+				friendly_reminder_message = message,
+			}, "友好提醒文案已更新")
+		end,
+	})
 
 	return menu
 end
@@ -2824,14 +2687,12 @@ local function build_gamification_menu()
 			disabled = true,
 		},
 		{
-			title = state.break_goal_count <= 0
-					and "休息目标: 未启用"
-				or string.format(
-					"休息目标: %d/%d%s",
-					gamification_metrics.today_completed_breaks,
-					state.break_goal_count,
-					break_goal_reached() == true and "（已达成）" or ""
-				),
+			title = state.break_goal_count <= 0 and "休息目标: 未启用" or string.format(
+				"休息目标: %d/%d%s",
+				gamification_metrics.today_completed_breaks,
+				state.break_goal_count,
+				break_goal_reached() == true and "（已达成）" or ""
+			),
 			disabled = true,
 		},
 		{
@@ -2846,17 +2707,17 @@ local function build_gamification_menu()
 			title = string.format("今日积分: %d | 称号: %s", gamification_points(), gamification_rank_label()),
 			disabled = true,
 		},
-			{ title = "-" },
-			{
-				title = "专注目标",
-				menu = build_focus_goal_menu(),
-			},
-			{
-				title = "休息目标",
-				menu = build_break_goal_menu(),
-			},
-			{
-				title = "跳过惩罚",
+		{ title = "-" },
+		{
+			title = "专注目标",
+			menu = build_focus_goal_menu(),
+		},
+		{
+			title = "休息目标",
+			menu = build_break_goal_menu(),
+		},
+		{
+			title = "跳过惩罚",
 			menu = build_skip_punishment_menu(),
 		},
 	}
@@ -2873,24 +2734,18 @@ local function build_mode_menu()
 			title = "柔性提醒",
 			checked = state.mode == "soft",
 			fn = function()
-				update_runtime_overrides(
-					{
-						mode = "soft",
-					},
-					"已切换为柔性提醒模式"
-				)
+				update_runtime_overrides({
+					mode = "soft",
+				}, "已切换为柔性提醒模式")
 			end,
 		},
 		{
 			title = "硬性提醒",
 			checked = state.mode == "hard",
 			fn = function()
-				update_runtime_overrides(
-					{
-						mode = "hard",
-					},
-					"已切换为硬性提醒模式"
-				)
+				update_runtime_overrides({
+					mode = "hard",
+				}, "已切换为硬性提醒模式")
 			end,
 		},
 	}
@@ -2904,24 +2759,18 @@ local function build_start_next_cycle_menu()
 			title = "休息结束立即开始",
 			checked = state.start_next_cycle == "auto",
 			fn = function()
-				update_runtime_overrides(
-					{
-						start_next_cycle = "auto",
-					},
-					"已切换为休息结束立即开始下一轮工作计时"
-				)
+				update_runtime_overrides({
+					start_next_cycle = "auto",
+				}, "已切换为休息结束立即开始下一轮工作计时")
 			end,
 		},
 		{
 			title = "首次输入后开始",
 			checked = state.start_next_cycle == "on_input",
 			fn = function()
-				update_runtime_overrides(
-					{
-						start_next_cycle = "on_input",
-					},
-					"已切换为休息结束后等待首次输入再开始"
-				)
+				update_runtime_overrides({
+					start_next_cycle = "on_input",
+				}, "已切换为休息结束后等待首次输入再开始")
 			end,
 		},
 	}
@@ -3009,12 +2858,9 @@ local function build_menu()
 			fn = function()
 				local enabled = not state.enabled
 
-				update_runtime_overrides(
-					{
-						enabled = enabled,
-					},
-					enabled and "已启用休息提醒" or "已关闭休息提醒"
-				)
+				update_runtime_overrides({
+					enabled = enabled,
+				}, enabled and "已启用休息提醒" or "已关闭休息提醒")
 			end,
 		},
 		{
@@ -3133,23 +2979,21 @@ local function ensure_screen_watcher()
 		return
 	end
 
-	_M.screen_watcher = hs.screen.watcher.new(
-		function()
-			if break_ends_at == nil then
-				return
-			end
-
-			local remaining_seconds = break_ends_at - os.time()
-
-			if remaining_seconds <= 0 then
-				finish_break()
-				return
-			end
-
-			render_overlays(remaining_seconds)
-			update_menubar_status()
+	_M.screen_watcher = hs.screen.watcher.new(function()
+		if break_ends_at == nil then
+			return
 		end
-	)
+
+		local remaining_seconds = break_ends_at - os.time()
+
+		if remaining_seconds <= 0 then
+			finish_break()
+			return
+		end
+
+		render_overlays(remaining_seconds)
+		update_menubar_status()
+	end)
 end
 
 local function ensure_caffeinate_watcher()
@@ -3157,31 +3001,33 @@ local function ensure_caffeinate_watcher()
 		return
 	end
 
-	_M.caffeinate_watcher = hs.caffeinate.watcher.new(
-		function(event)
-			if event == hs.caffeinate.watcher.screensDidLock
-				or event == hs.caffeinate.watcher.systemWillSleep
-				or event == hs.caffeinate.watcher.sessionDidResignActive then
-				reset_cycle_for_inactive_session(tostring(event))
-				return
-			end
-
-			if event ~= hs.caffeinate.watcher.systemDidWake
-				and event ~= hs.caffeinate.watcher.screensDidUnlock
-				and event ~= hs.caffeinate.watcher.sessionDidBecomeActive then
-				return
-			end
-
-			if session_is_inactive ~= true then
-				return
-			end
-
-			if try_resume_after_inactive_session("caffeinate watcher resume event") ~= true then
-				log.i("session is still locked/inactive after wake, waiting for a later retry")
-				return
-			end
+	_M.caffeinate_watcher = hs.caffeinate.watcher.new(function(event)
+		if
+			event == hs.caffeinate.watcher.screensDidLock
+			or event == hs.caffeinate.watcher.systemWillSleep
+			or event == hs.caffeinate.watcher.sessionDidResignActive
+		then
+			reset_cycle_for_inactive_session(tostring(event))
+			return
 		end
-	)
+
+		if
+			event ~= hs.caffeinate.watcher.systemDidWake
+			and event ~= hs.caffeinate.watcher.screensDidUnlock
+			and event ~= hs.caffeinate.watcher.sessionDidBecomeActive
+		then
+			return
+		end
+
+		if session_is_inactive ~= true then
+			return
+		end
+
+		if try_resume_after_inactive_session("caffeinate watcher resume event") ~= true then
+			log.i("session is still locked/inactive after wake, waiting for a later retry")
+			return
+		end
+	end)
 end
 
 local function start_watchers()

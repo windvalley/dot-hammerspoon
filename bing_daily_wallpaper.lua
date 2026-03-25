@@ -56,8 +56,6 @@ local function normalize_url_base(value, fallback)
 	return (url:gsub("/+$", ""))
 end
 
-
-
 local function resolve_cache_dir()
 	local raw = trim(tostring(wallpaper.cache_dir or ""))
 	local home = os.getenv("HOME") or ""
@@ -182,7 +180,12 @@ local function cleanup_cache(retained_names)
 	end
 
 	for entry in hs.fs.dir(state.cache_dir) do
-		if entry ~= "." and entry ~= ".." and entry:sub(1, #wallpaper_file_prefix) == wallpaper_file_prefix and retained_names[entry] ~= true then
+		if
+			entry ~= "."
+			and entry ~= ".."
+			and entry:sub(1, #wallpaper_file_prefix) == wallpaper_file_prefix
+			and retained_names[entry] ~= true
+		then
 			local full_path = state.cache_dir .. "/" .. entry
 			local attributes = hs.fs.attributes(full_path)
 
@@ -207,11 +210,9 @@ local function apply_wallpaper(local_path, picture_name)
 	local applied = false
 
 	for _, screen in ipairs(hs.screen.allScreens()) do
-		local ok, err = pcall(
-			function()
-				screen:desktopImageURL(file_url)
-			end
-		)
+		local ok, err = pcall(function()
+			screen:desktopImageURL(file_url)
+		end)
 
 		if ok ~= true then
 			log.e(string.format("failed to set wallpaper for %s: %s", tostring(screen), tostring(err)))
@@ -245,36 +246,32 @@ local function download_picture(full_url, local_path, picture_name, retained_nam
 
 	local task
 
-	task = hs.task.new(
-		"/usr/bin/curl",
-		function(exit_code, _, std_err)
-			if state.task ~= task then
-				return
-			end
+	task = hs.task.new("/usr/bin/curl", function(exit_code, _, std_err)
+		if state.task ~= task then
+			return
+		end
 
-			state.task = nil
+		state.task = nil
 
-			if exit_code ~= 0 then
-				log.e(string.format("failed to download Bing wallpaper: %s (%s)", picture_name, trim(std_err)))
-				return
-			end
+		if exit_code ~= 0 then
+			log.e(string.format("failed to download Bing wallpaper: %s (%s)", picture_name, trim(std_err)))
+			return
+		end
 
-			if apply_wallpaper(local_path, picture_name) == true then
-				cleanup_cache(retained_names)
-			end
-		end,
-		{
-			"--fail",
-			"--location",
-			"--silent",
-			"--show-error",
-			"-A",
-			default_user_agent,
-			full_url,
-			"-o",
-			local_path,
-		}
-	)
+		if apply_wallpaper(local_path, picture_name) == true then
+			cleanup_cache(retained_names)
+		end
+	end, {
+		"--fail",
+		"--location",
+		"--silent",
+		"--show-error",
+		"-A",
+		default_user_agent,
+		full_url,
+		"-o",
+		local_path,
+	})
 
 	if task == nil then
 		log.e("failed to create wallpaper download task")
@@ -338,61 +335,57 @@ local function refresh_now(reason)
 	local request_id = state.request_id
 	local url = metadata_url()
 
-	hs.http.asyncGet(
-		url,
-		{ ["User-Agent"] = default_user_agent },
-		function(status, body, _)
-			if request_id ~= state.request_id then
-				return
-			end
-
-			state.request_inflight = false
-
-			if status ~= 200 then
-				log.e(string.format("failed to request Bing wallpaper metadata: status=%s, reason=%s", tostring(status), tostring(reason)))
-				return
-			end
-
-			local ok, payload = pcall(hs.json.decode, body)
-
-			if ok ~= true or type(payload) ~= "table" then
-				log.e("failed to decode Bing wallpaper metadata response")
-				return
-			end
-
-			local images = payload.images
-
-			if type(images) ~= "table" or #images == 0 then
-				log.e("Bing wallpaper metadata response does not contain any image")
-				return
-			end
-
-			local selected = pick_image(images)
-			local relative_url = relative_image_url(selected)
-
-			if relative_url == nil then
-				log.e("selected Bing wallpaper item does not contain a valid image url")
-				return
-			end
-
-			local picture_name = picture_name_from_url(relative_url)
-			local local_path = state.cache_dir .. "/" .. picture_name
-			local retained_names = build_retained_names(images)
-
-			if file_exists(local_path) == true then
-				apply_wallpaper(local_path, picture_name)
-				cleanup_cache(retained_names)
-				return
-			end
-
-			if download_picture(absolute_image_url(relative_url), local_path, picture_name, retained_names) ~= true then
-				log.e("failed to refresh wallpaper: " .. picture_name)
-				return
-			end
-
-			log.i(string.format("wallpaper refresh scheduled (%s): %s", tostring(reason or "unknown"), picture_name))
+	hs.http.asyncGet(url, { ["User-Agent"] = default_user_agent }, function(status, body, _)
+		if request_id ~= state.request_id then
+			return
 		end
-	)
+
+		state.request_inflight = false
+
+		if status ~= 200 then
+			log.e(string.format("failed to request Bing wallpaper metadata: status=%s, reason=%s", tostring(status), tostring(reason)))
+			return
+		end
+
+		local ok, payload = pcall(hs.json.decode, body)
+
+		if ok ~= true or type(payload) ~= "table" then
+			log.e("failed to decode Bing wallpaper metadata response")
+			return
+		end
+
+		local images = payload.images
+
+		if type(images) ~= "table" or #images == 0 then
+			log.e("Bing wallpaper metadata response does not contain any image")
+			return
+		end
+
+		local selected = pick_image(images)
+		local relative_url = relative_image_url(selected)
+
+		if relative_url == nil then
+			log.e("selected Bing wallpaper item does not contain a valid image url")
+			return
+		end
+
+		local picture_name = picture_name_from_url(relative_url)
+		local local_path = state.cache_dir .. "/" .. picture_name
+		local retained_names = build_retained_names(images)
+
+		if file_exists(local_path) == true then
+			apply_wallpaper(local_path, picture_name)
+			cleanup_cache(retained_names)
+			return
+		end
+
+		if download_picture(absolute_image_url(relative_url), local_path, picture_name, retained_names) ~= true then
+			log.e("failed to refresh wallpaper: " .. picture_name)
+			return
+		end
+
+		log.i(string.format("wallpaper refresh scheduled (%s): %s", tostring(reason or "unknown"), picture_name))
+	end)
 
 	return true
 end
@@ -418,12 +411,9 @@ function _M.start()
 
 	refresh_now("startup")
 
-	state.timer = hs.timer.doEvery(
-		refresh_interval_seconds(),
-		function()
-			refresh_now("scheduled refresh")
-		end
-	)
+	state.timer = hs.timer.doEvery(refresh_interval_seconds(), function()
+		refresh_now("scheduled refresh")
+	end)
 
 	return true
 end

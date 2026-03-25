@@ -10,63 +10,63 @@ local min_window_width = 240
 local min_window_height = 180
 
 local function clampFrame(frame, bounds)
-    local clamped = {
-        x = frame.x,
-        y = frame.y,
-        w = frame.w,
-        h = frame.h
-    }
+	local clamped = {
+		x = frame.x,
+		y = frame.y,
+		w = frame.w,
+		h = frame.h,
+	}
 
-    clamped.w = math.min(bounds.w, math.max(min_window_width, clamped.w))
-    clamped.h = math.min(bounds.h, math.max(min_window_height, clamped.h))
-    clamped.x = math.max(bounds.x, math.min(clamped.x, bounds.x + bounds.w - clamped.w))
-    clamped.y = math.max(bounds.y, math.min(clamped.y, bounds.y + bounds.h - clamped.h))
+	clamped.w = math.min(bounds.w, math.max(min_window_width, clamped.w))
+	clamped.h = math.min(bounds.h, math.max(min_window_height, clamped.h))
+	clamped.x = math.max(bounds.x, math.min(clamped.x, bounds.x + bounds.w - clamped.w))
+	clamped.y = math.max(bounds.y, math.min(clamped.y, bounds.y + bounds.h - clamped.h))
 
-    return clamped
+	return clamped
 end
 
 local function applyFrame(window, frame, bounds)
-    window:setFrame(clampFrame(frame, bounds))
+	window:setFrame(clampFrame(frame, bounds))
 end
 
 -- 判断指定屏幕是否为竖屏
 local isVerticalScreen = function(screen)
-    if screen:rotate() == 90 or screen:rotate() == 270 then
-        return true
-    else
-        return false
-    end
+	if screen:rotate() == 90 or screen:rotate() == 270 then
+		return true
+	else
+		return false
+	end
 end
 
 -- 使用可见工作区，避免窗口布局覆盖菜单栏或 Dock
 local function visibleFrame(screen)
-    return screen:frame()
+	return screen:frame()
 end
 
 -- Move the focused window in the `direction` by on step.
 -- Parameters: left, right, up, down
 _M.stepMove = function(direction)
-    local cwin = hs.window.focusedWindow()
-    if cwin then
-        local cscreen = cwin:screen()
-        local cres = visibleFrame(cscreen)
-        local stepw = cres.w / gridparts
-        local steph = cres.h / gridparts
-        local wtopleft = cwin:topLeft()
-        local wframe = cwin:frame()
+	local cwin = hs.window.focusedWindow()
+	if cwin then
+		local cscreen = cwin:screen()
+		local cres = visibleFrame(cscreen)
+		local stepw = cres.w / gridparts
+		local steph = cres.h / gridparts
+		local wtopleft = cwin:topLeft()
+		local wframe = cwin:frame()
 
-        if direction == "left" then
-            applyFrame(cwin, {x = wtopleft.x - stepw, y = wtopleft.y, w = wframe.w, h = wframe.h}, cres)
-        elseif direction == "right" then
-            applyFrame(cwin, {x = wtopleft.x + stepw, y = wtopleft.y, w = wframe.w, h = wframe.h}, cres)
-        elseif direction == "up" then
-            applyFrame(cwin, {x = wtopleft.x, y = wtopleft.y - steph, w = wframe.w, h = wframe.h}, cres)
-        elseif direction == "down" then
-            applyFrame(cwin, {x = wtopleft.x, y = wtopleft.y + steph, w = wframe.w, h = wframe.h}, cres)
-        end
-    else
-        hs.alert.show("No focused window!")
-    end
+		if direction == "left" then
+			applyFrame(cwin, { x = wtopleft.x - stepw, y = wtopleft.y, w = wframe.w, h = wframe.h }, cres)
+		elseif direction == "right" then
+			applyFrame(cwin, { x = wtopleft.x + stepw, y = wtopleft.y, w = wframe.w, h = wframe.h }, cres)
+		elseif direction == "up" then
+			applyFrame(cwin, { x = wtopleft.x, y = wtopleft.y - steph, w = wframe.w, h = wframe.h }, cres)
+		elseif direction == "down" then
+			applyFrame(cwin, { x = wtopleft.x, y = wtopleft.y + steph, w = wframe.w, h = wframe.h }, cres)
+		end
+	else
+		hs.alert.show("No focused window!")
+	end
 end
 
 -- Move and resize the focused window.
@@ -88,208 +88,204 @@ end
 --   stretch: 放大
 --   shrink: 缩小
 _M.moveAndResize = function(option)
-    local cwin = hs.window.focusedWindow()
+	local cwin = hs.window.focusedWindow()
 
-    if cwin then
-        local cscreen = cwin:screen()
-        local cres = visibleFrame(cscreen)
-        local stepw = cres.w / gridparts
-        local steph = cres.h / gridparts
-        local wf = cwin:frame()
+	if cwin then
+		local cscreen = cwin:screen()
+		local cres = visibleFrame(cscreen)
+		local stepw = cres.w / gridparts
+		local steph = cres.h / gridparts
+		local wf = cwin:frame()
 
-        if option == "halfleft" then
-            applyFrame(cwin, {x = cres.x, y = cres.y, w = cres.w / 2, h = cres.h}, cres)
-        elseif option == "halfright" then
-            applyFrame(cwin, {x = cres.x + cres.w / 2, y = cres.y, w = cres.w / 2, h = cres.h}, cres)
-        elseif option == "halfup" then
-            applyFrame(cwin, {x = cres.x, y = cres.y, w = cres.w, h = cres.h / 2}, cres)
-        elseif option == "halfdown" then
-            applyFrame(cwin, {x = cres.x, y = cres.y + cres.h / 2, w = cres.w, h = cres.h / 2}, cres)
-        elseif option == "cornerTopLeft" then
-            applyFrame(cwin, {x = cres.x, y = cres.y, w = cres.w / 2, h = cres.h / 2}, cres)
-        elseif option == "cornerTopRight" then
-            applyFrame(cwin, {x = cres.x + cres.w / 2, y = cres.y, w = cres.w / 2, h = cres.h / 2}, cres)
-        elseif option == "cornerBottomLeft" then
-            applyFrame(cwin, {x = cres.x, y = cres.y + cres.h / 2, w = cres.w / 2, h = cres.h / 2}, cres)
-        elseif option == "cornerBottomRight" then
-            applyFrame(cwin, {x = cres.x + cres.w / 2, y = cres.y + cres.h / 2, w = cres.w / 2, h = cres.h / 2}, cres)
-        elseif option == "max" then
-            applyFrame(cwin, {x = cres.x, y = cres.y, w = cres.w, h = cres.h}, cres)
-        elseif option == "center" then
-            -- cwin:centerOnScreen() 居中但不改变大小,
-            -- 改成如下居中且调整成适当的大小.
-            applyFrame(
-                cwin,
-                {
-                    x = cres.x + cres.w / 6,
-                    y = cres.y + cres.h / 6,
-                    w = cres.w / 1.5,
-                    h = cres.h / 1.5
-                },
-                cres
-            )
-        elseif option == "stretch" then
-            applyFrame(cwin, {x = wf.x - stepw, y = wf.y - steph, w = wf.w + (stepw * 2), h = wf.h + (steph * 2)}, cres)
-        elseif option == "shrink" then
-            applyFrame(cwin, {x = wf.x + stepw, y = wf.y + steph, w = wf.w - (stepw * 2), h = wf.h - (steph * 2)}, cres)
-        elseif option == "left_1_3" then
-            local obj
-            if isVerticalScreen(cscreen) then
-                obj = {
-                    x = cres.x,
-                    y = cres.y,
-                    w = cres.w,
-                    h = cres.h / 3
-                }
-            else
-                obj = {
-                    x = cres.x,
-                    y = cres.y,
-                    w = cres.w / 3,
-                    h = cres.h
-                }
-            end
+		if option == "halfleft" then
+			applyFrame(cwin, { x = cres.x, y = cres.y, w = cres.w / 2, h = cres.h }, cres)
+		elseif option == "halfright" then
+			applyFrame(cwin, { x = cres.x + cres.w / 2, y = cres.y, w = cres.w / 2, h = cres.h }, cres)
+		elseif option == "halfup" then
+			applyFrame(cwin, { x = cres.x, y = cres.y, w = cres.w, h = cres.h / 2 }, cres)
+		elseif option == "halfdown" then
+			applyFrame(cwin, { x = cres.x, y = cres.y + cres.h / 2, w = cres.w, h = cres.h / 2 }, cres)
+		elseif option == "cornerTopLeft" then
+			applyFrame(cwin, { x = cres.x, y = cres.y, w = cres.w / 2, h = cres.h / 2 }, cres)
+		elseif option == "cornerTopRight" then
+			applyFrame(cwin, { x = cres.x + cres.w / 2, y = cres.y, w = cres.w / 2, h = cres.h / 2 }, cres)
+		elseif option == "cornerBottomLeft" then
+			applyFrame(cwin, { x = cres.x, y = cres.y + cres.h / 2, w = cres.w / 2, h = cres.h / 2 }, cres)
+		elseif option == "cornerBottomRight" then
+			applyFrame(cwin, { x = cres.x + cres.w / 2, y = cres.y + cres.h / 2, w = cres.w / 2, h = cres.h / 2 }, cres)
+		elseif option == "max" then
+			applyFrame(cwin, { x = cres.x, y = cres.y, w = cres.w, h = cres.h }, cres)
+		elseif option == "center" then
+			-- cwin:centerOnScreen() 居中但不改变大小,
+			-- 改成如下居中且调整成适当的大小.
+			applyFrame(cwin, {
+				x = cres.x + cres.w / 6,
+				y = cres.y + cres.h / 6,
+				w = cres.w / 1.5,
+				h = cres.h / 1.5,
+			}, cres)
+		elseif option == "stretch" then
+			applyFrame(cwin, { x = wf.x - stepw, y = wf.y - steph, w = wf.w + (stepw * 2), h = wf.h + (steph * 2) }, cres)
+		elseif option == "shrink" then
+			applyFrame(cwin, { x = wf.x + stepw, y = wf.y + steph, w = wf.w - (stepw * 2), h = wf.h - (steph * 2) }, cres)
+		elseif option == "left_1_3" then
+			local obj
+			if isVerticalScreen(cscreen) then
+				obj = {
+					x = cres.x,
+					y = cres.y,
+					w = cres.w,
+					h = cres.h / 3,
+				}
+			else
+				obj = {
+					x = cres.x,
+					y = cres.y,
+					w = cres.w / 3,
+					h = cres.h,
+				}
+			end
 
-            applyFrame(cwin, obj, cres)
-        elseif option == "right_1_3" then
-            local obj
-            if isVerticalScreen(cscreen) then
-                obj = {
-                    x = cres.x,
-                    y = cres.y + (cres.h / 3 * 2),
-                    w = cres.w,
-                    h = cres.h / 3
-                }
-            else
-                obj = {
-                    x = cres.x + (cres.w / 3 * 2),
-                    y = cres.y,
-                    w = cres.w / 3,
-                    h = cres.h
-                }
-            end
+			applyFrame(cwin, obj, cres)
+		elseif option == "right_1_3" then
+			local obj
+			if isVerticalScreen(cscreen) then
+				obj = {
+					x = cres.x,
+					y = cres.y + (cres.h / 3 * 2),
+					w = cres.w,
+					h = cres.h / 3,
+				}
+			else
+				obj = {
+					x = cres.x + (cres.w / 3 * 2),
+					y = cres.y,
+					w = cres.w / 3,
+					h = cres.h,
+				}
+			end
 
-            applyFrame(cwin, obj, cres)
-        elseif option == "left_2_3" then
-            local obj
-            if isVerticalScreen(cscreen) then
-                obj = {
-                    x = cres.x,
-                    y = cres.y,
-                    w = cres.w,
-                    h = cres.h / 3 * 2
-                }
-            else
-                obj = {
-                    x = cres.x,
-                    y = cres.y,
-                    w = cres.w / 3 * 2,
-                    h = cres.h
-                }
-            end
+			applyFrame(cwin, obj, cres)
+		elseif option == "left_2_3" then
+			local obj
+			if isVerticalScreen(cscreen) then
+				obj = {
+					x = cres.x,
+					y = cres.y,
+					w = cres.w,
+					h = cres.h / 3 * 2,
+				}
+			else
+				obj = {
+					x = cres.x,
+					y = cres.y,
+					w = cres.w / 3 * 2,
+					h = cres.h,
+				}
+			end
 
-            applyFrame(cwin, obj, cres)
-        elseif option == "right_2_3" then
-            local obj
-            if isVerticalScreen(cscreen) then
-                obj = {
-                    x = cres.x,
-                    y = cres.y + (cres.h / 3),
-                    w = cres.w,
-                    h = cres.h / 3 * 2
-                }
-            else
-                obj = {
-                    x = cres.x + (cres.w / 3),
-                    y = cres.y,
-                    w = cres.w / 3 * 2,
-                    h = cres.h
-                }
-            end
+			applyFrame(cwin, obj, cres)
+		elseif option == "right_2_3" then
+			local obj
+			if isVerticalScreen(cscreen) then
+				obj = {
+					x = cres.x,
+					y = cres.y + (cres.h / 3),
+					w = cres.w,
+					h = cres.h / 3 * 2,
+				}
+			else
+				obj = {
+					x = cres.x + (cres.w / 3),
+					y = cres.y,
+					w = cres.w / 3 * 2,
+					h = cres.h,
+				}
+			end
 
-            applyFrame(cwin, obj, cres)
-        end
-    else
-        hs.alert.show("No focused window!")
-    end
+			applyFrame(cwin, obj, cres)
+		end
+	else
+		hs.alert.show("No focused window!")
+	end
 end
 
 -- Resize the focused window in the `direction` by on step.
 -- Parameters: left, right, up, down
 _M.directionStepResize = function(direction)
-    local cwin = hs.window.focusedWindow()
+	local cwin = hs.window.focusedWindow()
 
-    if cwin then
-        local cscreen = cwin:screen()
-        local cres = visibleFrame(cscreen)
-        local stepw = cres.w / gridparts
-        local steph = cres.h / gridparts
-        local frame = cwin:frame()
-        local wsize = cwin:size()
+	if cwin then
+		local cscreen = cwin:screen()
+		local cres = visibleFrame(cscreen)
+		local stepw = cres.w / gridparts
+		local steph = cres.h / gridparts
+		local frame = cwin:frame()
+		local wsize = cwin:size()
 
-        if direction == "left" then
-            applyFrame(cwin, {x = frame.x, y = frame.y, w = wsize.w - stepw, h = wsize.h}, cres)
-        elseif direction == "right" then
-            applyFrame(cwin, {x = frame.x, y = frame.y, w = wsize.w + stepw, h = wsize.h}, cres)
-        elseif direction == "up" then
-            applyFrame(cwin, {x = frame.x, y = frame.y, w = wsize.w, h = wsize.h - steph}, cres)
-        elseif direction == "down" then
-            applyFrame(cwin, {x = frame.x, y = frame.y, w = wsize.w, h = wsize.h + steph}, cres)
-        end
-    else
-        hs.alert.show("No focused window!")
-    end
+		if direction == "left" then
+			applyFrame(cwin, { x = frame.x, y = frame.y, w = wsize.w - stepw, h = wsize.h }, cres)
+		elseif direction == "right" then
+			applyFrame(cwin, { x = frame.x, y = frame.y, w = wsize.w + stepw, h = wsize.h }, cres)
+		elseif direction == "up" then
+			applyFrame(cwin, { x = frame.x, y = frame.y, w = wsize.w, h = wsize.h - steph }, cres)
+		elseif direction == "down" then
+			applyFrame(cwin, { x = frame.x, y = frame.y, w = wsize.w, h = wsize.h + steph }, cres)
+		end
+	else
+		hs.alert.show("No focused window!")
+	end
 end
 
 -- Move the focused window between all of the screens in the `direction`.
 -- Parameters: up, down, left, right, next
 _M.moveToScreen = function(direction)
-    local cwin = hs.window.focusedWindow()
+	local cwin = hs.window.focusedWindow()
 
-    if cwin then
-        local cscreen = cwin:screen()
-        if direction == "up" then
-            cwin:moveOneScreenNorth()
-        elseif direction == "down" then
-            cwin:moveOneScreenSouth()
-        elseif direction == "left" then
-            cwin:moveOneScreenWest()
-        elseif direction == "right" then
-            cwin:moveOneScreenEast()
-        elseif direction == "next" then
-            cwin:moveToScreen(cscreen:next())
-        end
-    else
-        hs.alert.show("No focused window!")
-    end
+	if cwin then
+		local cscreen = cwin:screen()
+		if direction == "up" then
+			cwin:moveOneScreenNorth()
+		elseif direction == "down" then
+			cwin:moveOneScreenSouth()
+		elseif direction == "left" then
+			cwin:moveOneScreenWest()
+		elseif direction == "right" then
+			cwin:moveOneScreenEast()
+		elseif direction == "next" then
+			cwin:moveToScreen(cscreen:next())
+		end
+	else
+		hs.alert.show("No focused window!")
+	end
 end
 
 -- 最小化所有窗口.
 _M.minimizeAllWindows = function()
-    local windows = hs.window.allWindows()
+	local windows = hs.window.allWindows()
 
-    for _, window in pairs(windows) do
-        window:minimize()
-    end
+	for _, window in pairs(windows) do
+		window:minimize()
+	end
 end
 
 -- 恢复所有最小化的窗口.
 _M.unMinimizeAllWindows = function()
-    local windows = hs.window.minimizedWindows()
+	local windows = hs.window.minimizedWindows()
 
-    for _, window in pairs(windows) do
-        window:unminimize()
-        window:focus()
-    end
+	for _, window in pairs(windows) do
+		window:unminimize()
+		window:focus()
+	end
 end
 
 -- 关闭所有窗口.
 _M.closeAllWindows = function()
-    local windows = hs.window.allWindows()
+	local windows = hs.window.allWindows()
 
-    for _, window in pairs(windows) do
-        window:close()
-    end
+	for _, window in pairs(windows) do
+		window:close()
+	end
 end
 
 return _M
