@@ -462,6 +462,7 @@ local break_timer = nil
 local friendly_reminder_timer = nil
 local friendly_reminder_popup_timer = nil
 local menubar_status_timer = nil
+local menubar_status_timer_interval = nil
 local last_menubar_render_signature = nil
 local last_menubar_tooltip = nil
 local inactive_resume_timer = nil
@@ -1162,26 +1163,39 @@ local function current_status()
 end
 
 local function menubar_visual_state()
+	local icon_color = menubar_active_color
+
 	if state.enabled ~= true then
-		return {
-			icon_color = menubar_disabled_color,
-		}
+		icon_color = menubar_disabled_color
+	elseif session_is_inactive == true then
+		icon_color = menubar_paused_color
+	elseif waiting_for_resume_input == true then
+		icon_color = menubar_waiting_color
 	end
 
-	if session_is_inactive == true then
-		return {
-			icon_color = menubar_paused_color,
-		}
-	end
+	local progress_fraction = nil
+	local progress_update_interval = nil
 
-	if waiting_for_resume_input == true then
-		return {
-			icon_color = menubar_waiting_color,
-		}
+	if state.enabled == true and session_is_inactive ~= true and waiting_for_resume_input ~= true then
+		if break_ends_at ~= nil then
+			local total_seconds = math.max(1, current_break_duration_seconds or effective_rest_seconds())
+			local remaining_seconds = clamp_number(break_ends_at - os.time(), 0, total_seconds)
+
+			progress_fraction = clamp_number((total_seconds - remaining_seconds) / total_seconds, 0, 1)
+			progress_update_interval = 10
+		elseif next_break_at ~= nil then
+			local total_seconds = math.max(1, current_work_cycle_duration_seconds or state.work_seconds)
+			local remaining_seconds = clamp_number(next_break_at - os.time(), 0, total_seconds)
+
+			progress_fraction = clamp_number((total_seconds - remaining_seconds) / total_seconds, 0, 1)
+			progress_update_interval = 60
+		end
 	end
 
 	return {
-		icon_color = menubar_active_color,
+		icon_color = icon_color,
+		progress_fraction = progress_fraction,
+		progress_update_interval = progress_update_interval,
 	}
 end
 
@@ -1192,6 +1206,7 @@ local function menubar_render_signature(status_title, status_detail, tooltip, vi
 		tostring(tooltip or ""),
 		tostring(state.menubar_skin),
 		tostring(visual_state.icon_color and visual_state.icon_color.alpha or ""),
+		visual_state.progress_fraction ~= nil and string.format("%.4f", visual_state.progress_fraction) or "",
 	}, "|")
 end
 
@@ -1235,6 +1250,32 @@ local function build_menubar_icon(visual_state)
 	local icon_color = visual_state.icon_color
 	local elements = {}
 
+	local function color_with_alpha(color, alpha)
+		local updated = shallow_copy(color or {})
+
+		updated.alpha = alpha
+
+		return updated
+	end
+
+	local function circle_path_coordinates(start_radians, end_radians, radius)
+		local radians_span = end_radians - start_radians
+		local steps = math.max(12, math.ceil(math.abs(radians_span) * 12))
+		local coordinates = {}
+
+		for index = 0, steps do
+			local ratio = index / steps
+			local angle = start_radians + (radians_span * ratio)
+
+			table.insert(coordinates, {
+				x = center_x + (math.cos(angle) * radius),
+				y = center_y + (math.sin(angle) * radius),
+			})
+		end
+
+		return coordinates
+	end
+
 	local function transform_coordinates(coordinates, scale, offset_x, offset_y)
 		local transformed = {}
 
@@ -1247,6 +1288,48 @@ local function build_menubar_icon(visual_state)
 
 		return transformed
 	end
+
+	local function append_progress_ring()
+		if visual_state.progress_fraction == nil then
+			return
+		end
+
+		local radius = 14.2
+		local ring_start = -math.pi / 2
+		local full_circle = (math.pi * 2) - math.rad(8)
+
+		table.insert(elements, {
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = 1.8,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = color_with_alpha(icon_color, 0.16),
+			coordinates = circle_path_coordinates(ring_start, ring_start + full_circle, radius),
+		})
+
+		if visual_state.progress_fraction <= 0 then
+			return
+		end
+
+		table.insert(elements, {
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeWidth = 2.2,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			strokeColor = color_with_alpha(icon_color, icon_color.alpha or 1),
+			coordinates = circle_path_coordinates(
+				ring_start,
+				ring_start + (full_circle * visual_state.progress_fraction),
+				radius
+			),
+		})
+	end
+
+	append_progress_ring()
 
 	local function append_coffee_skin()
 		local icon_scale = 1.24
@@ -1524,21 +1607,46 @@ update_menubar_status = function()
 	end
 
 	last_menubar_render_signature = render_signature
+	start_menubar_status_timer()
 end
 
 start_menubar_status_timer = function()
-	-- Keep the menubar event-driven. Periodic status-item mutations still
-	-- trigger WindowServer "Invalid window" errors on this macOS setup.
+	local interval = nil
+
+	if menubar_item ~= nil then
+		interval = menubar_visual_state().progress_update_interval
+	end
+
+	if interval == nil then
+		stop_menubar_status_timer()
+		return
+	end
+
+	if menubar_status_timer ~= nil and menubar_status_timer_interval == interval then
+		return
+	end
+
 	stop_menubar_status_timer()
+	menubar_status_timer_interval = interval
+	menubar_status_timer = hs.timer.doEvery(interval, function()
+		if menubar_item == nil then
+			stop_menubar_status_timer()
+			return
+		end
+
+		update_menubar_status()
+	end)
 end
 
 stop_menubar_status_timer = function()
 	if menubar_status_timer == nil then
+		menubar_status_timer_interval = nil
 		return
 	end
 
 	menubar_status_timer:stop()
 	menubar_status_timer = nil
+	menubar_status_timer_interval = nil
 end
 
 local function persist_runtime_overrides()
