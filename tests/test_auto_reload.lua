@@ -128,6 +128,16 @@ function _M.run()
 		assert_equal(recorded.last_alert, "hammerspoon reloaded", "reload marker should surface the post-reload alert")
 		assert_equal(recorded.settings_store["auto_reload.pending_notification"], nil, "post-reload alert should clear the notification marker")
 
+		auto_reload.stop()
+		reset_modules()
+
+		hs.pathwatcher.new = function()
+			return nil
+		end
+
+		auto_reload = require("auto_reload")
+		assert_true(auto_reload.start() == false, "module should surface path watcher creation failures")
+
 		reset_modules()
 		hs = nil
 end

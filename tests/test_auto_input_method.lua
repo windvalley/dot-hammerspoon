@@ -37,6 +37,7 @@ function _M.run()
 				new = function()
 					return {
 						d = function() end,
+						e = function() end,
 						w = function() end,
 					}
 				end,
@@ -102,11 +103,26 @@ function _M.run()
 		assert_equal(#recorded.switched_to, 2, "only mapped activated apps should switch input source after startup sync")
 		assert_equal(recorded.switched_to[2], "com.apple.keylayout.ABC", "mapped app activation should switch to configured input source")
 
-	auto_input_method.stop()
-	assert_equal(recorded.watcher_stopped, 1, "stop should stop application watcher")
+		auto_input_method.stop()
+		assert_equal(recorded.watcher_stopped, 1, "stop should stop application watcher")
 
-	reset_modules()
-	hs = nil
+		reset_modules()
+
+		loaded_modules["keybindings_config"] = {
+			auto_input_methods = {
+				["com.google.Chrome"] = "com.apple.keylayout.ABC",
+			},
+		}
+
+		hs.application.watcher.new = function()
+			return nil
+		end
+
+		auto_input_method = require("auto_input_method")
+		assert_true(auto_input_method.start() == false, "module should surface watcher creation failures")
+
+		reset_modules()
+		hs = nil
 end
 
 return _M

@@ -68,7 +68,20 @@ function _M.start()
 		state.watcher = hs.application.watcher.new(applicationWatcher)
 	end
 
-	state.watcher:start()
+	if state.watcher == nil then
+		log.e("failed to create application watcher for auto input method")
+		return false
+	end
+
+	local ok, started_watcher = pcall(function()
+		return state.watcher:start()
+	end)
+
+	if ok ~= true or started_watcher == false then
+		log.e("failed to start application watcher for auto input method")
+		return false
+	end
+
 	state.started = true
 
 	update_input_method_for_app(nil, hs.application.frontmostApplication(), "module start")

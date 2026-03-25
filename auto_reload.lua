@@ -102,7 +102,20 @@ function _M.start()
 		_M.watcher = hs.pathwatcher.new(hs.configdir, reload)
 	end
 
-	_M.watcher:start()
+	if _M.watcher == nil then
+		log.i("failed to create auto reload watcher")
+		return false
+	end
+
+	local ok, started_watcher = pcall(function()
+		return _M.watcher:start()
+	end)
+
+	if ok ~= true or started_watcher == false then
+		log.i("failed to start auto reload watcher")
+		return false
+	end
+
 	started = true
 	flush_reload_notification()
 
