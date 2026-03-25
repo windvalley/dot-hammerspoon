@@ -28,27 +28,34 @@ function _M.run()
 		switched_to = {},
 	}
 
-	hs = {
-		logger = {
-			new = function()
-				return {
-					d = function() end,
-				}
-			end,
-		},
-		fnutils = {
-			each = function(items, fn)
-				for _, item in ipairs(items or {}) do
+		hs = {
+			logger = {
+				new = function()
+					return {
+						d = function() end,
+						w = function() end,
+					}
+				end,
+			},
+			alert = {
+				show = function(message)
+					recorded.last_alert = message
+				end,
+			},
+			fnutils = {
+				each = function(items, fn)
+					for _, item in ipairs(items or {}) do
 					fn(item)
 				end
 			end,
-		},
-		keycodes = {
-			currentSourceID = function(source_id)
-				table.insert(recorded.switched_to, source_id)
-			end,
-		},
-	}
+			},
+			keycodes = {
+				currentSourceID = function(source_id)
+					table.insert(recorded.switched_to, source_id)
+					return true
+				end,
+			},
+		}
 
 	loaded_modules["keybindings_config"] = {
 		manual_input_methods = {

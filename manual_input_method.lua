@@ -35,6 +35,18 @@ end
 
 local pop_msg = false
 
+local function switch_input_method(input_method)
+	local ok = hs.keycodes.currentSourceID(input_method)
+
+	if ok ~= true then
+		log.w(string.format("failed to switch input method to '%s'", tostring(input_method)))
+		hs.alert.show("切换输入法失败")
+		return false
+	end
+
+	return true
+end
+
 function _M.start()
 	if state.started == true then
 		return true
@@ -45,7 +57,9 @@ function _M.start()
 
 	hs.fnutils.each(manual_input_methods, function(item)
 		bind(item.prefix, item.key, item.message, function()
-			hs.keycodes.currentSourceID(item.input_method)
+			if switch_input_method(item.input_method) ~= true then
+				return
+			end
 
 			if pop_msg then
 				hs.alert.show(item.input_method, 0.5)

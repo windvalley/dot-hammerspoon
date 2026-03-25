@@ -27,14 +27,15 @@ function _M.run()
 		switched_to = {},
 	}
 
-	hs = {
-		logger = {
-			new = function()
-				return {
-					d = function() end,
-				}
-			end,
-		},
+		hs = {
+			logger = {
+				new = function()
+					return {
+						d = function() end,
+						w = function() end,
+					}
+				end,
+			},
 		application = {
 			watcher = {
 				activated = "activated",
@@ -51,13 +52,14 @@ function _M.run()
 					}
 				end,
 			},
-		},
-		keycodes = {
-			currentSourceID = function(source_id)
-				table.insert(recorded.switched_to, source_id)
-			end,
-		},
-	}
+			},
+			keycodes = {
+				currentSourceID = function(source_id)
+					table.insert(recorded.switched_to, source_id)
+					return true
+				end,
+			},
+		}
 
 	loaded_modules["keybindings_config"] = {
 		auto_input_methods = {

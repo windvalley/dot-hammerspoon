@@ -12,6 +12,17 @@ local state = {
 }
 local pop_msg = false
 
+local function switch_input_method(input_method, context_label)
+	local ok = hs.keycodes.currentSourceID(input_method)
+
+	if ok ~= true then
+		log.w(string.format("failed to switch input method to '%s' (%s)", tostring(input_method), tostring(context_label or "unknown")))
+		return false
+	end
+
+	return true
+end
+
 local function applicationWatcher(appName, eventType, appObject)
 	if eventType ~= hs.application.watcher.activated then
 		return
@@ -32,7 +43,9 @@ local function applicationWatcher(appName, eventType, appObject)
 	local input_method = auto_input_methods[bundleID]
 
 	if input_method ~= nil then
-		hs.keycodes.currentSourceID(input_method)
+		if switch_input_method(input_method, appName or bundleID) ~= true then
+			return
+		end
 
 		if pop_msg then
 			hs.alert.show(input_method, 0.5)
