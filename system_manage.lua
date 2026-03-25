@@ -65,7 +65,11 @@ function _M.start()
         system.restart.key,
         system.restart.message,
         function()
-            hs.caffeinate.restartSystem()
+            local button = hs.dialog.blockAlert("确认重启", "确定要重启电脑吗？未保存的工作可能会丢失。", "重启", "取消")
+            if button == "重启" then
+                log.i("restart system confirmed")
+                hs.caffeinate.restartSystem()
+            end
         end
     )
 
@@ -75,7 +79,11 @@ function _M.start()
         system.shutdown.key,
         system.shutdown.message,
         function()
-            hs.caffeinate.shutdownSystem()
+            local button = hs.dialog.blockAlert("确认关机", "确定要关闭电脑吗？未保存的工作可能会丢失。", "关机", "取消")
+            if button == "关机" then
+                log.i("shutdown system confirmed")
+                hs.caffeinate.shutdownSystem()
+            end
         end
     )
 

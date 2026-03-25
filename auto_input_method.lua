@@ -6,7 +6,10 @@ _M.description = "切换应用时自动切换输入法"
 local auto_input_methods = require "keybindings_config".auto_input_methods
 
 local log = hs.logger.new("input")
-local started = false
+local state = {
+	started = false,
+	watcher = nil,
+}
 local pop_msg = false
 
 local function applicationWatcher(appName, eventType, appObject)
@@ -40,26 +43,26 @@ local function applicationWatcher(appName, eventType, appObject)
 end
 
 function _M.start()
-    if started == true then
+    if state.started == true then
         return true
     end
 
-    if _M.watcher == nil then
-        _M.watcher = hs.application.watcher.new(applicationWatcher)
+    if state.watcher == nil then
+        state.watcher = hs.application.watcher.new(applicationWatcher)
     end
 
-    _M.watcher:start()
-    started = true
+    state.watcher:start()
+    state.started = true
 
     return true
 end
 
 function _M.stop()
-    if _M.watcher ~= nil then
-        _M.watcher:stop()
+    if state.watcher ~= nil then
+        state.watcher:stop()
     end
 
-    started = false
+    state.started = false
 
     return true
 end

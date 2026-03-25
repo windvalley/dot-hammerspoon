@@ -52,7 +52,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## v0.6.1
+## [0.6.1]
 
 ### Added
 
@@ -63,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimize input method switch code structure
 - Optimize keybindings cheatsheet
 
-## v0.6.0
+## [0.6.0]
 
 ### Added
 
@@ -91,14 +91,14 @@ _M.auto_input_methods = {
 
 - Optimize manual switch input method.
 
-## v0.5.1
+## [0.5.1]
 
 ### Changed
 
 - Application launch -> Application launch or hide
 - Keybindings Cheatsheet: [Application Launch] -> [App Launch Or Hide]
 
-## v0.5.0
+## [0.5.0]
 
 ### Added
 
@@ -115,7 +115,7 @@ Open URL:
 - <kbd>⌥</kbd> + <kbd>9</kbd>: google.com
 - <kbd>⌥</kbd> + <kbd>7</kbd>: bing.com
 
-## v0.4.1
+## [0.4.1]
 
 ### Changed
 
@@ -128,7 +128,7 @@ Open URL:
 
 - Optimize README.md
 
-## v0.4.0
+## [0.4.0]
 
 ### Added
 
@@ -158,7 +158,7 @@ System Manage:
 - Optimize `Center Window` for window manipulation:  
   From keeping the original size in the center, to changing to the appropriate size and centering.
 
-## v0.3.1
+## [0.3.1]
 
 ### Changed
 
@@ -168,7 +168,7 @@ Set wallpaper for main monitor -> Set wallpaper for all monitors.
 
 - Fix bug for `Move to Next Monitor`
 
-## v0.3.0
+## [0.3.0]
 
 ### Added
 
@@ -187,7 +187,7 @@ Move to other monitors:
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>RIGHT</kbd>: Move to Right Monitor
 - <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>SPACE</kbd>: Move to Next Monitor
 
-## v0.2.0
+## [0.2.0]
 
 ### Added
 
@@ -204,7 +204,7 @@ Stretch from bottom or right side:
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>H</kbd>: Right Side Stretch Leftward
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>L</kbd>: Right Side Stretch Rightward
 
-## v0.1.0
+## [0.1.0]
 
 ### Added
 
