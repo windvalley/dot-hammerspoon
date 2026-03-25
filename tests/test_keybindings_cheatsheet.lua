@@ -25,7 +25,11 @@ function _M.run()
 
 	local recorded = {
 		rendered_text = {},
+		text_frames = {},
+		segment_coordinates = {},
+		canvas_frames = {},
 		deleted_bindings = 0,
+		bound_handler = nil,
 		settings_store = {
 			["clipboard_center.hotkey.modifiers"] = { "ctrl", "shift" },
 			["clipboard_center.hotkey.key"] = "x",
@@ -77,18 +81,28 @@ function _M.run()
 						for _, element in ipairs({ ... }) do
 							if element.type == "text" then
 								table.insert(recorded.rendered_text, element.text)
+								table.insert(recorded.text_frames, element.frame)
+							elseif element.type == "segments" then
+								table.insert(recorded.segment_coordinates, element.coordinates)
 							end
 						end
 					end,
 					minimumTextSize = function(_, text)
+						local longest_line = 0
+
+						for line in tostring(text or ""):gmatch("[^\n]+") do
+							longest_line = math.max(longest_line, #line)
+						end
+
 						return {
-							w = #tostring(text or ""),
+							w = longest_line,
 							h = 10,
 						}
 					end,
 					frame = function(_, value)
 						if value ~= nil then
 							state.frame = value
+							table.insert(recorded.canvas_frames, value)
 						end
 
 						return state.frame
@@ -101,7 +115,7 @@ function _M.run()
 		},
 	}
 
-	loaded_modules["keybindings_config"] = {
+		loaded_modules["keybindings_config"] = {
 		keybindings_cheatsheet = {
 			prefix = { "Option" },
 			key = "/",
@@ -126,9 +140,10 @@ function _M.run()
 		websites = {
 			{ prefix = { "Option" }, key = "8", message = "github.com" },
 		},
-		apps = {
-			{ prefix = { "Option" }, key = "C", message = "Chrome" },
-		},
+			apps = {
+				{ prefix = { "Option" }, key = "C", message = "Chrome" },
+				{ prefix = { "Option" }, key = "1", message = "Long App Launch Label For Second Column Width Check" },
+			},
 		window_position = {
 			center = { prefix = { "Ctrl", "Option" }, key = "C", message = "Center Window" },
 			left = { prefix = { "Ctrl", "Option" }, key = "H", message = "Left Half of Screen" },
@@ -173,19 +188,21 @@ function _M.run()
 		},
 	}
 
-	loaded_modules["hotkey_helper"] = {
+		loaded_modules["hotkey_helper"] = {
 		format_hotkey = function(modifiers, key)
 			return table.concat(modifiers or {}, "+") .. "+" .. tostring(key or "")
 		end,
 		normalize_hotkey_modifiers = function(modifiers)
 			return modifiers or {}
 		end,
-		bind = function(_, _, _, _)
-			return {
-				delete = function()
-					recorded.deleted_bindings = recorded.deleted_bindings + 1
-				end,
-			}
+			bind = function(_, _, _, pressedfn)
+				recorded.bound_handler = pressedfn
+
+				return {
+					delete = function()
+						recorded.deleted_bindings = recorded.deleted_bindings + 1
+					end,
+				}
 		end,
 	}
 
@@ -204,11 +221,24 @@ function _M.run()
 	local cheatsheet = require("keybindings_cheatsheet")
 
 	assert_true(cheatsheet.start(), "keybindings_cheatsheet.start() should succeed")
+	assert_true(#recorded.rendered_text == 0, "cheatsheet should not render canvas during startup")
+	assert_true(type(recorded.bound_handler) == "function", "cheatsheet hotkey handler should be registered")
+
+	recorded.bound_handler()
 
 	local rendered = table.concat(recorded.rendered_text, "\n")
 	assert_contains(rendered, "ctrl+shift+x: Clipboard Center", "clipboard hotkey should use runtime override")
 	assert_contains(rendered, "ctrl+option+a: Toggle Prevent Sleep", "keep awake hotkey should use runtime override")
 	assert_contains(rendered, "Option+/: Cheatsheet", "cheatsheet should render its own configured shortcut")
+	assert_true(#recorded.text_frames >= 2, "rendered cheatsheet should span multiple columns in the test fixture")
+	assert_true(
+		recorded.text_frames[2].x > (recorded.text_frames[1].x + recorded.text_frames[1].w),
+		"second column should be positioned after the first column without overlap"
+	)
+	assert_true(#recorded.segment_coordinates >= 1, "multi-column cheatsheet should draw separator lines")
+	assert_true(#recorded.canvas_frames >= 1, "cheatsheet should position its canvas after rendering")
+	assert_true(recorded.canvas_frames[#recorded.canvas_frames].w > 0, "canvas width should be positive after rendering")
+	assert_true(recorded.canvas_frames[#recorded.canvas_frames].h > 0, "canvas height should be positive after rendering")
 
 	cheatsheet.stop()
 	assert_true(recorded.deleted_bindings > 0, "stop should delete bound hotkey")

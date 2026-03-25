@@ -403,42 +403,46 @@ local function formatText()
 end
 
 local function drawText(renderText)
-	local w = 0
-	local h = 0
-	local totalLines = #renderText
+	local max_right = 0
+	local max_height = 0
+	local x_offset = 0
+	local columns = {}
+	local current_lines = {}
 
-	-- 每一列需要显示的文本
-	local column = ""
+	for index, entry in ipairs(renderText) do
+		table.insert(current_lines, entry.line)
 
-	for k, v in ipairs(renderText) do
-		local line = v.line
-		if math.fmod(k, max_line_number) == 0 then
-			column = column .. line .. "  "
-		else
-			column = column .. line .. "  \n"
+		if index % max_line_number == 0 then
+			table.insert(columns, table.concat(current_lines, "  \n") .. "  ")
+			current_lines = {}
 		end
+	end
 
-		-- k mod max_line_number
-		if math.fmod(k, max_line_number) == 0 then
-			local itemText = styleText(column)
-			local size = canvas:minimumTextSize(itemText)
+	if #current_lines > 0 then
+		table.insert(columns, table.concat(current_lines, "  \n") .. "  ")
+	end
 
-			w = w + size.w
-			if k == max_line_number then
-				h = size.h
-			end
+	for index, column in ipairs(columns) do
+		local itemText = styleText(column)
+		local size = canvas:minimumTextSize(itemText)
+		local text_frame = {
+			x = x_offset + seperator_spacing,
+			y = 0,
+			w = size.w,
+			h = size.h,
+		}
 
-			canvas:appendElements({
-				type = "text",
-				text = itemText,
-				frame = {
-					x = (k / max_line_number - 1) * size.w + seperator_spacing,
-					y = 0,
-					w = size.w + seperator_spacing,
-					h = size.h,
-				},
-			})
+		canvas:appendElements({
+			type = "text",
+			text = itemText,
+			frame = text_frame,
+		})
 
+		max_right = math.max(max_right, text_frame.x + text_frame.w + seperator_spacing)
+		max_height = math.max(max_height, text_frame.h)
+		x_offset = text_frame.x + text_frame.w + seperator_spacing
+
+		if index < #columns then
 			canvas:appendElements({
 				type = "segments",
 				closed = false,
@@ -446,35 +450,18 @@ local function drawText(renderText)
 				action = "stroke",
 				strokeWidth = stroke_width,
 				coordinates = {
-					{ x = (k / max_line_number) * size.w - seperator_spacing, y = 0 },
-					{ x = (k / max_line_number) * size.w - seperator_spacing, y = h },
+					{ x = x_offset, y = 0 },
+					{ x = x_offset, y = text_frame.h },
 				},
 			})
 
-			column = ""
+			max_right = math.max(max_right, x_offset + seperator_spacing)
+			x_offset = x_offset + seperator_spacing
 		end
 	end
 
-	if column ~= "" then
-		local itemText = styleText(column)
-		local size = canvas:minimumTextSize(itemText)
-
-		w = w + size.w
-
-		canvas:appendElements({
-			type = "text",
-			text = itemText,
-			frame = {
-				x = math.ceil(totalLines / max_line_number - 1) * size.w + seperator_spacing,
-				y = 0,
-				w = size.w + seperator_spacing,
-				h = size.h,
-			},
-		})
-	end
-
-	canvas_width = w
-	canvas_height = h
+	canvas_width = max_right
+	canvas_height = max_height
 	positionCanvas()
 end
 
@@ -526,7 +513,6 @@ function _M.start()
 		return true
 	end
 
-	rebuildCanvas()
 	hotkey_binding =
 		bind(keybindings_cheatsheet.prefix, keybindings_cheatsheet.key, keybindings_cheatsheet.message, toggleKeybindingsCheatsheet)
 	started = true
