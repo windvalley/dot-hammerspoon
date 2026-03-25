@@ -452,28 +452,24 @@ local resume_input_event_types = {}
 local friendly_reminder_canvas = nil
 local menubar_item = nil
 
-local refresh_menubar = function()
-end
-local update_menubar_status = function()
-end
-local start_menubar_status_timer = function()
-end
-local stop_menubar_status_timer = function()
-end
-local try_resume_after_inactive_session = nil
-local start_inactive_resume_timer = nil
-local stop_inactive_resume_timer = nil
-local schedule_next_break = nil
-local finish_break = nil
-local start_break = nil
-local skip_break = nil
-local restart_work_cycle = nil
-local apply_current_configuration = nil
-local update_runtime_overrides = nil
-local clear_runtime_overrides = nil
-local export_current_config_to_file = nil
-local destroy_friendly_reminder_popup = nil
-local show_message = nil
+local refresh_menubar
+local update_menubar_status
+local start_menubar_status_timer
+local stop_menubar_status_timer
+local try_resume_after_inactive_session
+local start_inactive_resume_timer
+local stop_inactive_resume_timer
+local schedule_next_break
+local finish_break
+local start_break
+local skip_break
+local restart_work_cycle
+local apply_current_configuration
+local update_runtime_overrides
+local clear_runtime_overrides
+local export_current_config_to_file
+local destroy_friendly_reminder_popup
+local show_message
 
 for _, name in ipairs(blocked_event_type_names) do
 	local event_type = hs.eventtap.event.types[name]
@@ -2995,7 +2991,7 @@ end
 local function build_menu()
 	ensure_gamification_metrics_current()
 
-	local status_title, status_detail = current_status()
+	local status_title = current_status()
 
 	return {
 		{ title = "休息提醒", disabled = true },

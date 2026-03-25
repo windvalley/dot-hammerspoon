@@ -673,8 +673,8 @@ local function cleanup_removed_image_files(previous_history, next_history)
 	end
 end
 
-local refresh_menubar = nil
-local refresh_chooser_choices = nil
+local refresh_menubar
+local refresh_chooser_choices
 
 local function set_menu_history_size(value, options)
 	options = options or {}
@@ -1184,7 +1184,7 @@ local function build_text_preview_elements(frame, preview)
 	}
 end
 
-local function build_image_preview_elements(frame, item, image, detail)
+local function build_image_preview_elements(frame, image, detail)
 	local colors = preview_colors()
 	local outer_radius = 16
 	local inner_radius = 12
@@ -1351,7 +1351,7 @@ local function update_preview()
 	if state.preview_signature ~= preview.signature or canvas:isShowing() ~= true then
 		if preview.kind == "image" then
 			canvas:replaceElements(
-				table.unpack(build_image_preview_elements(layout.preview_frame, preview.item, preview.image, preview.detail))
+				table.unpack(build_image_preview_elements(layout.preview_frame, preview.image, preview.detail))
 			)
 		else
 			canvas:replaceElements(table.unpack(build_text_preview_elements(layout.preview_frame, preview.text_preview)))
@@ -1879,7 +1879,6 @@ refresh_menubar = function()
 		end
 	end
 
-	local hotkey_label = format_hotkey(clipboard.prefix or {}, clipboard.key)
 	local display_modifiers = state.hotkey_modifiers
 	local display_key = state.hotkey_key
 	local text_count, image_count = history_counts()
@@ -1894,7 +1893,7 @@ refresh_menubar = function()
 		display_key = trim(string.lower(tostring(clipboard.key or "")))
 	end
 
-	hotkey_label = format_hotkey(display_modifiers, display_key)
+	local hotkey_label = format_hotkey(display_modifiers, display_key)
 
 	local menubar_icon = build_menubar_icon()
 
