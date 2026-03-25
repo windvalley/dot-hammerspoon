@@ -40,7 +40,6 @@ _M.description = "每工作一段时间后强制休息"
 -- [运行时配置管理] L1570-2040
 --   runtime_overrides 持久化到 hs.settings
 --   apply_current_configuration() 热更新配置（不中断当前休息）
---   export_current_config_to_file() 写回 keybindings_config.lua
 --
 -- [菜单构建] L2040-2900
 --   build_menu() 构建完整菜单栏下拉菜单
@@ -296,37 +295,6 @@ local function format_decimal(value)
 	return string.format("%.2f", value)
 end
 
-local function serialize_number(value)
-	if math.abs(value - math.floor(value)) < 0.000001 then
-		return string.format("%d", value)
-	end
-
-	local formatted = string.format("%.4f", value)
-
-	formatted = formatted:gsub("0+$", "")
-	formatted = formatted:gsub("%.$", "")
-
-	return formatted
-end
-
-local function serialize_lua_value(value)
-	local value_type = type(value)
-
-	if value_type == "boolean" then
-		return tostring(value)
-	end
-
-	if value_type == "number" then
-		return serialize_number(value)
-	end
-
-	if value_type == "string" then
-		return string.format("%q", value)
-	end
-
-	error(string.format("unsupported lua value type: %s", value_type))
-end
-
 local function render_template(template, variables)
 	return (
 		template:gsub("{{%s*([%w_]+)%s*}}", function(key)
@@ -528,7 +496,6 @@ local restart_work_cycle
 local apply_current_configuration
 local update_runtime_overrides
 local clear_runtime_overrides
-local export_current_config_to_file
 local destroy_friendly_reminder_popup
 local show_message
 
@@ -2015,199 +1982,26 @@ show_message = function(message)
 	hs.alert.show(message)
 end
 
-local function read_file(path)
-	local file, open_error = io.open(path, "r")
-
-	if file == nil then
-		return nil, open_error
+local function confirm_restore_defaults()
+	if table_is_empty(runtime_overrides) then
+		return false
 	end
 
-	local content = file:read("*a")
+	local button = hs.dialog.blockAlert(
+		"恢复默认",
+		"这会清除当前通过菜单修改的运行时配置，并恢复为 keybindings_config.lua 中定义的默认值。是否继续？",
+		"恢复默认",
+		"取消"
+	)
 
-	file:close()
-
-	return content
-end
-
-local function write_file(path, content)
-	local file, open_error = io.open(path, "w")
-
-	if file == nil then
-		return nil, open_error
+	if button ~= "恢复默认" then
+		return false
 	end
 
-	local _, write_error = file:write(content)
-
-	file:close()
-
-	if write_error ~= nil then
-		return nil, write_error
-	end
+	clear_runtime_overrides("restore defaults")
+	show_message("已恢复默认配置")
 
 	return true
-end
-
-local function keybindings_config_path()
-	local path = package.searchpath("keybindings_config", package.path)
-
-	if path ~= nil then
-		return path
-	end
-
-	if hs.configdir ~= nil then
-		return hs.configdir .. "/keybindings_config.lua"
-	end
-
-	return nil
-end
-
-local function exportable_config()
-	return {
-		enabled = state.enabled,
-		show_menubar = state.show_menubar,
-		menubar_skin = state.menubar_skin,
-		start_next_cycle = state.start_next_cycle,
-		mode = state.mode,
-		overlay_opacity = state.overlay_opacity,
-		minimal_display = state.minimal_display,
-		focus_goal_minutes = state.focus_goal_seconds / 60,
-		break_goal_count = state.break_goal_count,
-		strict_mode_after_skips = state.strict_mode_after_skips,
-		rest_penalty_seconds_per_skip = state.rest_penalty_seconds_per_skip,
-		max_rest_penalty_seconds = state.max_rest_penalty_seconds,
-		friendly_reminder_message = state.friendly_reminder_message,
-		friendly_reminder_duration_seconds = state.friendly_reminder_duration_seconds,
-		friendly_reminder_seconds = state.friendly_reminder_seconds,
-		work_minutes = state.work_seconds / 60,
-		rest_seconds = state.rest_seconds,
-	}
-end
-
-local function render_break_reminder_config_block(config)
-	return table.concat({
-		"_M.break_reminder = {",
-		"\tenabled = " .. serialize_lua_value(config.enabled) .. ",",
-		"\t-- 是否显示菜单栏图标, 可通过菜单直接调整提醒配置",
-		"\tshow_menubar = " .. serialize_lua_value(config.show_menubar) .. ",",
-		'\t-- 菜单栏图标皮肤: "coffee" "hourglass" "bars"',
-		"\tmenubar_skin = " .. serialize_lua_value(config.menubar_skin) .. ",",
-		'\t-- 休息结束后如何开始下一轮工作计时: "auto" 或 "on_input"',
-		"\tstart_next_cycle = " .. serialize_lua_value(config.start_next_cycle) .. ",",
-		'\t-- 可选: "soft" 或 "hard"',
-		"\t-- soft: 显示半透明遮罩但不抢占鼠标和键盘",
-		"\t-- hard: 显示遮罩并明确拦截鼠标和键盘",
-		"\tmode = " .. serialize_lua_value(config.mode) .. ",",
-		"\t-- 遮罩透明度, 范围 0~1",
-		"\t-- 默认值: soft=0.32, hard=0.96",
-		"\toverlay_opacity = " .. serialize_lua_value(config.overlay_opacity) .. ",",
-		"\t-- true 时仅显示简洁图标，不显示倒计时和说明文字",
-		"\tminimal_display = " .. serialize_lua_value(config.minimal_display) .. ",",
-		"\t-- 每日专注目标，达到后计入连续达标天数",
-		"\tfocus_goal_minutes = " .. serialize_lua_value(config.focus_goal_minutes) .. ",",
-		"\t-- 每日完成多少次休息算达到休息目标；0 表示禁用",
-		"\tbreak_goal_count = " .. serialize_lua_value(config.break_goal_count) .. ",",
-		"\t-- 当日跳过休息达到该次数后，自动切换为硬性提醒；设为 0 可禁用",
-		"\tstrict_mode_after_skips = " .. serialize_lua_value(config.strict_mode_after_skips) .. ",",
-		"\t-- 每跳过一次休息，为后续每次休息额外增加的惩罚秒数",
-		"\trest_penalty_seconds_per_skip = " .. serialize_lua_value(config.rest_penalty_seconds_per_skip) .. ",",
-		"\t-- 跳过惩罚累计上限，单位为秒",
-		"\tmax_rest_penalty_seconds = " .. serialize_lua_value(config.max_rest_penalty_seconds) .. ",",
-		"\t-- 友好提示文案模板",
-		"\t-- 可用占位符: {{remaining}} {{remaining_seconds}} {{remaining_mmss}} {{rest}} {{rest_seconds}} {{rest_mmss}}",
-		"\tfriendly_reminder_message = " .. serialize_lua_value(config.friendly_reminder_message) .. ",",
-		"\t-- 友好提示默认停留秒数, 0 表示不自动关闭, 只允许手动点 x 关闭",
-		"\tfriendly_reminder_duration_seconds = " .. serialize_lua_value(config.friendly_reminder_duration_seconds) .. ",",
-		"\t-- 距离休息还有多少秒时做一次友好提示, 0 为禁用",
-		"\tfriendly_reminder_seconds = " .. serialize_lua_value(config.friendly_reminder_seconds) .. ",",
-		"\t-- 单位: 分钟",
-		"\twork_minutes = " .. serialize_lua_value(config.work_minutes) .. ",",
-		"\t-- 单位: 秒",
-		"\trest_seconds = " .. serialize_lua_value(config.rest_seconds) .. ",",
-		"}",
-	}, "\n")
-end
-
-local function escape_lua_pattern(text)
-	return (tostring(text or ""):gsub("(%W)", "%%%1"))
-end
-
-local function find_assignment_table_block(content, assignment_name)
-	if type(content) ~= "string" or content == "" then
-		return nil, "empty content"
-	end
-
-	local escaped_name = escape_lua_pattern(assignment_name)
-	local assignment_start, assignment_end = content:find(escaped_name .. "%s*=%s*")
-
-	if assignment_start == nil or assignment_end == nil then
-		return nil, "assignment not found"
-	end
-
-	local open_brace_index = content:find("{", assignment_end + 1, true)
-
-	if open_brace_index == nil then
-		return nil, "opening brace not found"
-	end
-
-	local depth = 0
-	local in_single_quote = false
-	local in_double_quote = false
-	local in_line_comment = false
-	local index = open_brace_index
-
-	while index <= #content do
-		local char = content:sub(index, index)
-		local next_char = content:sub(index + 1, index + 1)
-
-		if in_line_comment == true then
-			if char == "\n" then
-				in_line_comment = false
-			end
-		elseif in_single_quote == true then
-			if char == "\\" then
-				index = index + 1
-			elseif char == "'" then
-				in_single_quote = false
-			end
-		elseif in_double_quote == true then
-			if char == "\\" then
-				index = index + 1
-			elseif char == '"' then
-				in_double_quote = false
-			end
-		else
-			if char == "-" and next_char == "-" then
-				in_line_comment = true
-				index = index + 1
-			elseif char == "'" then
-				in_single_quote = true
-			elseif char == '"' then
-				in_double_quote = true
-			elseif char == "{" then
-				depth = depth + 1
-			elseif char == "}" then
-				depth = depth - 1
-
-				if depth == 0 then
-					return assignment_start, index
-				end
-			end
-		end
-
-		index = index + 1
-	end
-
-	return nil, "unterminated table block"
-end
-
-local function replace_assignment_table_block(content, assignment_name, replacement)
-	local block_start, block_end_or_error = find_assignment_table_block(content, assignment_name)
-
-	if block_start == nil then
-		return nil, block_end_or_error
-	end
-
-	return content:sub(1, block_start - 1) .. replacement .. content:sub(block_end_or_error + 1)
 end
 
 local function prompt_number(message, informative_text, default_value, minimum_value, maximum_value)
@@ -2235,45 +2029,6 @@ local function prompt_number(message, informative_text, default_value, minimum_v
 	end
 
 	return number
-end
-
-export_current_config_to_file = function()
-	local config_path = keybindings_config_path()
-
-	if config_path == nil then
-		show_message("未找到 keybindings_config.lua")
-		return
-	end
-
-	local content, read_error = read_file(config_path)
-
-	if content == nil then
-		show_message(string.format("读取配置文件失败: %s", tostring(read_error)))
-		return
-	end
-
-	local replacement = render_break_reminder_config_block(exportable_config())
-	local updated_content, replace_error = replace_assignment_table_block(content, "_M.break_reminder", replacement)
-
-	if updated_content == nil then
-		log.e("failed to replace break reminder config block: " .. tostring(replace_error))
-		show_message("导出失败: 未找到 _M.break_reminder 配置块")
-		return
-	end
-
-	local _, write_error = write_file(config_path, updated_content)
-
-	if write_error ~= nil then
-		show_message(string.format("写入配置文件失败: %s", tostring(write_error)))
-		return
-	end
-
-	runtime_overrides = {}
-	hs.settings.clear(settings_key)
-	show_message("已导出到 keybindings_config.lua，正在重载配置")
-	hs.timer.doAfter(0.3, function()
-		hs.reload()
-	end)
 end
 
 local function menu_item_set_work_minutes(minutes)
@@ -3014,18 +2769,9 @@ local function build_menu()
 			end,
 		},
 		{
-			title = "恢复文件配置",
+			title = "恢复默认",
 			disabled = table_is_empty(runtime_overrides),
-			fn = function()
-				clear_runtime_overrides("restore base config")
-				show_message("已恢复为 keybindings_config.lua 中的配置")
-			end,
-		},
-		{
-			title = "导出到文件",
-			fn = function()
-				export_current_config_to_file()
-			end,
+			fn = confirm_restore_defaults,
 		},
 	}
 end
@@ -3184,8 +2930,8 @@ _M.clear_runtime_overrides = function()
 	clear_runtime_overrides("manual api clear")
 end
 
-_M.export_current_config_to_file = function()
-	export_current_config_to_file()
+_M.restore_defaults = function()
+	return confirm_restore_defaults()
 end
 
 _M.stop = function()

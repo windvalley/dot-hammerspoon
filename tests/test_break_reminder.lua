@@ -1,6 +1,5 @@
 local _M = {}
 local loaded_modules = rawget(package, "loaded")
-local original_searchpath = rawget(package, "searchpath")
 
 local function assert_true(value, message)
 	if value ~= true then
@@ -20,6 +19,18 @@ local function assert_contains(text, expected, message)
 	end
 end
 
+local function assert_nil(value, message)
+	if value ~= nil then
+		error(string.format("%s: expected nil, got %s", message or "assert_nil failed", tostring(value)))
+	end
+end
+
+local function assert_table_empty(value, message)
+	if next(value or {}) ~= nil then
+		error(message or "expected empty table")
+	end
+end
+
 local function reset_modules()
 	loaded_modules["break_reminder"] = nil
 	loaded_modules["keybindings_config"] = nil
@@ -31,34 +42,15 @@ function _M.run()
 
 	local recorded = {
 		alerts = {},
-		reloaded = false,
-		settings_store = {},
+		dialog_calls = {},
+		dialog_responses = { "取消", "恢复默认" },
+		settings_store = {
+			["break_reminder.runtime_overrides"] = {
+				work_minutes = 42,
+				rest_seconds = 180,
+			},
+		},
 	}
-	local temp_path = os.tmpname() .. ".lua"
-	local file = assert(io.open(temp_path, "w"))
-
-	file:write(table.concat({
-		"local _M = {}",
-		"",
-		"_M.break_reminder = {",
-		"\tshow_menubar = true,",
-		"\t-- placeholders: {{remaining}} {{rest}}",
-		'\tfriendly_reminder_message = "还有 {{remaining}} 开始休息",',
-		"\twork_minutes = 28,",
-		"\trest_seconds = 120,",
-		"}",
-		"",
-		"return _M",
-	}, "\n"))
-	file:close()
-
-	rawset(package, "searchpath", function(name, path)
-		if name == "keybindings_config" then
-			return temp_path
-		end
-
-		return original_searchpath(name, path)
-	end)
 
 	hs = {
 		logger = {
@@ -92,20 +84,24 @@ function _M.run()
 				table.insert(recorded.alerts, message)
 			end,
 		},
-		timer = {
-			doAfter = function(_, fn)
-				fn()
+		dialog = {
+			blockAlert = function(title, informative_text, primary_button, secondary_button)
+				table.insert(recorded.dialog_calls, {
+					title = title,
+					informative_text = informative_text,
+					primary_button = primary_button,
+					secondary_button = secondary_button,
+				})
+
+				return table.remove(recorded.dialog_responses, 1)
 			end,
 		},
-		reload = function()
-			recorded.reloaded = true
-		end,
 	}
 
 	loaded_modules["keybindings_config"] = {
 		break_reminder = {
-			enabled = true,
-			show_menubar = true,
+			enabled = false,
+			show_menubar = false,
 			friendly_reminder_message = "还有 {{remaining}} 开始休息",
 			work_minutes = 28,
 			rest_seconds = 120,
@@ -121,26 +117,35 @@ function _M.run()
 	local break_reminder = require("break_reminder")
 	local state = break_reminder.get_state()
 
+	assert_equal(state.work_seconds, 42 * 60, "runtime override should replace configured work duration")
+	assert_equal(state.rest_seconds, 180, "runtime override should replace configured rest duration")
 	assert_equal(state.friendly_reminder_duration_seconds, 10, "default friendly reminder duration should match config documentation")
+	assert_nil(break_reminder.export_current_config_to_file, "export api should be removed")
 
-	break_reminder.export_current_config_to_file()
+	local cancelled = break_reminder.restore_defaults()
 
-	local updated_file = assert(io.open(temp_path, "r"))
-	local updated_content = updated_file:read("*a")
-
-	updated_file:close()
-
+	assert_equal(cancelled, false, "cancelled restore should return false")
+	state = break_reminder.get_state()
+	assert_equal(state.work_seconds, 42 * 60, "cancelled restore should keep runtime override")
+	assert_equal(state.rest_seconds, 180, "cancelled restore should not reset rest duration")
+	assert_equal(#recorded.dialog_calls, 1, "restore should show a confirmation dialog")
+	assert_contains(recorded.dialog_calls[1].title, "恢复默认", "dialog title should match restore defaults action")
 	assert_contains(
-		updated_content,
-		"friendly_reminder_duration_seconds = 10,",
-		"exported config should include the aligned default duration"
+		recorded.dialog_calls[1].informative_text,
+		"恢复为 keybindings_config.lua 中定义的默认值",
+		"dialog should explain the fallback target"
 	)
-	assert_contains(updated_content, "{{remaining}}", "export should preserve placeholder braces inside strings and comments")
-	assert_true(recorded.reloaded, "export should trigger a reload callback")
-	assert_contains(recorded.alerts[#recorded.alerts], "已导出到 keybindings_config.lua", "export should surface a success message")
 
-	os.remove(temp_path)
-	rawset(package, "searchpath", original_searchpath)
+	local restored = break_reminder.restore_defaults()
+
+	assert_true(restored, "confirmed restore should return true")
+	state = break_reminder.get_state()
+	assert_equal(state.work_seconds, 28 * 60, "confirmed restore should revert to configured default work duration")
+	assert_equal(state.rest_seconds, 120, "confirmed restore should revert to configured default rest duration")
+	assert_table_empty(state.runtime_overrides, "confirmed restore should clear runtime overrides from state")
+	assert_nil(recorded.settings_store["break_reminder.runtime_overrides"], "confirmed restore should clear persisted overrides")
+	assert_contains(recorded.alerts[#recorded.alerts], "已恢复默认配置", "confirmed restore should surface a success message")
+
 	reset_modules()
 	hs = nil
 end

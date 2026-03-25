@@ -347,24 +347,24 @@ _M.break_reminder = {
 	-- 是否显示菜单栏图标, 可通过菜单直接调整提醒配置
 	show_menubar = true,
 	-- 菜单栏图标皮肤: coffee / hourglass / bars
-	menubar_skin = "coffee",
+	menubar_skin = "hourglass",
 	-- 休息结束后如何开始下一轮工作计时
 	-- auto: 休息结束立即开始
 	-- on_input: 等待首次键盘或鼠标输入后开始
-	start_next_cycle = "auto",
+	start_next_cycle = "on_input",
 	-- 可选: "soft" 或 "hard"
 	-- soft: 显示半透明遮罩但不抢占鼠标和键盘
 	-- hard: 显示遮罩并明确拦截鼠标和键盘
-	mode = "hard",
+	mode = "soft",
 	-- 遮罩透明度, 范围 0~1
 	-- 默认值: soft=0.32, hard=0.96
 	overlay_opacity = 0.96,
 	-- true 时仅显示简洁图标，不显示倒计时和说明文字
 	minimal_display = true,
 	-- 每日专注目标, 达到后计入连续达标天数
-	focus_goal_minutes = 120,
+	focus_goal_minutes = 240,
 	-- 每日完成多少次休息算达到休息目标; 0 表示禁用
-	break_goal_count = 4,
+	break_goal_count = 8,
 	-- 当日跳过休息达到该次数后, 自动切换为硬性提醒; 0 表示禁用
 	strict_mode_after_skips = 2,
 	-- 每跳过一次休息, 为后续每次休息额外增加的惩罚秒数
