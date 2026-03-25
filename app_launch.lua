@@ -33,7 +33,8 @@ end
 -- App显示或隐藏
 local function toggleAppByBundleId(bundleID)
 	local frontApp = hs.application.frontmostApplication()
-	if frontApp:bundleID() == bundleID and frontApp:focusedWindow() then
+
+	if frontApp ~= nil and frontApp:bundleID() == bundleID and frontApp:focusedWindow() then
 		log.d(string.format("hide app: %s", bundleID))
 		frontApp:hide()
 	else

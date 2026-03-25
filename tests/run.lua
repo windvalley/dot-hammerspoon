@@ -1,4 +1,5 @@
 local test_files = {
+	"tests/test_app_launch.lua",
 	"tests/test_clipboard_center.lua",
 	"tests/test_break_reminder.lua",
 }
