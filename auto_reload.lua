@@ -28,16 +28,24 @@ local function schedule_reload(reason)
 	end)
 end
 
+local function is_recursive_scan_event(flags)
+	if type(flags) ~= "table" then
+		return false
+	end
+
+	return flags.mustScanSubDirs == true or flags.rootChanged == true
+end
+
 local function is_relevant_lua_change(path, flags)
+	if is_recursive_scan_event(flags) then
+		return true
+	end
+
 	if type(path) ~= "string" or path:sub(-4) ~= ".lua" then
 		return false
 	end
 
 	if type(flags) ~= "table" then
-		return true
-	end
-
-	if flags.mustScanSubDirs == true or flags.rootChanged == true then
 		return true
 	end
 
