@@ -451,6 +451,7 @@ local blocked_event_types = {}
 local resume_input_event_types = {}
 local friendly_reminder_canvas = nil
 local menubar_item = nil
+local started = false
 
 local refresh_menubar
 local update_menubar_status
@@ -3141,53 +3142,112 @@ refresh_menubar = function()
 	start_menubar_status_timer()
 end
 
-_M.screen_watcher = hs.screen.watcher.new(
-	function()
-		if break_ends_at == nil then
-			return
+local function ensure_screen_watcher()
+	if _M.screen_watcher ~= nil then
+		return
+	end
+
+	_M.screen_watcher = hs.screen.watcher.new(
+		function()
+			if break_ends_at == nil then
+				return
+			end
+
+			local remaining_seconds = break_ends_at - os.time()
+
+			if remaining_seconds <= 0 then
+				finish_break()
+				return
+			end
+
+			render_overlays(remaining_seconds)
+			update_menubar_status()
 		end
+	)
+end
 
-		local remaining_seconds = break_ends_at - os.time()
+local function ensure_caffeinate_watcher()
+	if _M.caffeinate_watcher ~= nil then
+		return
+	end
 
-		if remaining_seconds <= 0 then
-			finish_break()
-			return
+	_M.caffeinate_watcher = hs.caffeinate.watcher.new(
+		function(event)
+			if event == hs.caffeinate.watcher.screensDidLock
+				or event == hs.caffeinate.watcher.systemWillSleep
+				or event == hs.caffeinate.watcher.sessionDidResignActive then
+				reset_cycle_for_inactive_session(tostring(event))
+				return
+			end
+
+			if event ~= hs.caffeinate.watcher.systemDidWake
+				and event ~= hs.caffeinate.watcher.screensDidUnlock
+				and event ~= hs.caffeinate.watcher.sessionDidBecomeActive then
+				return
+			end
+
+			if session_is_inactive ~= true then
+				return
+			end
+
+			if try_resume_after_inactive_session("caffeinate watcher resume event") ~= true then
+				log.i("session is still locked/inactive after wake, waiting for a later retry")
+				return
+			end
 		end
+	)
+end
 
-		render_overlays(remaining_seconds)
+local function start_watchers()
+	ensure_screen_watcher()
+	ensure_caffeinate_watcher()
+
+	if _M.screen_watcher ~= nil then
+		_M.screen_watcher:start()
+	end
+
+	if _M.caffeinate_watcher ~= nil then
+		_M.caffeinate_watcher:start()
+	end
+end
+
+local function stop_watchers()
+	if _M.screen_watcher ~= nil then
+		_M.screen_watcher:stop()
+	end
+
+	if _M.caffeinate_watcher ~= nil then
+		_M.caffeinate_watcher:stop()
+	end
+end
+
+function _M.start()
+	if started == true then
+		return true
+	end
+
+	started = true
+	start_watchers()
+
+	session_is_inactive = can_resume_after_inactive_session() ~= true
+
+	if session_is_inactive == true then
+		start_inactive_resume_timer()
+	else
+		stop_inactive_resume_timer()
+	end
+
+	ensure_gamification_metrics_current()
+	refresh_menubar()
+
+	if state.enabled == true and session_is_inactive ~= true then
+		schedule_next_break("module start")
+	else
 		update_menubar_status()
 	end
-)
 
-_M.screen_watcher:start()
-
-_M.caffeinate_watcher = hs.caffeinate.watcher.new(
-	function(event)
-		if event == hs.caffeinate.watcher.screensDidLock
-			or event == hs.caffeinate.watcher.systemWillSleep
-			or event == hs.caffeinate.watcher.sessionDidResignActive then
-			reset_cycle_for_inactive_session(tostring(event))
-			return
-		end
-
-		if event ~= hs.caffeinate.watcher.systemDidWake
-			and event ~= hs.caffeinate.watcher.screensDidUnlock
-			and event ~= hs.caffeinate.watcher.sessionDidBecomeActive then
-			return
-		end
-
-		if session_is_inactive ~= true then
-			return
-		end
-
-		if try_resume_after_inactive_session("caffeinate watcher resume event") ~= true then
-			log.i("session is still locked/inactive after wake, waiting for a later retry")
-			return
-		end
-	end
-)
-
-_M.caffeinate_watcher:start()
+	return true
+end
 
 _M.start_break_now = function()
 	start_break("manual api start")
@@ -3210,17 +3270,16 @@ _M.export_current_config_to_file = function()
 end
 
 _M.stop = function()
+	if started ~= true then
+		stop_watchers()
+		stop_inactive_resume_timer()
+		return true
+	end
+
 	clear_active_runtime(true)
 	stop_inactive_resume_timer()
 	stop_menubar_status_timer()
-
-	if _M.screen_watcher ~= nil then
-		_M.screen_watcher:stop()
-	end
-
-	if _M.caffeinate_watcher ~= nil then
-		_M.caffeinate_watcher:stop()
-	end
+	stop_watchers()
 
 	if menubar_item ~= nil then
 		menubar_item:delete()
@@ -3229,6 +3288,8 @@ _M.stop = function()
 
 	last_menubar_render_signature = nil
 	last_menubar_tooltip = nil
+	session_is_inactive = false
+	started = false
 
 	return true
 end
@@ -3274,21 +3335,6 @@ _M.get_state = function()
 		gamification_rank = gamification_rank_label(),
 		runtime_overrides = shallow_copy(runtime_overrides),
 	}
-end
-
-if can_resume_after_inactive_session() ~= true then
-	session_is_inactive = true
-	start_inactive_resume_timer()
-end
-
-ensure_gamification_metrics_current()
-
-refresh_menubar()
-
-if state.enabled == true and session_is_inactive ~= true then
-	schedule_next_break("module init")
-else
-	update_menubar_status()
 end
 
 return _M
