@@ -37,12 +37,16 @@ end
 local function toggleAppByBundleId(bundleID)
 	local frontApp = hs.application.frontmostApplication()
 
-	if frontApp ~= nil and frontApp:bundleID() == bundleID and frontApp:focusedWindow() then
+	if frontApp ~= nil and frontApp:bundleID() == bundleID then
 		log.d(string.format("hide app: %s", bundleID))
-		frontApp:hide()
+		if frontApp:hide() ~= true then
+			log.w(string.format("failed to hide app: %s", bundleID))
+		end
 	else
 		log.d(string.format("launch app: %s", bundleID))
-		hs.application.launchOrFocusByBundleID(bundleID)
+		if hs.application.launchOrFocusByBundleID(bundleID) ~= true then
+			log.w(string.format("failed to launch or focus app: %s", bundleID))
+		end
 	end
 end
 

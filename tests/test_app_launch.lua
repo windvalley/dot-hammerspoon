@@ -30,22 +30,24 @@ function _M.run()
 	}
 	local frontmost_app = nil
 
-	hs = {
-		logger = {
-			new = function()
-				return {
-					d = function() end,
-				}
-			end,
-		},
-		application = {
-			frontmostApplication = function()
-				return frontmost_app
-			end,
-			launchOrFocusByBundleID = function(bundle_id)
-				table.insert(recorded.launches, bundle_id)
-			end,
-		},
+		hs = {
+			logger = {
+				new = function()
+					return {
+						d = function() end,
+						w = function() end,
+					}
+				end,
+			},
+			application = {
+				frontmostApplication = function()
+					return frontmost_app
+				end,
+				launchOrFocusByBundleID = function(bundle_id)
+					table.insert(recorded.launches, bundle_id)
+					return true
+				end,
+			},
 		fnutils = {
 			each = function(items, fn)
 				for _, item in ipairs(items or {}) do
@@ -87,17 +89,15 @@ function _M.run()
 	recorded.bindings[1].pressedfn()
 	assert_equal(recorded.launches[#recorded.launches], "com.google.Chrome", "nil frontmost app should fall back to launch")
 
-	frontmost_app = {
-		bundleID = function()
-			return "com.google.Chrome"
-		end,
-		focusedWindow = function()
-			return {}
-		end,
-		hide = function()
-			recorded.hide_count = recorded.hide_count + 1
-		end,
-	}
+		frontmost_app = {
+			bundleID = function()
+				return "com.google.Chrome"
+			end,
+			hide = function()
+				recorded.hide_count = recorded.hide_count + 1
+				return true
+			end,
+		}
 
 	recorded.bindings[1].pressedfn()
 	assert_equal(recorded.hide_count, 1, "focused target app should be hidden")
