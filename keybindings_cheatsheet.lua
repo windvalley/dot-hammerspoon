@@ -132,6 +132,16 @@ local function append_config_items(section, items)
 	end
 end
 
+local function append_named_config_items(section, config_group, keys)
+	for _, key in ipairs(keys or {}) do
+		local item = config_group and config_group[key] or nil
+
+		if item ~= nil then
+			append_section_line(section, item.prefix, item.key, item.message)
+		end
+	end
+end
+
 local function createCanvas()
 	local nextCanvas = hs.canvas.new({ x = 0, y = 0, w = 0, h = 0 })
 
@@ -228,11 +238,11 @@ local function formatText()
 			system.keep_awake.message
 		)
 	end
-	append_config_items(systemManagement, {
-		system.lock_screen,
-		system.screen_saver,
-		system.restart,
-		system.shutdown,
+	append_named_config_items(systemManagement, system, {
+		"lock_screen",
+		"screen_saver",
+		"restart",
+		"shutdown",
 	})
 
 	local clipboardCenter = {}
@@ -257,59 +267,59 @@ local function formatText()
 
 	local windowPosition = {}
 	table.insert(windowPosition, { msg = "[Window Position]" })
-	append_config_items(windowPosition, {
-		window_position.center,
-		window_position.left,
-		window_position.right,
-		window_position.up,
-		window_position.down,
-		window_position.top_left,
-		window_position.top_right,
-		window_position.bottom_left,
-		window_position.bottom_right,
-		window_position.left_1_3,
-		window_position.right_1_3,
-		window_position.left_2_3,
-		window_position.right_2_3,
+	append_named_config_items(windowPosition, window_position, {
+		"center",
+		"left",
+		"right",
+		"up",
+		"down",
+		"top_left",
+		"top_right",
+		"bottom_left",
+		"bottom_right",
+		"left_1_3",
+		"right_1_3",
+		"left_2_3",
+		"right_2_3",
 	})
 
 	local windowMovement = {}
 	table.insert(windowMovement, { msg = "[Window Movement]" })
-	append_config_items(windowMovement, {
-		window_movement.to_up,
-		window_movement.to_down,
-		window_movement.to_left,
-		window_movement.to_right,
+	append_named_config_items(windowMovement, window_movement, {
+		"to_up",
+		"to_down",
+		"to_left",
+		"to_right",
 	})
 
 	local windowResize = {}
 	table.insert(windowResize, { msg = "[Window Resize]" })
-	append_config_items(windowResize, {
-		window_resize.max,
-		window_resize.stretch,
-		window_resize.shrink,
-		window_resize.stretch_up,
-		window_resize.stretch_down,
-		window_resize.stretch_left,
-		window_resize.stretch_right,
+	append_named_config_items(windowResize, window_resize, {
+		"max",
+		"stretch",
+		"shrink",
+		"stretch_up",
+		"stretch_down",
+		"stretch_left",
+		"stretch_right",
 	})
 
 	local windowMonitor = {}
 	table.insert(windowMonitor, { msg = "[Window Monitor]" })
-	append_config_items(windowMonitor, {
-		window_monitor.to_above_screen,
-		window_monitor.to_below_screen,
-		window_monitor.to_left_screen,
-		window_monitor.to_right_screen,
-		window_monitor.to_next_screen,
+	append_named_config_items(windowMonitor, window_monitor, {
+		"to_above_screen",
+		"to_below_screen",
+		"to_left_screen",
+		"to_right_screen",
+		"to_next_screen",
 	})
 
 	local windowBatch = {}
 	table.insert(windowBatch, { msg = "[Window Batch]" })
-	append_config_items(windowBatch, {
-		window_batch.minimize_all_windows,
-		window_batch.un_minimize_all_windows,
-		window_batch.close_all_windows,
+	append_named_config_items(windowBatch, window_batch, {
+		"minimize_all_windows",
+		"un_minimize_all_windows",
+		"close_all_windows",
 	})
 
 	local hotkeys = {}

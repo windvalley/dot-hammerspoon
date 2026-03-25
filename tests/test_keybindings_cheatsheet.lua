@@ -187,6 +187,7 @@ function _M.run()
 			close_all_windows = { prefix = { "Ctrl", "Option", "Command" }, key = "Q", message = "Close All Windows" },
 		},
 	}
+	loaded_modules["keybindings_config"].window_position.center = nil
 
 		loaded_modules["hotkey_helper"] = {
 		format_hotkey = function(modifiers, key)
@@ -230,6 +231,7 @@ function _M.run()
 	assert_contains(rendered, "ctrl+shift+x: Clipboard Center", "clipboard hotkey should use runtime override")
 	assert_contains(rendered, "ctrl+option+a: Toggle Prevent Sleep", "keep awake hotkey should use runtime override")
 	assert_contains(rendered, "Option+/: Cheatsheet", "cheatsheet should render its own configured shortcut")
+	assert_contains(rendered, "Ctrl+Option+h: Left Half of Screen", "named config sections should keep rendering after a missing leading item")
 	assert_true(#recorded.text_frames >= 2, "rendered cheatsheet should span multiple columns in the test fixture")
 	assert_true(
 		recorded.text_frames[2].x > (recorded.text_frames[1].x + recorded.text_frames[1].w),
