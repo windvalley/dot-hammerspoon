@@ -5,9 +5,17 @@ _M.description = "剪贴板历史"
 
 local clipboard = require("keybindings_config").clipboard or {}
 local hotkey_helper = require("hotkey_helper")
-local trim = require("utils_lib").trim
-local utf8len = require("utils_lib").utf8len
-local utf8sub = require("utils_lib").utf8sub
+local utils_lib = require("utils_lib")
+local trim = utils_lib.trim
+local utf8len = utils_lib.utf8len
+local utf8sub = utils_lib.utf8sub
+local copy_list = utils_lib.copy_list
+local file_exists = utils_lib.file_exists
+local ensure_directory = utils_lib.ensure_directory
+local expand_home_path = utils_lib.expand_home_path
+local prompt_text = utils_lib.prompt_text
+local normalize_hotkey_modifiers = hotkey_helper.normalize_hotkey_modifiers
+local format_hotkey = hotkey_helper.format_hotkey
 
 local log = hs.logger.new("clipboard")
 
@@ -81,38 +89,7 @@ local state = {
 	menubar_icon = nil,
 }
 
-local modifier_aliases = {
-	ctrl = "ctrl",
-	control = "ctrl",
-	["⌃"] = "ctrl",
-	alt = "alt",
-	option = "alt",
-	opt = "alt",
-	["⌥"] = "alt",
-	cmd = "cmd",
-	command = "cmd",
-	["⌘"] = "cmd",
-	shift = "shift",
-	["⇧"] = "shift",
-	fn = "fn",
-	["function"] = "fn",
-}
 
-local modifier_order = {
-	ctrl = 1,
-	alt = 2,
-	cmd = 3,
-	shift = 4,
-	fn = 5,
-}
-
-local modifier_symbols = {
-	ctrl = "⌃",
-	alt = "⌥",
-	cmd = "⌘",
-	shift = "⇧",
-	fn = "fn",
-}
 
 local function normalize_number(value, fallback, minimum)
 	local number = tonumber(value)
@@ -138,23 +115,6 @@ local function normalize_menu_history_size(value, fallback)
 	return math.max(1, math.floor(number))
 end
 
-local function prompt_text(message, informative_text, default_value)
-	local button, value = hs.dialog.textPrompt(
-		message,
-		informative_text,
-		default_value or "",
-		"保存",
-		"取消",
-		false
-	)
-
-	if button ~= "保存" then
-		return nil
-	end
-
-	return value
-end
-
 local function next_history_id()
 	history_id_counter = history_id_counter + 1
 
@@ -166,82 +126,7 @@ local function next_history_id()
 	)
 end
 
-local function copy_list(items)
-	local copied = {}
 
-	for _, item in ipairs(items or {}) do
-		table.insert(copied, item)
-	end
-
-	return copied
-end
-
-local function normalize_hotkey_modifiers(raw_modifiers)
-	local normalized = {}
-	local seen = {}
-
-	for _, raw_value in ipairs(raw_modifiers or {}) do
-		local token = string.lower(trim(tostring(raw_value)))
-
-		if token ~= "" then
-			local modifier = modifier_aliases[token]
-
-			if modifier == nil then
-				return nil, raw_value
-			end
-
-			if seen[modifier] ~= true then
-				seen[modifier] = true
-				table.insert(normalized, modifier)
-			end
-		end
-	end
-
-	table.sort(
-		normalized,
-		function(left, right)
-			return modifier_order[left] < modifier_order[right]
-		end
-	)
-
-	return normalized
-end
-
-local function format_hotkey(modifiers, key)
-	if key == nil or key == "" then
-		return "未设置"
-	end
-
-	local parts = {}
-
-	for _, modifier in ipairs(modifiers or {}) do
-		table.insert(parts, modifier_symbols[modifier] or modifier)
-	end
-
-	table.insert(parts, string.upper(key))
-
-	return table.concat(parts, " ")
-end
-
-local function expand_home_path(path)
-	if type(path) ~= "string" or path == "" then
-		return path
-	end
-
-	if path == "~" then
-		return os.getenv("HOME") or path
-	end
-
-	if string.sub(path, 1, 2) == "~/" then
-		local home = os.getenv("HOME")
-
-		if type(home) == "string" and home ~= "" then
-			return home .. string.sub(path, 2)
-		end
-	end
-
-	return path
-end
 
 local function resolve_cache_dir()
 	local configured = trim(tostring(clipboard.image_cache_dir or ""))
@@ -352,37 +237,7 @@ local function preview_colors()
 	}
 end
 
-local function file_exists(path)
-	return type(path) == "string" and path ~= "" and hs.fs.attributes(path) ~= nil
-end
 
-local function ensure_directory(path)
-	if type(path) ~= "string" or path == "" then
-		return false
-	end
-
-	if hs.fs.attributes(path) ~= nil then
-		return true
-	end
-
-	local parent = string.match(path, "^(.*)/[^/]+/?$")
-
-	if parent ~= nil and parent ~= "" and parent ~= path then
-		if ensure_directory(parent) ~= true then
-			return false
-		end
-	end
-
-	local ok, err = hs.fs.mkdir(path)
-
-	if ok == true or hs.fs.attributes(path) ~= nil then
-		return true
-	end
-
-	log.e(string.format("failed to create directory: %s (%s)", path, tostring(err)))
-
-	return false
-end
 
 local function safe_remove_file(path)
 	if file_exists(path) ~= true then

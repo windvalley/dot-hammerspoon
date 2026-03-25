@@ -3,36 +3,110 @@ local _M = {}
 _M.name = "hotkey_helper"
 _M.description = "统一管理快捷键绑定与冲突日志"
 
+local trim = require("utils_lib").trim
+
 local default_log = hs.logger.new("hotkey")
 
-local modifier_symbols = {
-	ctrl = "⌃",
-	control = "⌃",
-	["⌃"] = "⌃",
-	alt = "⌥",
-	option = "⌥",
-	opt = "⌥",
-	["⌥"] = "⌥",
-	cmd = "⌘",
-	command = "⌘",
-	["⌘"] = "⌘",
-	shift = "⇧",
-	["⇧"] = "⇧",
+_M.modifier_aliases = {
+	ctrl = "ctrl",
+	control = "ctrl",
+	["⌃"] = "ctrl",
+	alt = "alt",
+	option = "alt",
+	opt = "alt",
+	["⌥"] = "alt",
+	cmd = "cmd",
+	command = "cmd",
+	["⌘"] = "cmd",
+	shift = "shift",
+	["⇧"] = "shift",
 	fn = "fn",
 	["function"] = "fn",
 }
 
-local function format_hotkey(modifiers, key)
+_M.modifier_order = {
+	ctrl = 1,
+	alt = 2,
+	cmd = 3,
+	shift = 4,
+	fn = 5,
+}
+
+_M.modifier_symbols = {
+	ctrl = "⌃",
+	alt = "⌥",
+	cmd = "⌘",
+	shift = "⇧",
+	fn = "fn",
+}
+
+_M.modifier_prompt_names = {
+	ctrl = "ctrl",
+	alt = "option",
+	cmd = "command",
+	shift = "shift",
+	fn = "fn",
+}
+
+function _M.format_hotkey(modifiers, key)
 	local parts = {}
 
 	for _, modifier in ipairs(modifiers or {}) do
-		local symbol = modifier_symbols[string.lower(tostring(modifier))] or tostring(modifier)
+		local symbol = _M.modifier_symbols[string.lower(tostring(modifier))] or tostring(modifier)
 		table.insert(parts, symbol)
 	end
 
 	table.insert(parts, string.upper(tostring(key or "")))
 
 	return table.concat(parts, " ")
+end
+
+function _M.normalize_hotkey_modifiers(raw_modifiers)
+	local normalized = {}
+	local seen = {}
+	local values = {}
+
+	if raw_modifiers == nil then
+		return normalized
+	end
+
+	if type(raw_modifiers) == "table" then
+		values = raw_modifiers
+	else
+		local text = tostring(raw_modifiers)
+		text = text:gsub("，", ",")
+		text = text:gsub("＋", "+")
+
+		for token in string.gmatch(text, "[^,%+%s]+") do
+			table.insert(values, token)
+		end
+	end
+
+	for _, raw_value in ipairs(values) do
+		local token = string.lower(trim(tostring(raw_value)))
+
+		if token ~= "" then
+			local modifier = _M.modifier_aliases[token]
+
+			if modifier == nil then
+				return nil, raw_value
+			end
+
+			if seen[modifier] ~= true then
+				seen[modifier] = true
+				table.insert(normalized, modifier)
+			end
+		end
+	end
+
+	table.sort(
+		normalized,
+		function(left, right)
+			return _M.modifier_order[left] < _M.modifier_order[right]
+		end
+	)
+
+	return normalized
 end
 
 local function system_assigned_description(details)
@@ -61,7 +135,7 @@ function _M.bind(modifiers, key, message, pressedfn, releasedfn, repeatfn, optio
 	options = options or {}
 
 	local log = options.logger or default_log
-	local hotkey_label = format_hotkey(modifiers, key)
+	local hotkey_label = _M.format_hotkey(modifiers, key)
 
 	if type(hs.hotkey.systemAssigned) == "function" then
 		local ok, system_assigned = pcall(hs.hotkey.systemAssigned, modifiers, key)

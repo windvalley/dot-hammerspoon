@@ -4,7 +4,10 @@ _M.name = "bing_daily_wallpaper"
 _M.description = "使用 Bing Daily Picture 作为屏幕壁纸"
 
 local wallpaper = require("keybindings_config").bing_daily_wallpaper or {}
-local trim = require("utils_lib").trim
+local utils_lib = require("utils_lib")
+local trim = utils_lib.trim
+local file_exists = utils_lib.file_exists
+local ensure_directory = utils_lib.ensure_directory
 
 local log = hs.logger.new("wallpaper")
 
@@ -53,37 +56,7 @@ local function normalize_url_base(value, fallback)
 	return (url:gsub("/+$", ""))
 end
 
-local function file_exists(path)
-	return type(path) == "string" and path ~= "" and hs.fs.attributes(path) ~= nil
-end
 
-local function ensure_directory(path)
-	if type(path) ~= "string" or path == "" then
-		return false
-	end
-
-	if hs.fs.attributes(path) ~= nil then
-		return true
-	end
-
-	local parent = string.match(path, "^(.*)/[^/]+/?$")
-
-	if parent ~= nil and parent ~= "" and parent ~= path then
-		if ensure_directory(parent) ~= true then
-			return false
-		end
-	end
-
-	local ok, err = hs.fs.mkdir(path)
-
-	if ok == true or hs.fs.attributes(path) ~= nil then
-		return true
-	end
-
-	log.e(string.format("failed to create wallpaper cache directory: %s (%s)", path, tostring(err)))
-
-	return false
-end
 
 local function resolve_cache_dir()
 	local raw = trim(tostring(wallpaper.cache_dir or ""))

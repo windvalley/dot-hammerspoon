@@ -4,6 +4,7 @@ _M.name = "break_reminder"
 _M.description = "每工作一段时间后强制休息"
 
 local base_config = require("keybindings_config").break_reminder or {}
+local prompt_text = require("utils_lib").prompt_text
 
 local log = hs.logger.new("break")
 local settings_key = "break_reminder.runtime_overrides"
@@ -2155,22 +2156,7 @@ local function render_break_reminder_config_block(config)
 	)
 end
 
-local function prompt_text(message, informative_text, default_value)
-	local button, value = hs.dialog.textPrompt(
-		message,
-		informative_text,
-		default_value or "",
-		"保存",
-		"取消",
-		false
-	)
 
-	if button ~= "保存" then
-		return nil
-	end
-
-	return value
-end
 
 local function prompt_number(message, informative_text, default_value, minimum_value, maximum_value)
 	local raw_value = prompt_text(message, informative_text, tostring(default_value or ""))

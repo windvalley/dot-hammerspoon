@@ -3,6 +3,8 @@ local _M = {}
 _M.name = "utils_lib"
 _M.description = "通用函数工具库"
 
+local log = hs.logger.new("utils")
+
 local charsize = function(ch)
     if not ch then
         return 0
@@ -62,61 +64,6 @@ _M.utf8sub = function(str, startChar, numChars)
     return str:sub(startIndex, currentIndex - 1)
 end
 
--- table to string 序列化
-_M.serialize = function(self, obj)
-    local lua = ""
-    local t = type(obj)
-
-    if t == "number" then
-        lua = lua .. obj
-    elseif t == "boolean" then
-        lua = lua .. tostring(obj)
-    elseif t == "string" then
-        lua = lua .. string.format("%q", obj)
-    elseif t == "table" then
-        lua = lua .. "{\n"
-        for k, v in pairs(obj) do
-            lua = lua .. "[" .. self:serialize(k) .. "]=" .. self:serialize(v) .. ",\n"
-        end
-
-        local metatable = getmetatable(obj)
-        if metatable ~= nil and type(metatable.__index) == "table" then
-            for k, v in pairs(metatable.__index) do
-                lua = lua .. "[" .. self:serialize(k) .. "]=" .. self:serialize(v) .. ",\n"
-            end
-        end
-
-        lua = lua .. "}"
-    elseif t == "nil" then
-        return nil
-    else
-        error("can not serialize a " .. t .. " type.")
-    end
-
-    return lua
-end
-
--- string to table 反序列化
-_M.unserialize = function(lua)
-    local t = type(lua)
-    if t == "nil" or lua == "" then
-        return nil
-    elseif t == "number" or t == "string" or t == "boolean" then
-        lua = tostring(lua)
-    else
-        error("can not unserialize a " .. t .. " type.")
-    end
-
-    lua = "return " .. lua
-    local func = load(lua)
-
-    if func == nil then
-        return nil
-    end
-
-    return func()
-end
-
 _M.split = function(input, delimiter)
     input = tostring(input)
     delimiter = tostring(delimiter)
@@ -146,79 +93,99 @@ _M.trim = function(s)
     return (s:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
-_M.pushleft = function(list, value)
-    local first = list.first - 1
+-- 浅拷贝表
+_M.shallow_copy = function(table_value)
+    local copy = {}
 
-    list.first = first
-    list[first] = value
-end
-
-_M.pushright = function(list, value)
-    local last = list.last + 1
-
-    list.last = last
-    list[last] = value
-end
-
-_M.popleft = function(list)
-    local first = list.first
-    if first > list.last then
-        error("list is empty")
+    for key, value in pairs(table_value or {}) do
+        copy[key] = value
     end
 
-    local value = list[first]
-    list[first] = nil -- to allow garbage collection
-    list.first = first + 1
+    return copy
+end
+
+-- 拷贝数组
+_M.copy_list = function(items)
+    local copied = {}
+
+    for _, item in ipairs(items or {}) do
+        table.insert(copied, item)
+    end
+
+    return copied
+end
+
+-- 检查文件是否存在
+_M.file_exists = function(path)
+    return type(path) == "string" and path ~= "" and hs.fs.attributes(path) ~= nil
+end
+
+-- 递归创建目录
+_M.ensure_directory = function(path)
+    if type(path) ~= "string" or path == "" then
+        return false
+    end
+
+    if hs.fs.attributes(path) ~= nil then
+        return true
+    end
+
+    local parent = string.match(path, "^(.*)/[^/]+/?$")
+
+    if parent ~= nil and parent ~= "" and parent ~= path then
+        if _M.ensure_directory(parent) ~= true then
+            return false
+        end
+    end
+
+    local ok, err = hs.fs.mkdir(path)
+
+    if ok == true or hs.fs.attributes(path) ~= nil then
+        return true
+    end
+
+    log.e(string.format("failed to create directory: %s (%s)", path, tostring(err)))
+
+    return false
+end
+
+-- 展开 ~/ 为 HOME 目录
+_M.expand_home_path = function(path)
+    if type(path) ~= "string" or path == "" then
+        return path
+    end
+
+    if path == "~" then
+        return os.getenv("HOME") or path
+    end
+
+    if string.sub(path, 1, 2) == "~/" then
+        local home = os.getenv("HOME")
+
+        if type(home) == "string" and home ~= "" then
+            return home .. string.sub(path, 2)
+        end
+    end
+
+    return path
+end
+
+-- 通用文本输入对话框
+_M.prompt_text = function(message, informative_text, default_value)
+    local button, value = hs.dialog.textPrompt(
+        message,
+        informative_text,
+        default_value or "",
+        "保存",
+        "取消",
+        false
+    )
+
+    if button ~= "保存" then
+        return nil
+    end
 
     return value
-end
-
-_M.popright = function(list)
-    local last = list.last
-    if list.first > last then
-        error("list is empty")
-    end
-
-    local value = list[last]
-    list[last] = nil -- to allow garbage collection
-    list.last = last - 1
-
-    return value
-end
-
-_M.day_step = function(old_day, step)
-    local y, m, d
-    if "0" ~= string.sub(old_day, 6, 6) then
-        m = string.sub(old_day, 6, 7)
-    else
-        m = string.sub(old_day, 7, 7)
-    end
-
-    if "0" ~= string.sub(old_day, 9, 9) then
-        d = string.sub(old_day, 9, 10)
-    else
-        d = string.sub(old_day, 10, 10)
-    end
-
-    y = string.sub(old_day, 0, 4)
-
-    local old_time = os.time({year = y, month = m, day = d})
-    local new_time = old_time + 86400 * step
-
-    local new_day = os.date("*t", new_time)
-
-    local res
-    if tonumber(new_day.day) < 10 and tonumber(new_day.month) < 10 then
-        res = new_day.year .. "-" .. "0" .. new_day.month .. "-" .. "0" .. new_day.day
-    elseif tonumber(new_day.month) < 10 then
-        res = new_day.year .. "-" .. "0" .. new_day.month .. "-" .. new_day.day
-    elseif tonumber(new_day.day) < 10 then
-        res = new_day.year .. "-" .. new_day.month .. "-" .. "0" .. new_day.day
-    else
-        res = new_day.year .. "-" .. new_day.month .. "-" .. new_day.day
-    end
-
-    return res
 end
 
 return _M

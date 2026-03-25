@@ -5,7 +5,13 @@ _M.description = "防止电脑空闲休眠, 并提供菜单栏图标"
 
 local keep_awake = require("keybindings_config").system.keep_awake or {}
 local hotkey_helper = require("hotkey_helper")
-local trim = require("utils_lib").trim
+local utils_lib = require("utils_lib")
+local trim = utils_lib.trim
+local copy_list = utils_lib.copy_list
+local prompt_text = utils_lib.prompt_text
+local normalize_hotkey_modifiers = hotkey_helper.normalize_hotkey_modifiers
+local format_hotkey = hotkey_helper.format_hotkey
+local modifier_prompt_names = hotkey_helper.modifier_prompt_names
 
 local log = hs.logger.new("awake")
 
@@ -26,72 +32,7 @@ local build_menu = nil
 local hotkey_binding = nil
 local started = false
 
-local modifier_aliases = {
-	ctrl = "ctrl",
-	control = "ctrl",
-	["⌃"] = "ctrl",
-	alt = "alt",
-	option = "alt",
-	opt = "alt",
-	["⌥"] = "alt",
-	cmd = "cmd",
-	command = "cmd",
-	["⌘"] = "cmd",
-	shift = "shift",
-	["⇧"] = "shift",
-	fn = "fn",
-	["function"] = "fn",
-}
 
-local modifier_order = {
-	ctrl = 1,
-	alt = 2,
-	cmd = 3,
-	shift = 4,
-	fn = 5,
-}
-
-local modifier_symbols = {
-	ctrl = "⌃",
-	alt = "⌥",
-	cmd = "⌘",
-	shift = "⇧",
-	fn = "fn",
-}
-
-local modifier_prompt_names = {
-	ctrl = "ctrl",
-	alt = "option",
-	cmd = "command",
-	shift = "shift",
-	fn = "fn",
-}
-
-local state = {
-	enabled = default_enabled,
-	show_menubar = keep_awake.show_menubar ~= false,
-	keep_display_awake = default_keep_display_awake,
-	hotkey_modifiers = {},
-	hotkey_key = nil,
-}
-
-local persisted_keep_display_awake = hs.settings.get(display_settings_key)
-local persisted_hotkey_modifiers = hs.settings.get(hotkey_modifiers_settings_key)
-local persisted_hotkey_key = hs.settings.get(hotkey_key_settings_key)
-
-local function copy_list(values)
-	local copied = {}
-
-	if type(values) ~= "table" then
-		return copied
-	end
-
-	for _, value in ipairs(values) do
-		table.insert(copied, value)
-	end
-
-	return copied
-end
 
 local function same_list(left, right)
 	if #left ~= #right then
@@ -121,69 +62,17 @@ local function normalize_hotkey_key(raw_key)
 	return normalized
 end
 
-local function normalize_hotkey_modifiers(raw_modifiers)
-	local normalized = {}
-	local seen = {}
-	local values = {}
+local state = {
+	enabled = default_enabled,
+	show_menubar = keep_awake.show_menubar ~= false,
+	keep_display_awake = default_keep_display_awake,
+	hotkey_modifiers = {},
+	hotkey_key = nil,
+}
 
-	if raw_modifiers == nil then
-		return normalized
-	end
-
-	if type(raw_modifiers) == "table" then
-		values = raw_modifiers
-	else
-		local text = tostring(raw_modifiers)
-		text = text:gsub("，", ",")
-		text = text:gsub("＋", "+")
-
-		for token in string.gmatch(text, "[^,%+%s]+") do
-			table.insert(values, token)
-		end
-	end
-
-	for _, raw_value in ipairs(values) do
-		local token = string.lower(trim(tostring(raw_value)))
-
-		if token ~= "" then
-			local modifier = modifier_aliases[token]
-
-			if modifier == nil then
-				return nil, raw_value
-			end
-
-			if seen[modifier] ~= true then
-				seen[modifier] = true
-				table.insert(normalized, modifier)
-			end
-		end
-	end
-
-	table.sort(
-		normalized,
-		function(left, right)
-			return modifier_order[left] < modifier_order[right]
-		end
-	)
-
-	return normalized
-end
-
-local function format_hotkey(modifiers, key)
-	if key == nil then
-		return "未设置"
-	end
-
-	local parts = {}
-
-	for _, modifier in ipairs(modifiers or {}) do
-		table.insert(parts, modifier_symbols[modifier] or modifier)
-	end
-
-	table.insert(parts, string.upper(key))
-
-	return table.concat(parts, " ")
-end
+local persisted_keep_display_awake = hs.settings.get(display_settings_key)
+local persisted_hotkey_modifiers = hs.settings.get(hotkey_modifiers_settings_key)
+local persisted_hotkey_key = hs.settings.get(hotkey_key_settings_key)
 
 local function hotkey_hint_color()
 	if hs.host.interfaceStyle() == "Dark" then
@@ -214,22 +103,7 @@ local function format_hotkey_for_prompt(modifiers, key)
 	return table.concat(modifier_names, "+"), key or ""
 end
 
-local function prompt_text(message, informative_text, default_value)
-	local button, value = hs.dialog.textPrompt(
-		message,
-		informative_text,
-		default_value or "",
-		"保存",
-		"取消",
-		false
-	)
 
-	if button ~= "保存" then
-		return nil
-	end
-
-	return value
-end
 
 default_hotkey_modifiers = normalize_hotkey_modifiers(default_hotkey_modifiers) or {}
 default_hotkey_key = normalize_hotkey_key(default_hotkey_key)
