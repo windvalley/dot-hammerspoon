@@ -31,8 +31,11 @@ std = {
         "type",
         "select",
         "load",
+        "loadfile",
         "error",
         "debug",
+        "rawget",
+        "rawset",
     },
 }
 

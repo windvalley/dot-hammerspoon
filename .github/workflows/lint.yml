@@ -20,3 +20,17 @@ jobs:
 
       - name: Run Luacheck
         run: luacheck .
+
+  lua-tests:
+    name: Lua Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Lua
+        run: sudo apt-get update && sudo apt-get install -y lua5.4
+
+      - name: Run Lua Tests
+        run: lua tests/run.lua
