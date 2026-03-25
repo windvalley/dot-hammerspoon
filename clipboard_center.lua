@@ -956,23 +956,21 @@ end
 
 local function load_history()
 	local saved = hs.settings.get(history_settings_key)
-
-	if type(saved) ~= "table" then
-		return
-	end
-
 	local loaded = {}
-	local history_limit = normalize_number(clipboard.history_size, default_history_size, 1)
 
-	for _, item in ipairs(saved) do
-		local normalized = normalize_history_item(item)
+	if type(saved) == "table" then
+		local history_limit = normalize_number(clipboard.history_size, default_history_size, 1)
 
-		if normalized ~= nil then
-			table.insert(loaded, normalized)
-		end
+		for _, item in ipairs(saved) do
+			local normalized = normalize_history_item(item)
 
-		if #loaded >= history_limit then
-			break
+			if normalized ~= nil then
+				table.insert(loaded, normalized)
+			end
+
+			if #loaded >= history_limit then
+				break
+			end
 		end
 	end
 
@@ -2247,6 +2245,10 @@ function _M.stop()
 	destroy_menubar()
 	delete_hotkey()
 	destroy_chooser()
+	state.suppressed_signature = nil
+	state.suppressed_at = nil
+	history_loaded = false
+	startup_synchronized = false
 	started = false
 
 	return true

@@ -50,6 +50,7 @@ function _M.run()
 		watcher_start_count = 0,
 		deleted_binding_count = 0,
 	}
+	local current_clipboard_text = "seed clipboard text"
 
 	hs = {
 		logger = {
@@ -231,7 +232,7 @@ function _M.run()
 				return nil
 			end,
 			getContents = function()
-				return "seed clipboard text"
+				return current_clipboard_text
 			end,
 			setContents = function()
 				return true
@@ -407,6 +408,7 @@ function _M.run()
 	assert_equal(recorded.watcher_start_count, 1, "clipboard watcher should start on first module start")
 	assert_equal(recorded.hotkey_bindings[1].key, "v", "persisted hotkey should be used during startup")
 	assert_contains(recorded.menubar_tooltip, "快捷键: cmd+v", "tooltip should include persisted hotkey")
+	assert_equal(recorded.settings_store["clipboard_center.history"][1].content, "seed clipboard text", "startup should sync current clipboard")
 
 	local menu = recorded.menu_builder()
 	local set_hotkey_item = find_menu_item(menu, "设置快捷键")
@@ -422,6 +424,17 @@ function _M.run()
 		"updated modifiers should persist"
 	)
 	assert_true(recorded.deleted_binding_count >= 1, "previous hotkey binding should be deleted before rebinding")
+
+	clipboard_center.stop()
+	current_clipboard_text = "second clipboard text"
+	recorded.settings_store["clipboard_center.history"] = nil
+	assert_true(clipboard_center.start(), "clipboard_center.start() should support restart after stop")
+	assert_equal(recorded.watcher_start_count, 2, "clipboard watcher should restart after stop/start")
+	assert_equal(
+		recorded.settings_store["clipboard_center.history"][1].content,
+		"second clipboard text",
+		"restart should resync current clipboard instead of reusing stale in-memory history"
+	)
 
 	clipboard_center.stop()
 	reset_modules()
