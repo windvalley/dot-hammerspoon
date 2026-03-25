@@ -11,6 +11,7 @@ local state = {
 	started = false,
 	bindings = {},
 	binding_failures = 0,
+	start_ok = true,
 }
 
 local function bind(modifiers, key, message, pressedfn, releasedfn, repeatfn)
@@ -52,10 +53,9 @@ end
 
 function _M.start()
 	if state.started == true then
-		return true
+		return state.start_ok
 	end
 
-	state.started = true
 	state.binding_failures = 0
 
 	hs.fnutils.each(apps, function(item)
@@ -64,12 +64,16 @@ function _M.start()
 		end)
 	end)
 
-	return state.binding_failures == 0
+	state.started = true
+	state.start_ok = state.binding_failures == 0
+
+	return state.start_ok
 end
 
 function _M.stop()
 	clearBindings()
 	state.binding_failures = 0
+	state.start_ok = true
 	state.started = false
 
 	return true

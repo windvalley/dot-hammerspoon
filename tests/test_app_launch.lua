@@ -128,6 +128,7 @@ function _M.run()
 
 	app_launch = require("app_launch")
 	assert_true(app_launch.start() == false, "module should report startup failure when any hotkey binding fails")
+	assert_true(app_launch.start() == false, "subsequent starts should preserve the previous startup failure status")
 
 	reset_modules()
 	hs = nil
