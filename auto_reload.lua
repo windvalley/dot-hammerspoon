@@ -5,9 +5,36 @@ _M.description = "lua文件变动自动reload, 使实时生效"
 
 local log = hs.logger.new("reload")
 local reload_delay_seconds = 0.25
+local reload_notification_settings_key = "auto_reload.pending_notification"
 local started = false
 
 local reload_timer = nil
+
+local function persist_reload_notification()
+	if type(hs.settings) ~= "table" or type(hs.settings.set) ~= "function" then
+		return
+	end
+
+	hs.settings.set(reload_notification_settings_key, true)
+end
+
+local function flush_reload_notification()
+	if type(hs.settings) ~= "table" or type(hs.settings.get) ~= "function" then
+		return
+	end
+
+	if hs.settings.get(reload_notification_settings_key) ~= true then
+		return
+	end
+
+	if type(hs.settings.clear) == "function" then
+		hs.settings.clear(reload_notification_settings_key)
+	elseif type(hs.settings.set) == "function" then
+		hs.settings.set(reload_notification_settings_key, false)
+	end
+
+	hs.alert.show("hammerspoon reloaded")
+end
 
 local function stop_reload_timer()
 	if reload_timer == nil then
@@ -24,6 +51,7 @@ local function schedule_reload(reason)
 	reload_timer = hs.timer.doAfter(reload_delay_seconds, function()
 		reload_timer = nil
 		log.i("reload hammerspoon config: " .. tostring(reason or "file change"))
+		persist_reload_notification()
 		hs.reload()
 	end)
 end
@@ -76,7 +104,7 @@ function _M.start()
 
 	_M.watcher:start()
 	started = true
-	hs.alert.show("hammerspoon reloaded")
+	flush_reload_notification()
 
 	return true
 end

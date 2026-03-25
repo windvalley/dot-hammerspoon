@@ -20,12 +20,13 @@ end
 function _M.run()
 	reset_modules()
 
-	local recorded = {
-		reloads = 0,
-		timer_stops = 0,
-		watcher_started = 0,
-		watcher_stopped = 0,
-	}
+		local recorded = {
+			reloads = 0,
+			timer_stops = 0,
+			watcher_started = 0,
+			watcher_stopped = 0,
+			settings_store = {},
+		}
 
 	hs = {
 		logger = {
@@ -35,8 +36,19 @@ function _M.run()
 				}
 			end,
 		},
-		configdir = "/tmp/hammerspoon",
-		timer = {
+			configdir = "/tmp/hammerspoon",
+			settings = {
+				get = function(key)
+					return recorded.settings_store[key]
+				end,
+				set = function(key, value)
+					recorded.settings_store[key] = value
+				end,
+				clear = function(key)
+					recorded.settings_store[key] = nil
+				end,
+			},
+			timer = {
 			doAfter = function(delay, fn)
 				recorded.last_delay = delay
 				recorded.pending_timer = fn
@@ -75,10 +87,10 @@ function _M.run()
 
 	local auto_reload = require("auto_reload")
 
-	assert_true(auto_reload.start(), "auto_reload.start() should succeed")
-	assert_equal(recorded.watch_path, "/tmp/hammerspoon", "watcher should be created for hs.configdir")
-	assert_equal(recorded.watcher_started, 1, "watcher should start on module start")
-	assert_equal(recorded.last_alert, "hammerspoon reloaded", "startup alert should be shown")
+		assert_true(auto_reload.start(), "auto_reload.start() should succeed")
+		assert_equal(recorded.watch_path, "/tmp/hammerspoon", "watcher should be created for hs.configdir")
+		assert_equal(recorded.watcher_started, 1, "watcher should start on module start")
+		assert_equal(recorded.last_alert, nil, "cold startup should not claim that a reload already happened")
 
 	recorded.watch_callback({
 		"/tmp/hammerspoon/README.md",
@@ -91,13 +103,14 @@ function _M.run()
 		"/tmp/hammerspoon/Spoons",
 	}, {
 		{ mustScanSubDirs = true },
-	})
-	assert_true(type(recorded.pending_timer) == "function", "recursive scan events should schedule reload")
-	recorded.pending_timer()
-	assert_equal(recorded.reloads, 1, "scheduled reload should call hs.reload")
-	assert_equal(recorded.last_delay, 0.25, "reload debounce delay should match module default")
+		})
+		assert_true(type(recorded.pending_timer) == "function", "recursive scan events should schedule reload")
+		recorded.pending_timer()
+		assert_equal(recorded.reloads, 1, "scheduled reload should call hs.reload")
+		assert_equal(recorded.last_delay, 0.25, "reload debounce delay should match module default")
+		assert_equal(recorded.settings_store["auto_reload.pending_notification"], true, "scheduled reload should persist a notification marker")
 
-	recorded.pending_timer = nil
+		recorded.pending_timer = nil
 	recorded.watch_callback({
 		"/tmp/hammerspoon/init.lua",
 	}, {
@@ -105,12 +118,18 @@ function _M.run()
 	})
 	assert_true(type(recorded.pending_timer) == "function", "lua file changes should schedule reload")
 
-	auto_reload.stop()
-	assert_equal(recorded.timer_stops, 1, "stop should cancel pending reload timer")
-	assert_equal(recorded.watcher_stopped, 1, "stop should stop watcher")
+		auto_reload.stop()
+		assert_equal(recorded.timer_stops, 1, "stop should cancel pending reload timer")
+		assert_equal(recorded.watcher_stopped, 1, "stop should stop watcher")
 
-	reset_modules()
-	hs = nil
+		reset_modules()
+		auto_reload = require("auto_reload")
+		assert_true(auto_reload.start(), "module should start again after a reload")
+		assert_equal(recorded.last_alert, "hammerspoon reloaded", "reload marker should surface the post-reload alert")
+		assert_equal(recorded.settings_store["auto_reload.pending_notification"], nil, "post-reload alert should clear the notification marker")
+
+		reset_modules()
+		hs = nil
 end
 
 return _M
