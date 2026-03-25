@@ -419,6 +419,28 @@ local function apply_hotkey_binding(reason)
 	return true
 end
 
+local function handle_startup_hotkey_binding_failure(binding_error)
+	if state.hotkey_key == nil then
+		return
+	end
+
+	local message = "防休眠快捷键绑定失败"
+
+	if state.show_menubar ~= true then
+		state.show_menubar = true
+		refresh_menubar()
+		message = message .. "，已临时显示菜单栏图标"
+	else
+		refresh_menubar()
+	end
+
+	if binding_error ~= nil then
+		message = message .. "，请检查快捷键设置"
+	end
+
+	hs.alert.show(message)
+end
+
 local function set_hotkey(modifiers, key, reason)
 	local previous_modifiers = copy_list(state.hotkey_modifiers)
 	local previous_key = state.hotkey_key
@@ -562,7 +584,12 @@ function _M.start()
 	end
 
 	refresh_menubar()
-	apply_hotkey_binding("startup")
+	local hotkey_ok, hotkey_error = apply_hotkey_binding("startup")
+
+	if hotkey_ok ~= true then
+		handle_startup_hotkey_binding_failure(hotkey_error)
+	end
+
 	apply_state("startup")
 	started = true
 
