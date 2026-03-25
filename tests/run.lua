@@ -1,20 +1,26 @@
-local test_files = {
-	"tests/test_app_launch.lua",
-	"tests/test_auto_input_method.lua",
-	"tests/test_auto_reload.lua",
-	"tests/test_bing_daily_wallpaper.lua",
-	"tests/test_clipboard_center.lua",
-	"tests/test_break_reminder.lua",
-	"tests/test_hotkey_helper.lua",
-	"tests/test_init.lua",
-	"tests/test_keybindings_config.lua",
-	"tests/test_keybindings_cheatsheet.lua",
-	"tests/test_keep_awake.lua",
-	"tests/test_manual_input_method.lua",
-	"tests/test_system_manage.lua",
-	"tests/test_website_open.lua",
-	"tests/test_window_manipulation.lua",
-}
+local function discover_test_files()
+	local handle = io.popen("find tests -maxdepth 1 -type f -name 'test_*.lua' | sort")
+
+	if handle == nil then
+		error("failed to discover test files")
+	end
+
+	local files = {}
+
+	for line in handle:lines() do
+		table.insert(files, line)
+	end
+
+	local ok, _, exit_code = handle:close()
+
+	if ok ~= true then
+		error(string.format("failed to discover test files (exit code: %s)", tostring(exit_code)))
+	end
+
+	return files
+end
+
+local test_files = discover_test_files()
 
 local passed = 0
 
