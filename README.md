@@ -194,7 +194,7 @@ The configuration will enforce scheduled breaks on all screens based on your con
 - `rest_seconds`: break duration in seconds.
 - Changes made from the menubar are persisted via `hs.settings`. They override the file config until you choose `恢复默认` from the menu.
 - Choosing `恢复默认` will ask for confirmation, then clear the runtime overrides and fall back to the defaults defined in `keybindings_config.lua`.
-- Locked-screen time is not counted as work time. After unlocking the screen, the work timer restarts from a new cycle.
+- Locked-screen, display-sleep, and system-sleep time are not counted as work time. After the session becomes active again, the work timer restarts from a new cycle.
 
 Supported reminder placeholders:
 

@@ -298,17 +298,20 @@ function _M.run()
 					kCGSSessionOnConsoleKey = true,
 				}
 			end,
-			watcher = {
-				screensDidLock = 1,
-				systemWillSleep = 2,
-				sessionDidResignActive = 3,
-				systemDidWake = 4,
-				screensDidUnlock = 5,
-				sessionDidBecomeActive = 6,
-				new = function()
-					return {
-						start = function()
-							lifecycle_recorded.caffeinate_watcher_started = lifecycle_recorded.caffeinate_watcher_started + 1
+				watcher = {
+					screensDidLock = 1,
+					screensDidSleep = 2,
+					systemWillSleep = 3,
+					sessionDidResignActive = 4,
+					systemDidWake = 5,
+					screensDidWake = 6,
+					screensDidUnlock = 7,
+					sessionDidBecomeActive = 8,
+					new = function(callback)
+						lifecycle_recorded.caffeinate_callback = callback
+						return {
+							start = function()
+								lifecycle_recorded.caffeinate_watcher_started = lifecycle_recorded.caffeinate_watcher_started + 1
 						end,
 						stop = function()
 							lifecycle_recorded.caffeinate_watcher_stopped = lifecycle_recorded.caffeinate_watcher_stopped + 1
@@ -352,12 +355,23 @@ function _M.run()
 
 	assert_true(break_reminder.start(), "enabled reminder module should start successfully")
 	state = break_reminder.get_state()
-	assert_equal(state.current_work_cycle_duration_seconds, 15 * 60, "start should schedule a work cycle")
-	assert_true(state.next_break_at ~= nil, "start should record next break timestamp")
-	assert_equal(lifecycle_recorded.screen_watcher_started, 1, "start should activate screen watcher")
-	assert_equal(lifecycle_recorded.caffeinate_watcher_started, 1, "start should activate caffeinate watcher")
+		assert_equal(state.current_work_cycle_duration_seconds, 15 * 60, "start should schedule a work cycle")
+		assert_true(state.next_break_at ~= nil, "start should record next break timestamp")
+		assert_equal(lifecycle_recorded.screen_watcher_started, 1, "start should activate screen watcher")
+		assert_equal(lifecycle_recorded.caffeinate_watcher_started, 1, "start should activate caffeinate watcher")
+		assert_true(type(lifecycle_recorded.caffeinate_callback) == "function", "start should create a caffeinate watcher callback")
 
-	break_reminder.start_break_now()
+		lifecycle_recorded.caffeinate_callback(hs.caffeinate.watcher.screensDidSleep)
+		state = break_reminder.get_state()
+		assert_equal(state.session_is_inactive, true, "display sleep should pause the active work cycle")
+		assert_nil(state.next_break_at, "display sleep should clear the pending work timer target")
+
+		lifecycle_recorded.caffeinate_callback(hs.caffeinate.watcher.screensDidWake)
+		state = break_reminder.get_state()
+		assert_equal(state.session_is_inactive, false, "display wake should resume the reminder session")
+		assert_true(state.next_break_at ~= nil, "display wake should restart the next work cycle")
+
+		break_reminder.start_break_now()
 	state = break_reminder.get_state()
 	assert_true(state.break_ends_at ~= nil, "manual start should enter break state")
 	assert_equal(state.current_break_duration_seconds, 90, "manual start should use configured rest duration")

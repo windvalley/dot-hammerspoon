@@ -1135,7 +1135,7 @@ local function current_status()
 	end
 
 	if session_is_inactive == true then
-		return "会话未激活", "锁屏或睡眠期间不会累计工作时长"
+		return "会话未激活", "锁屏、熄屏或睡眠期间不会累计工作时长"
 	end
 
 	if waiting_for_resume_input == true then
@@ -1216,7 +1216,7 @@ local function menubar_tooltip_status_detail()
 	end
 
 	if session_is_inactive == true then
-		return "锁屏或睡眠期间不会累计工作时长"
+		return "锁屏、熄屏或睡眠期间不会累计工作时长"
 	end
 
 	if waiting_for_resume_input == true then
@@ -2963,6 +2963,7 @@ local function ensure_caffeinate_watcher()
 	_M.caffeinate_watcher = hs.caffeinate.watcher.new(function(event)
 		if
 			event == hs.caffeinate.watcher.screensDidLock
+			or event == hs.caffeinate.watcher.screensDidSleep
 			or event == hs.caffeinate.watcher.systemWillSleep
 			or event == hs.caffeinate.watcher.sessionDidResignActive
 		then
@@ -2972,6 +2973,7 @@ local function ensure_caffeinate_watcher()
 
 		if
 			event ~= hs.caffeinate.watcher.systemDidWake
+			and event ~= hs.caffeinate.watcher.screensDidWake
 			and event ~= hs.caffeinate.watcher.screensDidUnlock
 			and event ~= hs.caffeinate.watcher.sessionDidBecomeActive
 		then
