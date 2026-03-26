@@ -65,6 +65,7 @@ local log = hs.logger.new("break")
 local settings_key = "break_reminder.runtime_overrides"
 local metrics_settings_key = "break_reminder.gamification_metrics"
 local default_menubar_title = "☕"
+local menubar_autosave_name = "dot-hammerspoon.break_reminder"
 local default_friendly_reminder_duration_seconds = 10
 local default_overlay_opacity = {
 	soft = 0.32,
@@ -2902,7 +2903,9 @@ local function build_menu()
 	}
 end
 
-refresh_menubar = function()
+refresh_menubar = function(force_refresh)
+	force_refresh = force_refresh == true
+
 	if state.show_menubar ~= true then
 		stop_menubar_status_timer()
 		last_menubar_render_signature = nil
@@ -2926,6 +2929,17 @@ refresh_menubar = function()
 
 		last_menubar_render_signature = nil
 		last_menubar_tooltip = nil
+	end
+
+	if force_refresh == true then
+		last_menubar_render_signature = nil
+		last_menubar_tooltip = nil
+	end
+
+	if type(menubar_item.autosaveName) == "function" then
+		pcall(function()
+			menubar_item:autosaveName(menubar_autosave_name)
+		end)
 	end
 
 	menubar_item:setMenu(build_menu)
@@ -3062,6 +3076,10 @@ _M.restore_defaults = function()
 	return confirm_restore_defaults()
 end
 
+_M.refresh_menubar = function(force_refresh)
+	refresh_menubar(force_refresh == true)
+end
+
 _M.stop = function()
 	if started ~= true then
 		stop_watchers()
@@ -3089,10 +3107,52 @@ end
 
 _M.get_state = function()
 	local break_completion_rate, break_completion_opportunities = current_break_completion_rate()
+	local menubar_in_menu_bar = nil
+	local menubar_frame = nil
+	local menubar_title = nil
+
+	if menubar_item ~= nil and type(menubar_item.isInMenuBar) == "function" then
+		local ok, is_in_menu_bar = pcall(function()
+			return menubar_item:isInMenuBar()
+		end)
+
+		if ok == true then
+			menubar_in_menu_bar = is_in_menu_bar == true
+		end
+	end
+
+	if menubar_item ~= nil and type(menubar_item.frame) == "function" then
+		local ok, frame = pcall(function()
+			return menubar_item:frame()
+		end)
+
+		if ok == true and frame ~= nil then
+			menubar_frame = {
+				x = frame.x,
+				y = frame.y,
+				w = frame.w,
+				h = frame.h,
+			}
+		end
+	end
+
+	if menubar_item ~= nil and type(menubar_item.title) == "function" then
+		local ok, title = pcall(function()
+			return menubar_item:title()
+		end)
+
+		if ok == true then
+			menubar_title = title
+		end
+	end
 
 	return {
 		enabled = state.enabled,
 		show_menubar = state.show_menubar,
+		menubar_exists = menubar_item ~= nil,
+		menubar_in_menu_bar = menubar_in_menu_bar,
+		menubar_frame = menubar_frame,
+		menubar_title = menubar_title,
 		menubar_skin = state.menubar_skin,
 		start_next_cycle = state.start_next_cycle,
 		mode = state.mode,

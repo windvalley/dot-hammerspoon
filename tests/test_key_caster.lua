@@ -20,6 +20,7 @@ local function assert_true(value, message)
 end
 
 local function reset_modules()
+	loaded_modules["break_reminder"] = nil
 	loaded_modules["key_caster"] = nil
 	loaded_modules["keybindings_config"] = nil
 	loaded_modules["hotkey_helper"] = nil
@@ -80,9 +81,9 @@ local function create_canvas_stub(recorded)
 				level = function(_, level)
 					recorded.levels[#recorded.levels + 1] = level
 				end,
-				show = function()
-					recorded.shown = recorded.shown + 1
-				end,
+					show = function()
+						recorded.shown = recorded.shown + 1
+					end,
 				delete = function()
 					if state.deleted ~= true then
 						state.deleted = true
@@ -102,6 +103,7 @@ local function create_menu_stub(recorded)
 		new = function(in_menu_bar)
 			recorded.menubar_created = recorded.menubar_created + 1
 			local visible = in_menu_bar ~= false
+			recorded.menubar_visible = visible
 
 			return {
 				setMenu = function(_, builder)
@@ -110,22 +112,32 @@ local function create_menu_stub(recorded)
 				setTitle = function(_, title)
 					recorded.menubar_title = title
 				end,
+				setIcon = function(_, icon)
+					recorded.menubar_icon = icon
+				end,
 				setTooltip = function(_, tooltip)
 					recorded.menubar_tooltip = tooltip
+				end,
+				autosaveName = function(_, name)
+					recorded.menubar_autosave_name = name
 				end,
 				removeFromMenuBar = function()
 					recorded.menubar_hidden = recorded.menubar_hidden + 1
 					visible = false
+					recorded.menubar_visible = false
 				end,
 				returnToMenuBar = function()
 					recorded.menubar_shown = recorded.menubar_shown + 1
 					visible = true
+					recorded.menubar_visible = true
 				end,
 				isInMenuBar = function()
 					return visible
 				end,
 				delete = function()
 					recorded.menubar_deleted = recorded.menubar_deleted + 1
+					visible = false
+					recorded.menubar_visible = false
 				end,
 			}
 		end,
@@ -150,8 +162,8 @@ local function create_hotkey_helper_stub(recorded, should_fail)
 
 			return table.concat(parts, "+")
 		end,
-		bind = function(_, _, _, pressedfn)
-			recorded.bound_handler = pressedfn
+		bind = function(_, _, _, pressedfn, releasedfn)
+			recorded.bound_handler = pressedfn or releasedfn
 
 			if should_fail == true then
 				return nil, "bind failed"
@@ -211,7 +223,7 @@ function _M.run()
 			enabled = false,
 			show_menubar = false,
 			toggle_hotkey = {
-				prefix = { "Ctrl", "Option", "Shift" },
+				prefix = { "Command", "Ctrl" },
 				key = "K",
 				message = "Toggle Key Caster",
 			},
@@ -243,11 +255,14 @@ function _M.run()
 		shown = 0,
 		deleted_canvases = 0,
 		timers = {},
+		menubar_refresh_timers = {},
 		menubar_created = 0,
 		menubar_deleted = 0,
 		menubar_hidden = 0,
 		menubar_shown = 0,
 		deleted_bindings = 0,
+		break_reminder_refresh_calls = 0,
+		break_reminder_force_refreshes = {},
 	}
 
 	hs = {
@@ -282,7 +297,11 @@ function _M.run()
 					end,
 				}
 
-				table.insert(recorded.timers, timer)
+				if interval == 0 then
+					table.insert(recorded.menubar_refresh_timers, timer)
+				else
+					table.insert(recorded.timers, timer)
+				end
 
 				return timer
 			end,
@@ -338,7 +357,7 @@ function _M.run()
 			enabled = false,
 			show_menubar = "true",
 			toggle_hotkey = {
-				prefix = { "Ctrl", "Option", "Shift" },
+				prefix = { "Command", "Ctrl" },
 				key = "K",
 				message = "Toggle Key Caster",
 			},
@@ -362,6 +381,12 @@ function _M.run()
 			duration_seconds = 1.5,
 		},
 	}
+	loaded_modules["break_reminder"] = {
+		refresh_menubar = function(force_refresh)
+			recorded.break_reminder_refresh_calls = recorded.break_reminder_refresh_calls + 1
+			table.insert(recorded.break_reminder_force_refreshes, force_refresh)
+		end,
+	}
 	loaded_modules["utils_lib"] = create_utils_stub()
 	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(recorded, false)
 
@@ -370,16 +395,20 @@ function _M.run()
 	assert_true(key_caster.start(), "disabled key caster should still start successfully")
 	assert_equal(recorded.eventtap_created, 0, "disabled key caster should not create event taps during startup")
 	assert_equal(recorded.menubar_created, 1, "string true menubar config should be treated as always visible")
-	assert_true(recorded.menubar_shown >= 1, "always visible menubar should be shown during startup")
+	assert_true(recorded.menubar_visible == true, "always visible menubar should be visible during startup")
 	assert_true(type(recorded.bound_handler) == "function", "key caster toggle hotkey should be registered")
+	assert_equal(recorded.break_reminder_refresh_calls, 1, "creating the key caster menubar should refresh the break reminder menubar")
+	assert_true(recorded.break_reminder_force_refreshes[1] == true, "break reminder redraw should be forced after key caster menubar creation")
 
 	recorded.bound_handler()
 
-	assert_equal(recorded.eventtap_created, 1, "toggle hotkey should create one event tap when enabling key caster")
-	assert_equal(recorded.eventtap_started, 1, "toggle hotkey should start the event tap when enabling key caster")
-	assert_equal(recorded.menubar_created, 1, "always visible menubar should be reused after enabling key caster")
-	assert_contains(recorded.alerts[#recorded.alerts], "按键显示已开启", "enabling key caster should show a status alert")
-	assert_true(type(recorded.menu_builder) == "function", "menubar should expose a menu builder when visible")
+		assert_equal(recorded.eventtap_created, 1, "toggle hotkey should create one event tap when enabling key caster")
+		assert_equal(recorded.eventtap_started, 1, "toggle hotkey should start the event tap when enabling key caster")
+		assert_equal(recorded.menubar_created, 1, "always visible menubar should be reused after enabling key caster")
+		assert_equal(recorded.menubar_autosave_name, "dot-hammerspoon.key_caster", "menubar should apply a stable autosave name")
+		assert_equal(recorded.menubar_title, "KC", "menubar should use a stable ASCII title marker")
+		assert_contains(recorded.alerts[#recorded.alerts], "按键显示已开启", "enabling key caster should show a status alert")
+		assert_true(type(recorded.menu_builder) == "function", "menubar should expose a menu builder when visible")
 
 	local menu = recorded.menu_builder()
 	assert_true(find_menu_item(menu, "启用按键显示") ~= nil, "menubar should expose an enable toggle item")
@@ -427,11 +456,13 @@ function _M.run()
 	assert_true(recorded.timers[1].stopped, "new keystroke should stop previous hide timer")
 
 	key_caster.hide_menubar()
-	assert_true(recorded.menubar_hidden >= 1, "hide_menubar should hide the menubar item from the system menu bar")
+	assert_true(recorded.menubar_deleted >= 1, "hide_menubar should remove the menubar item when switching to never mode")
+	assert_equal(recorded.break_reminder_refresh_calls, 2, "hiding the key caster menubar should refresh the break reminder menubar")
 	assert_contains(recorded.alerts[#recorded.alerts], "已隐藏按键菜单栏图标", "hide_menubar should surface session-only visibility feedback")
 
 	key_caster.show_menubar()
-	assert_true(recorded.menubar_shown >= 2, "show_menubar should return the hidden menubar item back to the system menu bar")
+	assert_true(recorded.menubar_created >= 2, "show_menubar should recreate a visible menubar item after hiding it")
+	assert_equal(recorded.break_reminder_refresh_calls, 3, "recreating the key caster menubar should refresh the break reminder menubar again")
 	assert_contains(recorded.alerts[#recorded.alerts], "已切换为始终显示按键菜单栏图标", "show_menubar should surface visibility feedback")
 
 	key_caster.auto_menubar()
@@ -440,7 +471,7 @@ function _M.run()
 	recorded.bound_handler()
 
 	assert_equal(recorded.eventtap_stopped, 1, "toggle hotkey should stop the event tap when disabling key caster")
-	assert_true(recorded.menubar_hidden >= 2, "auto menubar should hide the menubar item again after disabling key caster")
+	assert_true(recorded.menubar_deleted >= 2, "auto menubar should remove the menubar item again after disabling key caster")
 	assert_contains(recorded.alerts[#recorded.alerts], "按键显示已关闭", "disabling key caster should show a status alert")
 
 	assert_true(key_caster.stop(), "stop should succeed")
@@ -462,11 +493,13 @@ function _M.run()
 		shown = 0,
 		deleted_canvases = 0,
 		timers = {},
+		menubar_refresh_timers = {},
 		menubar_created = 0,
 		menubar_deleted = 0,
 		menubar_hidden = 0,
 		menubar_shown = 0,
 		deleted_bindings = 0,
+		break_reminder_refresh_calls = 0,
 	}
 
 	hs = {
@@ -501,7 +534,11 @@ function _M.run()
 					end,
 				}
 
-				table.insert(auto_recorded.timers, timer)
+				if interval == 0 then
+					table.insert(auto_recorded.menubar_refresh_timers, timer)
+				else
+					table.insert(auto_recorded.timers, timer)
+				end
 
 				return timer
 			end,
@@ -555,11 +592,16 @@ function _M.run()
 			enabled = false,
 			show_menubar = "auto",
 			toggle_hotkey = {
-				prefix = { "Ctrl", "Option", "Shift" },
+				prefix = { "Command", "Ctrl" },
 				key = "K",
 				message = "Toggle Key Caster",
 			},
 		},
+	}
+	loaded_modules["break_reminder"] = {
+		refresh_menubar = function()
+			auto_recorded.break_reminder_refresh_calls = auto_recorded.break_reminder_refresh_calls + 1
+		end,
 	}
 	loaded_modules["utils_lib"] = create_utils_stub()
 	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(auto_recorded, false)
@@ -567,20 +609,26 @@ function _M.run()
 	key_caster = require("key_caster")
 
 	assert_true(key_caster.start(), "auto menubar mode should start successfully")
-	assert_equal(auto_recorded.menubar_created, 1, "auto mode should create a reusable hidden menubar item while disabled")
-	assert_equal(auto_recorded.menubar_hidden, 0, "auto mode should keep the menubar hidden while disabled")
+	assert_equal(auto_recorded.menubar_created, 0, "auto mode should not create a menubar item while disabled")
+	assert_equal(auto_recorded.break_reminder_refresh_calls, 0, "auto mode should not refresh break reminder before the key caster menubar is created")
 
 	auto_recorded.bound_handler()
-	assert_true(auto_recorded.menubar_shown >= 1, "auto mode should return the hidden menubar item to the system menu bar when enabling")
+	assert_equal(auto_recorded.menubar_created, 1, "auto mode should create the menubar item on first enable")
+	assert_true(auto_recorded.menubar_visible == true, "auto mode should show the menubar item when enabling")
+	assert_equal(auto_recorded.break_reminder_refresh_calls, 1, "first auto-mode menubar creation should refresh break reminder")
 
 	auto_recorded.bound_handler()
-	assert_true(auto_recorded.menubar_hidden >= 1, "auto mode should hide the menubar item again when disabled")
+	assert_equal(auto_recorded.menubar_deleted, 1, "auto mode should remove the menubar item again when disabled")
+	assert_equal(auto_recorded.break_reminder_refresh_calls, 2, "auto-mode menubar deletion should refresh break reminder")
 
 	auto_recorded.bound_handler()
-	assert_true(auto_recorded.menubar_shown >= 2, "auto mode should show the same menubar item on the next enable")
+	assert_equal(auto_recorded.menubar_created, 2, "auto mode should recreate the menubar item on the next enable")
+	assert_true(auto_recorded.menubar_visible == true, "auto mode should make the recreated menubar item visible")
+	assert_equal(auto_recorded.break_reminder_refresh_calls, 3, "recreating the auto-mode menubar should refresh break reminder again")
 
 	auto_recorded.bound_handler()
-	assert_true(auto_recorded.menubar_hidden >= 2, "auto mode should only hide its own menubar item on repeated toggles")
+	assert_equal(auto_recorded.menubar_deleted, 2, "auto mode should remove the recreated menubar item on repeated toggles")
+	assert_equal(auto_recorded.break_reminder_refresh_calls, 4, "repeated auto-mode menubar deletion should keep refreshing break reminder")
 
 	assert_true(key_caster.stop(), "stop should succeed in auto mode")
 

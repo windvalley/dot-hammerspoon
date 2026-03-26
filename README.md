@@ -174,7 +174,7 @@ _M.key_caster = {
 		offset_y = 140,
 	},
 	toggle_hotkey = {
-		prefix = { "Ctrl", "Option", "Shift" },
+		prefix = { "Command", "Ctrl" },
 		key = "K",
 		message = "Toggle Key Caster",
 	},

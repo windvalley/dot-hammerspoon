@@ -192,6 +192,8 @@ hs.window.animationDuration = 0
 -- 默认: warning
 hs.logger.defaultLogLevel = "warning"
 
+pcall(require, "hs.ipc")
+
 check_accessibility_permission()
 
 for _, spec in ipairs(module_specs) do

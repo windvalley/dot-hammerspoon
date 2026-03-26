@@ -32,10 +32,11 @@ local default_background_color = {
 	alpha = 0.78,
 }
 local default_toggle_hotkey = {
-	prefix = { "Ctrl", "Option", "Shift" },
+	prefix = { "Command", "Ctrl" },
 	key = "K",
 	message = "Toggle Key Caster",
 }
+local menubar_autosave_name = "dot-hammerspoon.key_caster"
 local valid_anchors = {
 	top_left = true,
 	top_center = true,
@@ -108,7 +109,11 @@ local hide_timer = nil
 local event_tap = nil
 local menubar_item = nil
 local hotkey_binding = nil
+local break_reminder_refresh_timer = nil
 local state = nil
+local tooltip_text
+local build_menu
+local menubar_should_be_visible
 
 local function resolve_number(value, default_value, minimum_value)
 	local number = tonumber(value)
@@ -255,6 +260,45 @@ local function destroy_measurement_canvas()
 	measurement_canvas = nil
 end
 
+local function stop_break_reminder_refresh_timer()
+	if break_reminder_refresh_timer == nil then
+		return
+	end
+
+	break_reminder_refresh_timer:stop()
+	break_reminder_refresh_timer = nil
+end
+
+local function run_break_reminder_menubar_refresh()
+	local break_reminder = package.loaded.break_reminder
+
+	if type(break_reminder) ~= "table" or type(break_reminder.refresh_menubar) ~= "function" then
+		return
+	end
+
+	local ok, err = pcall(function()
+		break_reminder.refresh_menubar(true)
+	end)
+
+	if ok ~= true then
+		log.w("failed to refresh break reminder menubar: " .. tostring(err))
+	end
+end
+
+local function schedule_break_reminder_menubar_refresh()
+	run_break_reminder_menubar_refresh()
+	stop_break_reminder_refresh_timer()
+
+	if type(hs.timer) ~= "table" or type(hs.timer.doAfter) ~= "function" then
+		return
+	end
+
+	break_reminder_refresh_timer = hs.timer.doAfter(0, function()
+		break_reminder_refresh_timer = nil
+		run_break_reminder_menubar_refresh()
+	end)
+end
+
 local function destroy_menubar()
 	if menubar_item == nil then
 		return
@@ -262,26 +306,44 @@ local function destroy_menubar()
 
 	menubar_item:delete()
 	menubar_item = nil
+	schedule_break_reminder_menubar_refresh()
 end
 
-local function set_menubar_visibility(visible)
+local function apply_menubar_content()
 	if menubar_item == nil then
 		return
 	end
 
-	local is_in_menu_bar = nil
-
-	if type(menubar_item.isInMenuBar) == "function" then
-		is_in_menu_bar = menubar_item:isInMenuBar()
+	if type(menubar_item.autosaveName) == "function" then
+		pcall(function()
+			menubar_item:autosaveName(menubar_autosave_name)
+		end)
 	end
 
-	if visible == true then
-		if is_in_menu_bar ~= true and type(menubar_item.returnToMenuBar) == "function" then
-			menubar_item:returnToMenuBar()
-		end
-	elseif is_in_menu_bar ~= false and type(menubar_item.removeFromMenuBar) == "function" then
-		menubar_item:removeFromMenuBar()
+	menubar_item:setMenu(build_menu)
+	if type(menubar_item.setIcon) == "function" then
+		menubar_item:setIcon(nil)
 	end
+	menubar_item:setTitle("KC")
+
+	menubar_item:setTooltip(tooltip_text())
+end
+
+local function ensure_visible_menubar()
+	if menubar_item ~= nil then
+		return true
+	end
+
+	menubar_item = hs.menubar.new(true, menubar_autosave_name)
+
+	if menubar_item == nil then
+		log.e("failed to create visible key caster menubar item")
+		return false
+	end
+
+	schedule_break_reminder_menubar_refresh()
+
+	return true
 end
 
 local function delete_hotkey_binding()
@@ -518,7 +580,7 @@ local function display_hotkey_label()
 	return format_hotkey(state.hotkey_modifiers, state.hotkey_key)
 end
 
-local function menubar_should_be_visible()
+menubar_should_be_visible = function()
 	if state == nil then
 		return false
 	end
@@ -534,7 +596,7 @@ local function menubar_should_be_visible()
 	return false
 end
 
-local function tooltip_text()
+tooltip_text = function()
 	return string.format(
 		"按键显示\n状态: %s\n热键: %s\n菜单栏: %s",
 		status_label(),
@@ -569,7 +631,7 @@ local function build_menubar_mode_menu()
 	}
 end
 
-local function build_menu()
+build_menu = function()
 	return {
 		{ title = "按键显示", disabled = true },
 		{ title = "状态: " .. status_label(), disabled = true },
@@ -596,19 +658,16 @@ local function refresh_menubar()
 		return
 	end
 
-	if menubar_item == nil then
-		menubar_item = hs.menubar.new(false)
-
-		if menubar_item == nil then
-			log.e("failed to create key caster menubar item")
-			return
-		end
+	if menubar_should_be_visible() ~= true then
+		destroy_menubar()
+		return
 	end
 
-	menubar_item:setMenu(build_menu)
-	menubar_item:setTitle(state.enabled == true and "KC" or "Kc")
-	menubar_item:setTooltip(tooltip_text())
-	set_menubar_visibility(menubar_should_be_visible())
+	if ensure_visible_menubar() ~= true then
+		return
+	end
+
+	apply_menubar_content()
 end
 
 local function deactivate_capture()
@@ -847,14 +906,15 @@ local function create_hotkey_binding(modifiers, key, message)
 		return true, nil
 	end
 
+	-- Toggle on key release so menubar mutations happen after the shortcut press completes.
 	local binding, binding_or_error = hotkey_helper.bind(
 		modifiers,
 		key,
 		message,
+		nil,
 		function()
 			_M.toggle()
 		end,
-		nil,
 		nil,
 		{ logger = log }
 	)
@@ -990,6 +1050,60 @@ _M.toggle_menubar_visibility = function()
 	else
 		set_menubar_mode("never", "manual api toggle menubar")
 	end
+end
+
+_M.get_state = function()
+	local snapshot = {
+		started = started == true,
+		enabled = state ~= nil and state.enabled == true or false,
+		menubar_mode = state ~= nil and state.menubar_mode or nil,
+		hotkey = state ~= nil and display_hotkey_label() or nil,
+		menubar_exists = menubar_item ~= nil,
+		menubar_in_menu_bar = nil,
+		menubar_title = nil,
+		menubar_frame = nil,
+	}
+
+	if menubar_item == nil then
+		return snapshot
+	end
+
+	if type(menubar_item.isInMenuBar) == "function" then
+		local ok, is_in_menu_bar = pcall(function()
+			return menubar_item:isInMenuBar()
+		end)
+
+		if ok == true then
+			snapshot.menubar_in_menu_bar = is_in_menu_bar == true
+		end
+	end
+
+	if type(menubar_item.title) == "function" then
+		local ok, title = pcall(function()
+			return menubar_item:title()
+		end)
+
+		if ok == true then
+			snapshot.menubar_title = title
+		end
+	end
+
+	if type(menubar_item.frame) == "function" then
+		local ok, frame = pcall(function()
+			return menubar_item:frame()
+		end)
+
+		if ok == true and frame ~= nil then
+			snapshot.menubar_frame = {
+				x = frame.x,
+				y = frame.y,
+				w = frame.w,
+				h = frame.h,
+			}
+		end
+	end
+
+	return snapshot
 end
 
 function _M.start()
