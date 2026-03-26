@@ -22,6 +22,7 @@
 - Keep the desktop wallpaper the same as the bing daily picture.
 - Force a configurable break reminder, with support for soft or hard mode.
 - Gamify break reminders with daily focus stats, streaks, skip penalties, and skinnable menubar icons.
+- Visualize pressed keys during recording or demos with an on-screen overlay.
 - Auto reload configuration when lua files changes.
 - The code structure is clear and easy to customize into your own configuration.
 
@@ -30,6 +31,8 @@
 1. Install [Hammerspoon](http://www.hammerspoon.org/) first: `brew install hammerspoon --cask`
 
 2. Run `Hammerspoon.app` and follow the prompts to enable Accessibility access for the app.
+
+If Accessibility is not granted, startup will show a warning alert and modules that depend on input or window control may not work correctly, such as Window Manipulation, Break Reminder hard mode, and Key Caster.
 
 3. `git clone --depth 1 https://github.com/windvalley/dot-hammerspoon.git ~/.hammerspoon`
 
@@ -127,6 +130,8 @@ _M.clipboard = {
 	preview_width = 420,
 	preview_height = 320,
 	image_menu_thumbnail_size = 80,
+	chooser_rows = 12,
+	chooser_width = 40,
 	prefix = { "Option", "Shift" },
 	key = "C",
 	message = "Clipboard Center",
@@ -148,6 +153,46 @@ When the menubar menu is open, the first nine recent history items can also be r
 `menu_history_size` controls how many recent history items are shown directly in the menubar menu. You can also change it at runtime from the menubar via `最近历史显示数量`, and the override will be persisted via `hs.settings`.
 
 The menubar menu can also update the Clipboard Center hotkey at runtime. The override is persisted via `hs.settings`, and you can restore the file-configured hotkey from the same menu.
+
+`chooser_rows` controls how many rows are shown in the chooser, and `chooser_width` controls the chooser width as a percentage of the current screen width.
+
+### Key Caster
+
+Key Caster is designed for screen recording or live demos. When enabled, it listens for keyboard events and shows the latest key combination as an overlay on the active screen.
+
+There is no default hotkey. Enable or tune it in `~/.hammerspoon/keybindings_config.lua`:
+
+```lua
+_M.key_caster = {
+	enabled = false,
+	position = {
+		anchor = "bottom_center",
+		offset_x = 0,
+		offset_y = 140,
+	},
+	font = {
+		name = "Menlo Bold",
+		size = 44,
+	},
+	text_color = {
+		hex = "#F8FAFC",
+		alpha = 1,
+	},
+	background_color = {
+		hex = "#111827",
+		alpha = 0.78,
+	},
+	duration_seconds = 1.2,
+}
+```
+
+- `enabled`: whether the overlay is active. It is disabled by default to avoid visual noise during normal daily use.
+- `position.anchor`: one of `top_left`, `top_center`, `top_right`, `center`, `bottom_left`, `bottom_center`, `bottom_right`.
+- `position.offset_x` and `position.offset_y`: fine tune the overlay position relative to the selected anchor.
+- `font`: configure the displayed font family and size.
+- `text_color` and `background_color`: configure overlay colors and alpha.
+- `duration_seconds`: how long each key overlay stays visible before it disappears.
+- Accessibility permission is required. If it is missing, startup will show a warning and the module may fail to capture key events.
 
 ### Application Launch or Hide
 

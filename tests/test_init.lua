@@ -25,6 +25,7 @@ local module_names = {
 	"auto_input_method",
 	"bing_daily_wallpaper",
 	"break_reminder",
+	"key_caster",
 	"keybindings_cheatsheet",
 	"auto_reload",
 }

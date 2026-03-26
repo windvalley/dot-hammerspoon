@@ -16,11 +16,14 @@ function _M.run()
 
 	local config = require("keybindings_config")
 	local break_reminder = config.break_reminder or {}
+	local key_caster = config.key_caster or {}
 
 	assert_equal(break_reminder.mode, "soft", "default break reminder mode should remain soft")
 	assert_equal(break_reminder.overlay_opacity, 0.32, "soft mode default opacity should stay translucent")
 	assert_equal(break_reminder.start_next_cycle, "on_input", "default next cycle mode should wait for input")
 	assert_equal(break_reminder.menubar_skin, "hourglass", "default menubar skin should match documented example")
+	assert_equal(key_caster.enabled, false, "key caster should stay disabled by default")
+	assert_equal(key_caster.position.anchor, "bottom_center", "key caster default anchor should fit recording scenarios")
 
 	reset_modules()
 end

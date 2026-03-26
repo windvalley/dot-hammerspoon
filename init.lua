@@ -23,6 +23,7 @@ local module_specs = {
 	{ name = "auto_input_method", description = "根据应用不同自动切换输入法" },
 	{ name = "bing_daily_wallpaper", description = "同步 Bing Daily Picture 壁纸" },
 	{ name = "break_reminder", description = "每隔一段时间强制休息" },
+	{ name = "key_caster", description = "录屏/演示时显示按下的键" },
 	{ name = "keybindings_cheatsheet", description = "显示快捷键备忘面板" },
 	{ name = "auto_reload", description = "lua文件变动自动reload" },
 }

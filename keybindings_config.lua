@@ -319,6 +319,30 @@ _M.clipboard = {
 	message = "Clipboard Center",
 }
 
+-- 录屏/演示场景下的按键可视化
+_M.key_caster = {
+	-- 默认关闭，按需启用，避免日常输入时持续显示按键浮层
+	enabled = false,
+	position = {
+		anchor = "bottom_center",
+		offset_x = 0,
+		offset_y = 140,
+	},
+	font = {
+		name = "Menlo Bold",
+		size = 44,
+	},
+	text_color = {
+		hex = "#F8FAFC",
+		alpha = 1,
+	},
+	background_color = {
+		hex = "#111827",
+		alpha = 0.78,
+	},
+	duration_seconds = 1.2,
+}
+
 -- Bing Daily Picture 壁纸
 _M.bing_daily_wallpaper = {
 	enabled = true,
