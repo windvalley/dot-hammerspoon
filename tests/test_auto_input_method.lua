@@ -15,6 +15,7 @@ end
 
 local function reset_modules()
 	loaded_modules["auto_input_method"] = nil
+	loaded_modules["input_method_helper"] = nil
 	loaded_modules["keybindings_config"] = nil
 end
 
@@ -120,6 +121,73 @@ function _M.run()
 
 		auto_input_method = require("auto_input_method")
 		assert_true(auto_input_method.start() == false, "module should surface watcher creation failures")
+
+		reset_modules()
+
+		recorded = {
+			watcher_started = 0,
+			watcher_stopped = 0,
+			switched_to = {},
+			methods_switched_to = {},
+		}
+		frontmost_app = {
+			bundleID = function()
+				return "com.google.Chrome"
+			end,
+		}
+
+		hs = {
+			logger = {
+				new = function()
+					return {
+						d = function() end,
+						e = function() end,
+						w = function() end,
+					}
+				end,
+			},
+			application = {
+				frontmostApplication = function()
+					return frontmost_app
+				end,
+				watcher = {
+					activated = "activated",
+					new = function(callback)
+						recorded.callback = callback
+
+						return {
+							start = function()
+								recorded.watcher_started = recorded.watcher_started + 1
+							end,
+							stop = function()
+								recorded.watcher_stopped = recorded.watcher_stopped + 1
+							end,
+						}
+					end,
+				},
+			},
+			keycodes = {
+				currentSourceID = function(source_id)
+					table.insert(recorded.switched_to, source_id)
+					return false
+				end,
+				setMethod = function(method_name)
+					table.insert(recorded.methods_switched_to, method_name)
+					return method_name == "微信输入法"
+				end,
+			},
+		}
+
+		loaded_modules["keybindings_config"] = {
+			auto_input_methods = {
+				["com.google.Chrome"] = "com.tencent.inputmethod.wetype",
+			},
+		}
+
+		auto_input_method = require("auto_input_method")
+		assert_true(auto_input_method.start(), "module should fallback to input method alias when source id switching fails")
+		assert_equal(recorded.switched_to[1], "com.tencent.inputmethod.wetype", "fallback path should still try the configured source id first")
+		assert_equal(recorded.methods_switched_to[1], "微信输入法", "fallback path should switch via method alias")
 
 		reset_modules()
 		hs = nil

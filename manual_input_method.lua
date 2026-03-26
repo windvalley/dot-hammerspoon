@@ -4,6 +4,7 @@ _M.name = "manual_input_method"
 _M.description = "明确指定切换到某个输入法"
 
 local manual_input_methods = require("keybindings_config").manual_input_methods
+local input_method_helper = require("input_method_helper")
 local hotkey_helper = require("hotkey_helper")
 
 local log = hs.logger.new("input")
@@ -37,7 +38,7 @@ end
 local pop_msg = false
 
 local function switch_input_method(input_method)
-	local ok = hs.keycodes.currentSourceID(input_method)
+	local ok = input_method_helper.switch(input_method)
 
 	if ok ~= true then
 		log.w(string.format("failed to switch input method to '%s'", tostring(input_method)))

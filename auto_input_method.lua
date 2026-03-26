@@ -4,6 +4,7 @@ _M.name = "auto_input_method"
 _M.description = "切换应用时自动切换输入法"
 
 local auto_input_methods = require("keybindings_config").auto_input_methods
+local input_method_helper = require("input_method_helper")
 
 local log = hs.logger.new("input")
 local state = {
@@ -13,7 +14,7 @@ local state = {
 local pop_msg = false
 
 local function switch_input_method(input_method, context_label)
-	local ok = hs.keycodes.currentSourceID(input_method)
+	local ok = input_method_helper.switch(input_method)
 
 	if ok ~= true then
 		log.w(string.format("failed to switch input method to '%s' (%s)", tostring(input_method), tostring(context_label or "unknown")))
