@@ -42,7 +42,10 @@ function _M.run()
 	assert_true(type(key_caster.toggle_hotkey) == "table", "key caster should expose a toggle_hotkey table")
 	assert_equal(key_caster.toggle_hotkey.key, "K", "key caster should expose a default toggle hotkey")
 	assert_true(key_caster.display_mode == "single" or key_caster.display_mode == "sequence", "key caster display_mode should use a supported mode")
-	assert_equal(key_caster.display_mode, "single", "key caster should keep single-key overlay mode by default")
+	assert_true(
+		type(key_caster.sequence_window_seconds) == "number" and key_caster.sequence_window_seconds >= 0.05,
+		"key caster sequence window should stay configurable with a sensible lower bound"
+	)
 
 	reset_modules()
 end

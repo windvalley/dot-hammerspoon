@@ -206,7 +206,8 @@ _M.key_caster = {
 - `display_mode`: `single` keeps the existing behavior and always shows only the latest key; `sequence` merges consecutive plain-letter input into a short text run.
 - `sequence_window_seconds`: only used in `sequence` mode; letters typed within this interval are appended into the same overlay.
 - `duration_seconds`: how long each key overlay stays visible before it disappears.
-- The menubar menu provides a minimal runtime UI for enabling/disabling Key Caster, adjusting whether the icon is auto shown, always shown, or hidden for the current session, and switching between `single` and `sequence` display modes.
+- The menubar menu provides a runtime UI for enabling/disabling Key Caster, adjusting the icon visibility mode, switching between `single` and `sequence` display modes, and changing the overlay position, font size, and duration.
+- Position, font size, duration, display mode, and menubar visibility changes made from the Key Caster menubar are persisted via `hs.settings`, and the same menu also provides `恢复默认` to clear those saved overrides and return to `keybindings_config.lua`.
 - You can also manage it from the Hammerspoon console with `package.loaded.key_caster.toggle()`, `package.loaded.key_caster.show_menubar()`, `package.loaded.key_caster.auto_menubar()`, `package.loaded.key_caster.single_display_mode()`, and `package.loaded.key_caster.sequence_display_mode()`.
 - Accessibility permission is required. If it is missing, startup will show a warning and the module may fail to capture key events.
 

@@ -50,6 +50,9 @@ local function create_utils_stub()
 		trim = function(value)
 			return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
 		end,
+		prompt_text = function()
+			return nil
+		end,
 	}
 end
 
@@ -246,6 +249,7 @@ function _M.run()
 	local recorded = {
 		alerts = {},
 		current_time_ns = 0,
+		dialog_responses = { "恢复默认" },
 		eventtap_created = 0,
 		eventtap_started = 0,
 		eventtap_stopped = 0,
@@ -264,6 +268,7 @@ function _M.run()
 		deleted_bindings = 0,
 		break_reminder_refresh_calls = 0,
 		break_reminder_force_refreshes = {},
+		settings_store = {},
 	}
 
 	hs = {
@@ -279,6 +284,22 @@ function _M.run()
 		alert = {
 			show = function(message)
 				table.insert(recorded.alerts, message)
+			end,
+		},
+		dialog = {
+			blockAlert = function()
+				return table.remove(recorded.dialog_responses, 1)
+			end,
+		},
+		settings = {
+			get = function(key)
+				return recorded.settings_store[key]
+			end,
+			set = function(key, value)
+				recorded.settings_store[key] = value
+			end,
+			clear = function(key)
+				recorded.settings_store[key] = nil
 			end,
 		},
 		styledtext = {
@@ -420,6 +441,9 @@ function _M.run()
 	assert_true(find_menu_item(menu, "启用按键显示") ~= nil, "menubar should expose an enable toggle item")
 	assert_true(find_menu_item(menu, "菜单栏图标") ~= nil, "menubar should expose a visibility management submenu")
 	assert_true(find_menu_item(menu, "显示模式") ~= nil, "menubar should expose a display mode submenu")
+	assert_true(find_menu_item(menu, "显示位置") ~= nil, "menubar should expose a position submenu")
+	assert_true(find_menu_item(menu, "字体大小") ~= nil, "menubar should expose a font size submenu")
+	assert_true(find_menu_item(menu, "停留时间") ~= nil, "menubar should expose a duration submenu")
 
 	recorded.callback({
 		getType = function()
@@ -444,6 +468,51 @@ function _M.run()
 		"top_right anchor should honor x offset"
 	)
 	assert_equal(recorded.timers[#recorded.timers].interval, 1.5, "timer should use configured duration")
+	assert_equal(key_caster.get_state().position.anchor, "top_right", "runtime state should expose the current anchor")
+	assert_equal(key_caster.get_state().font_size, 36, "runtime state should expose the current font size")
+	assert_equal(key_caster.get_state().duration_seconds, 1.5, "runtime state should expose the current overlay duration")
+
+	local position_menu = find_menu_item(menu, "显示位置").menu
+	find_menu_item(position_menu, "顶部居中").fn()
+	assert_equal(key_caster.get_state().position.anchor, "top_center", "position menu should update the runtime anchor")
+	assert_equal(
+		recorded.canvas_frames[#recorded.canvas_frames].x,
+		math.floor(((1440 - recorded.canvas_frames[#recorded.canvas_frames].w) / 2) + 20),
+		"changing the anchor from the menu should immediately rerender the current overlay"
+	)
+	assert_equal(
+		recorded.settings_store["key_caster.runtime_overrides"].position.anchor,
+		"top_center",
+		"position changes made from the menu should be persisted"
+	)
+
+	local font_size_menu = find_menu_item(menu, "字体大小").menu
+	find_menu_item(font_size_menu, "52 pt").fn()
+	assert_equal(key_caster.get_state().font_size, 52, "font size menu should update the runtime font size")
+	assert_equal(
+		recorded.settings_store["key_caster.runtime_overrides"].font.size,
+		52,
+		"font size changes made from the menu should be persisted"
+	)
+
+	local duration_menu = find_menu_item(menu, "停留时间").menu
+	find_menu_item(duration_menu, "3 秒").fn()
+	assert_equal(key_caster.get_state().duration_seconds, 3, "duration menu should update the runtime overlay duration")
+	assert_equal(recorded.timers[#recorded.timers].interval, 3, "changing duration from the menu should rerender with the new hide timer")
+	assert_equal(
+		recorded.settings_store["key_caster.runtime_overrides"].duration_seconds,
+		3,
+		"duration changes made from the menu should be persisted"
+	)
+
+	local display_mode_menu = find_menu_item(menu, "显示模式").menu
+	find_menu_item(display_mode_menu, "连续拼接").fn()
+	assert_equal(key_caster.get_state().display_mode, "sequence", "display mode changes made from the menu should update runtime state")
+	assert_equal(
+		recorded.settings_store["key_caster.runtime_overrides"].display_mode,
+		"sequence",
+		"display mode changes made from the menu should be persisted"
+	)
 
 	recorded.callback({
 		getType = function()
@@ -461,6 +530,14 @@ function _M.run()
 
 	assert_equal(recorded.rendered_text[#recorded.rendered_text], "⌘", "flagsChanged should render standalone modifier keys")
 	assert_true(recorded.timers[1].stopped, "new keystroke should stop previous hide timer")
+
+	local restored_menu = recorded.menu_builder()
+	find_menu_item(restored_menu, "恢复默认").fn()
+	assert_equal(key_caster.get_state().position.anchor, "top_right", "restore defaults should recover the configured anchor")
+	assert_equal(key_caster.get_state().font_size, 36, "restore defaults should recover the configured font size")
+	assert_equal(key_caster.get_state().duration_seconds, 1.5, "restore defaults should recover the configured duration")
+	assert_equal(key_caster.get_state().display_mode, "single", "restore defaults should recover the configured display mode")
+	assert_equal(recorded.settings_store["key_caster.runtime_overrides"], nil, "restore defaults should clear persisted key caster menu overrides")
 
 	key_caster.hide_menubar()
 	assert_true(recorded.menubar_deleted >= 1, "hide_menubar should remove the menubar item when switching to never mode")
