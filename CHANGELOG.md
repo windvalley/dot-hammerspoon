@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.10.0] - 2026-03-26
+
+### Added
+- **Key-Caster Module**: A new visualization overlay featuring sequence display modes, persistent runtime configuration, and a dedicated menubar controller.
+- **Enhanced Break-Reminder**: Expanded productivity goals with custom input support, dynamic tooltips, and improved lifecycle state management.
+- **IME Helper**: Added input method assistance with support for custom aliases.
+- **Module Management System**: Implemented a robust core initialization framework with standardized `start` and `stop` lifecycle methods and safety alerts.
+- **Automated Testing**: Introduced a comprehensive Lua regression test suite and CI configuration to ensure core module stability.
+- **Wallpaper Enhancements**: Improved Bing Daily Wallpaper integration with atomic download finalization.
+
+### Changed
+- **Cheatsheet Overhaul**: Refactored the layout engine to support dynamic column rendering, improved hotkey formatting, and configuration-based shortcut generation.
+- **Centralized Hotkey Management**: Consolidated hotkey binding and safety logic to prevent conflicts and improve system reliability.
+- **Core Architecture**: Refactored utility functions and repository structure, including updated development and testing guidelines.
+- **Clipboard Optimization**: Improved chooser UI positioning and persistent state handling across restarts.
+
+### Fixed
+- **Startup Reliability**: Added comprehensive error surfacing for module, watcher, and hotkey initialization failures.
+- **Window Management**: Fixed edge cases involving nil frontmost applications and foreground apps without active windows.
+- **Power Management**: Resolved an issue where background cycles continued during display sleep.
+- **Stability Fixes**: Addressed recursive watcher events, improved result verification for input source switching, and fixed WindowServer refresh errors in reminders.
+- **UI/UX Polishing**: Corrected ineffective search behavior in the clipboard chooser and aligned default settings with documentation.
+
+
 ## [0.9.0] - 2026-03-24
 
 ### Added
