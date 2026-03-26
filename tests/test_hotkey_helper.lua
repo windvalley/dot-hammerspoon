@@ -76,6 +76,11 @@ function _M.run()
 	assert_equal(invalid_token, "hyper", "invalid modifier should be returned to caller")
 
 	assert_equal(hotkey_helper.format_hotkey({ "ctrl", "alt" }, "k"), "⌃ ⌥ K", "format should render symbols and uppercase key")
+	assert_equal(
+		hotkey_helper.format_hotkey({ "Command", "Option", "Ctrl" }, "k"),
+		"⌘ ⌥ ⌃ K",
+		"format should normalize common modifier aliases into symbols"
+	)
 
 	local binding, bind_error =
 		hotkey_helper.bind({ "ctrl" }, "k", "Test", function() end, nil, nil, { logger = hs.logger.new("test") })

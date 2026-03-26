@@ -52,7 +52,8 @@ function _M.format_hotkey(modifiers, key)
 	local parts = {}
 
 	for _, modifier in ipairs(modifiers or {}) do
-		local symbol = _M.modifier_symbols[string.lower(tostring(modifier))] or tostring(modifier)
+		local normalized = _M.modifier_aliases[string.lower(tostring(modifier))]
+		local symbol = _M.modifier_symbols[normalized or ""] or tostring(modifier)
 		table.insert(parts, symbol)
 	end
 

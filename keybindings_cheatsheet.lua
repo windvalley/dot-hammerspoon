@@ -44,6 +44,8 @@ local font_color = "#c6c6c6"
 local stroke_color = "#585858"
 -- 分割线的宽度
 local stroke_width = 1
+-- 画布距离屏幕边缘的最小留白
+local canvas_margin = 24
 
 local log = hs.logger.new("cheatsheet")
 local started = false
@@ -199,11 +201,18 @@ local function positionCanvas()
 		return
 	end
 
+	local max_width = math.max(0, screen.w - (canvas_margin * 2))
+	local max_height = math.max(0, screen.h - (canvas_margin * 2))
+	local frame_width = math.min(canvas_width, max_width)
+	local frame_height = math.min(canvas_height, max_height)
+	local x = screen.x + math.max(canvas_margin, math.floor((screen.w - frame_width) / 2))
+	local y = screen.y + math.max(canvas_margin, math.floor((screen.h - frame_height) / 2))
+
 	canvas:frame({
-		x = screen.x + (screen.w - canvas_width) / 2,
-		y = screen.y + (screen.h - canvas_height) / 2,
-		w = canvas_width,
-		h = canvas_height,
+		x = x,
+		y = y,
+		w = frame_width,
+		h = frame_height,
 	})
 end
 
@@ -431,17 +440,14 @@ local function formatText()
 	return renderText
 end
 
-local function drawText(renderText)
-	local max_right = 0
-	local max_height = 0
-	local x_offset = 0
+local function build_columns(renderText, line_limit)
 	local columns = {}
 	local current_lines = {}
 
 	for index, entry in ipairs(renderText) do
 		table.insert(current_lines, entry.line)
 
-		if index % max_line_number == 0 then
+		if index % line_limit == 0 then
 			table.insert(columns, table.concat(current_lines, "  \n") .. "  ")
 			current_lines = {}
 		end
@@ -451,24 +457,85 @@ local function drawText(renderText)
 		table.insert(columns, table.concat(current_lines, "  \n") .. "  ")
 	end
 
+	return columns
+end
+
+local function measure_columns(columns)
+	local measured = {}
+	local total_width = 0
+	local max_height = 0
+
 	for index, column in ipairs(columns) do
 		local itemText = styleText(column)
 		local size = canvas:minimumTextSize(itemText)
+
+		table.insert(measured, {
+			text = itemText,
+			size = size,
+		})
+
+		total_width = total_width + size.w + (seperator_spacing * 2)
+		max_height = math.max(max_height, size.h)
+
+		if index < #columns then
+			total_width = total_width + seperator_spacing
+		end
+	end
+
+	return measured, total_width, max_height
+end
+
+local function resolve_columns_for_screen(renderText)
+	local screen = resolveTargetScreenFrame()
+	local available_width = math.huge
+	local best_columns = nil
+	local best_measured = nil
+	local best_width = nil
+	local best_height = nil
+	local initial_line_limit = math.max(1, math.min(max_line_number, #renderText))
+
+	if screen ~= nil then
+		available_width = math.max(0, screen.w - (canvas_margin * 2))
+	end
+
+	for line_limit = initial_line_limit, math.max(initial_line_limit, #renderText) do
+		local columns = build_columns(renderText, line_limit)
+		local measured, width, height = measure_columns(columns)
+
+		best_columns = columns
+		best_measured = measured
+		best_width = width
+		best_height = height
+
+		if width <= available_width then
+			break
+		end
+	end
+
+	return best_columns or {}, best_measured or {}, best_width or 0, best_height or 0
+end
+
+local function drawText(renderText)
+	local max_right = 0
+	local x_offset = 0
+	local columns, measured_columns, measured_width, measured_height = resolve_columns_for_screen(renderText)
+
+	for index, _ in ipairs(columns) do
+		local measured = measured_columns[index]
 		local text_frame = {
 			x = x_offset + seperator_spacing,
 			y = 0,
-			w = size.w,
-			h = size.h,
+			w = measured.size.w,
+			h = measured.size.h,
 		}
 
 		canvas:appendElements({
 			type = "text",
-			text = itemText,
+			text = measured.text,
 			frame = text_frame,
 		})
 
 		max_right = math.max(max_right, text_frame.x + text_frame.w + seperator_spacing)
-		max_height = math.max(max_height, text_frame.h)
 		x_offset = text_frame.x + text_frame.w + seperator_spacing
 
 		if index < #columns then
@@ -489,8 +556,8 @@ local function drawText(renderText)
 		end
 	end
 
-	canvas_width = max_right
-	canvas_height = max_height
+	canvas_width = math.max(max_right, measured_width)
+	canvas_height = measured_height
 	positionCanvas()
 end
 
