@@ -41,6 +41,8 @@ function _M.run()
 	assert_equal(key_caster.position.anchor, "bottom_center", "key caster default anchor should fit recording scenarios")
 	assert_true(type(key_caster.toggle_hotkey) == "table", "key caster should expose a toggle_hotkey table")
 	assert_equal(key_caster.toggle_hotkey.key, "K", "key caster should expose a default toggle hotkey")
+	assert_true(key_caster.display_mode == "single" or key_caster.display_mode == "sequence", "key caster display_mode should use a supported mode")
+	assert_equal(key_caster.display_mode, "single", "key caster should keep single-key overlay mode by default")
 
 	reset_modules()
 end

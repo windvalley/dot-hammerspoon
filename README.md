@@ -160,7 +160,7 @@ The menubar menu can also update the Clipboard Center hotkey at runtime. The ove
 
 Key Caster is designed for screen recording or live demos. When enabled, it listens for keyboard events and shows the latest key combination as an overlay on the active screen.
 
-It now supports lightweight runtime control: by default, `⌃⌥⇧K` toggles it for the current Hammerspoon session, and the menubar entry can follow `auto`, `true`, or `false` visibility modes.
+It now supports lightweight runtime control: by default, `⌃⌘K` toggles it for the current Hammerspoon session, and the menubar entry can follow `auto`, `true`, or `false` visibility modes.
 
 You can enable or tune it in `~/.hammerspoon/keybindings_config.lua`:
 
@@ -190,6 +190,8 @@ _M.key_caster = {
 		hex = "#111827",
 		alpha = 0.78,
 	},
+	display_mode = "single",
+	sequence_window_seconds = 0.4,
 	duration_seconds = 1.2,
 }
 ```
@@ -201,9 +203,11 @@ _M.key_caster = {
 - `position.offset_x` and `position.offset_y`: fine tune the overlay position relative to the selected anchor.
 - `font`: configure the displayed font family and size.
 - `text_color` and `background_color`: configure overlay colors and alpha.
+- `display_mode`: `single` keeps the existing behavior and always shows only the latest key; `sequence` merges consecutive plain-letter input into a short text run.
+- `sequence_window_seconds`: only used in `sequence` mode; letters typed within this interval are appended into the same overlay.
 - `duration_seconds`: how long each key overlay stays visible before it disappears.
-- The menubar menu provides a minimal runtime UI for enabling/disabling Key Caster and adjusting whether the icon is auto shown, always shown, or hidden for the current session.
-- You can also manage it from the Hammerspoon console with `package.loaded.key_caster.toggle()`, `package.loaded.key_caster.show_menubar()`, and `package.loaded.key_caster.auto_menubar()`.
+- The menubar menu provides a minimal runtime UI for enabling/disabling Key Caster, adjusting whether the icon is auto shown, always shown, or hidden for the current session, and switching between `single` and `sequence` display modes.
+- You can also manage it from the Hammerspoon console with `package.loaded.key_caster.toggle()`, `package.loaded.key_caster.show_menubar()`, `package.loaded.key_caster.auto_menubar()`, `package.loaded.key_caster.single_display_mode()`, and `package.loaded.key_caster.sequence_display_mode()`.
 - Accessibility permission is required. If it is missing, startup will show a warning and the module may fail to capture key events.
 
 ### Application Launch or Hide

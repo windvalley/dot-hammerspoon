@@ -349,6 +349,11 @@ _M.key_caster = {
 		hex = "#111827",
 		alpha = 0.78,
 	},
+	-- single: 每次只显示当前按键
+	-- sequence: 短时间连续输入字母时拼接显示
+	display_mode = "sequence",
+	-- sequence 模式下，连续输入字母会在该时间窗口内拼接
+	sequence_window_seconds = 0.5,
 	duration_seconds = 1.2,
 }
 

@@ -245,6 +245,7 @@ function _M.run()
 
 	local recorded = {
 		alerts = {},
+		current_time_ns = 0,
 		eventtap_created = 0,
 		eventtap_started = 0,
 		eventtap_stopped = 0,
@@ -287,6 +288,9 @@ function _M.run()
 		},
 		canvas = create_canvas_stub(recorded),
 		timer = {
+			absoluteTime = function()
+				return recorded.current_time_ns
+			end,
 			doAfter = function(interval, fn)
 				local timer = {
 					interval = interval,
@@ -356,6 +360,7 @@ function _M.run()
 		key_caster = {
 			enabled = false,
 			show_menubar = "true",
+			display_mode = "single",
 			toggle_hotkey = {
 				prefix = { "Command", "Ctrl" },
 				key = "K",
@@ -399,6 +404,7 @@ function _M.run()
 	assert_true(type(recorded.bound_handler) == "function", "key caster toggle hotkey should be registered")
 	assert_equal(recorded.break_reminder_refresh_calls, 1, "creating the key caster menubar should refresh the break reminder menubar")
 	assert_true(recorded.break_reminder_force_refreshes[1] == true, "break reminder redraw should be forced after key caster menubar creation")
+	assert_equal(key_caster.get_state().display_mode, "single", "default display mode should remain single-key overlay")
 
 	recorded.bound_handler()
 
@@ -413,6 +419,7 @@ function _M.run()
 	local menu = recorded.menu_builder()
 	assert_true(find_menu_item(menu, "启用按键显示") ~= nil, "menubar should expose an enable toggle item")
 	assert_true(find_menu_item(menu, "菜单栏图标") ~= nil, "menubar should expose a visibility management submenu")
+	assert_true(find_menu_item(menu, "显示模式") ~= nil, "menubar should expose a display mode submenu")
 
 	recorded.callback({
 		getType = function()
@@ -481,8 +488,226 @@ function _M.run()
 
 	reset_modules()
 
+	local sequence_recorded = {
+		alerts = {},
+		current_time_ns = 0,
+		eventtap_created = 0,
+		eventtap_started = 0,
+		eventtap_stopped = 0,
+		rendered_text = {},
+		text_frames = {},
+		canvas_frames = {},
+		levels = {},
+		shown = 0,
+		deleted_canvases = 0,
+		timers = {},
+		menubar_refresh_timers = {},
+		menubar_created = 0,
+		menubar_deleted = 0,
+		menubar_hidden = 0,
+		menubar_shown = 0,
+		deleted_bindings = 0,
+		break_reminder_refresh_calls = 0,
+	}
+
+	hs = {
+		logger = {
+			new = function()
+				return {
+					e = function() end,
+					w = function() end,
+					i = function() end,
+				}
+			end,
+		},
+		alert = {
+			show = function(message)
+				table.insert(sequence_recorded.alerts, message)
+			end,
+		},
+		styledtext = {
+			new = function(text)
+				return text
+			end,
+		},
+		canvas = create_canvas_stub(sequence_recorded),
+		timer = {
+			absoluteTime = function()
+				return sequence_recorded.current_time_ns
+			end,
+			doAfter = function(interval, fn)
+				local timer = {
+					interval = interval,
+					callback = fn,
+					stopped = false,
+					stop = function(self)
+						self.stopped = true
+					end,
+				}
+
+				if interval == 0 then
+					table.insert(sequence_recorded.menubar_refresh_timers, timer)
+				else
+					table.insert(sequence_recorded.timers, timer)
+				end
+
+				return timer
+			end,
+		},
+		window = {
+			focusedWindow = function()
+				return nil
+			end,
+		},
+		screen = {
+			mainScreen = function()
+				return {
+					frame = function()
+						return { x = 0, y = 0, w = 1440, h = 900 }
+					end,
+				}
+			end,
+		},
+		keycodes = {
+			map = {
+				[0] = "a",
+				[1] = "b",
+				[2] = "c",
+			},
+		},
+		menubar = create_menu_stub(sequence_recorded),
+		eventtap = {
+			event = {
+				types = {
+					keyDown = 10,
+					flagsChanged = 12,
+				},
+			},
+			new = function(_, callback)
+				sequence_recorded.eventtap_created = sequence_recorded.eventtap_created + 1
+				sequence_recorded.callback = callback
+
+				return {
+					start = function()
+						sequence_recorded.eventtap_started = sequence_recorded.eventtap_started + 1
+						return true
+					end,
+					stop = function()
+						sequence_recorded.eventtap_stopped = sequence_recorded.eventtap_stopped + 1
+					end,
+				}
+			end,
+		},
+	}
+
+	loaded_modules["keybindings_config"] = {
+		key_caster = {
+			enabled = false,
+			show_menubar = false,
+			display_mode = "sequence",
+			sequence_window_seconds = 0.45,
+			toggle_hotkey = {
+				prefix = { "Command", "Ctrl" },
+				key = "K",
+				message = "Toggle Key Caster",
+			},
+		},
+	}
+	loaded_modules["break_reminder"] = {
+		refresh_menubar = function()
+			sequence_recorded.break_reminder_refresh_calls = sequence_recorded.break_reminder_refresh_calls + 1
+		end,
+	}
+	loaded_modules["utils_lib"] = create_utils_stub()
+	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(sequence_recorded, false)
+
+	key_caster = require("key_caster")
+
+	assert_true(key_caster.start(), "sequence mode should still start successfully")
+	assert_equal(key_caster.get_state().display_mode, "sequence", "sequence mode should be reflected in runtime state")
+
+	sequence_recorded.bound_handler()
+	assert_equal(sequence_recorded.eventtap_started, 1, "sequence mode should start capture when enabled")
+
+	sequence_recorded.current_time_ns = 0
+	sequence_recorded.callback({
+		getType = function()
+			return hs.eventtap.event.types.keyDown
+		end,
+		getKeyCode = function()
+			return 0
+		end,
+		getFlags = function()
+			return {}
+		end,
+	})
+	assert_equal(sequence_recorded.rendered_text[#sequence_recorded.rendered_text], "A", "sequence mode should start with the first letter")
+
+	sequence_recorded.current_time_ns = 200000000
+	sequence_recorded.callback({
+		getType = function()
+			return hs.eventtap.event.types.keyDown
+		end,
+		getKeyCode = function()
+			return 1
+		end,
+		getFlags = function()
+			return {}
+		end,
+	})
+	assert_equal(sequence_recorded.rendered_text[#sequence_recorded.rendered_text], "AB", "sequence mode should append consecutive letters within the merge window")
+
+	sequence_recorded.current_time_ns = 800000000
+	sequence_recorded.callback({
+		getType = function()
+			return hs.eventtap.event.types.keyDown
+		end,
+		getKeyCode = function()
+			return 2
+		end,
+		getFlags = function()
+			return {}
+		end,
+	})
+	assert_equal(sequence_recorded.rendered_text[#sequence_recorded.rendered_text], "C", "sequence mode should reset after the merge window expires")
+
+	sequence_recorded.current_time_ns = 900000000
+	sequence_recorded.callback({
+		getType = function()
+			return hs.eventtap.event.types.keyDown
+		end,
+		getKeyCode = function()
+			return 0
+		end,
+		getFlags = function()
+			return {
+				cmd = true,
+			}
+		end,
+	})
+	assert_equal(sequence_recorded.rendered_text[#sequence_recorded.rendered_text], "⌘ A", "command shortcuts should still use the original single-key overlay rendering")
+
+	sequence_recorded.current_time_ns = 950000000
+	sequence_recorded.callback({
+		getType = function()
+			return hs.eventtap.event.types.keyDown
+		end,
+		getKeyCode = function()
+			return 1
+		end,
+		getFlags = function()
+			return {}
+		end,
+	})
+	assert_equal(sequence_recorded.rendered_text[#sequence_recorded.rendered_text], "B", "non-letter shortcuts should reset the sequence buffer before the next plain letter")
+
+	assert_true(key_caster.stop(), "sequence mode stop should succeed")
+
+	reset_modules()
+
 	local auto_recorded = {
 		alerts = {},
+		current_time_ns = 0,
 		eventtap_created = 0,
 		eventtap_started = 0,
 		eventtap_stopped = 0,
@@ -524,6 +749,9 @@ function _M.run()
 		},
 		canvas = create_canvas_stub(auto_recorded),
 		timer = {
+			absoluteTime = function()
+				return auto_recorded.current_time_ns
+			end,
 			doAfter = function(interval, fn)
 				local timer = {
 					interval = interval,

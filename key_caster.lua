@@ -31,11 +31,13 @@ local default_background_color = {
 	hex = "#111827",
 	alpha = 0.78,
 }
+local default_display_mode = "single"
 local default_toggle_hotkey = {
 	prefix = { "Command", "Ctrl" },
 	key = "K",
 	message = "Toggle Key Caster",
 }
+local default_sequence_window_seconds = 0.4
 local menubar_autosave_name = "dot-hammerspoon.key_caster"
 local valid_anchors = {
 	top_left = true,
@@ -50,6 +52,10 @@ local valid_menubar_modes = {
 	auto = true,
 	always = true,
 	never = true,
+}
+local valid_display_modes = {
+	single = true,
+	sequence = true,
 }
 local modifier_order = {
 	ctrl = 1,
@@ -110,6 +116,8 @@ local event_tap = nil
 local menubar_item = nil
 local hotkey_binding = nil
 local break_reminder_refresh_timer = nil
+local sequence_text = nil
+local sequence_last_event_at = nil
 local state = nil
 local tooltip_text
 local build_menu
@@ -196,6 +204,22 @@ local function normalize_menubar_mode(value)
 	return "auto"
 end
 
+local function normalize_display_mode(value)
+	if value == nil then
+		return default_display_mode
+	end
+
+	local normalized = string.lower(trim(tostring(value)))
+
+	if valid_display_modes[normalized] == true then
+		return normalized
+	end
+
+	log.w("invalid key caster display_mode value: " .. tostring(value) .. ", fallback to single")
+
+	return default_display_mode
+end
+
 local function normalize_config(config)
 	local position = type(config.position) == "table" and config.position or {}
 	local font = type(config.font) == "table" and config.font or {}
@@ -223,6 +247,12 @@ local function normalize_config(config)
 		text_color = normalize_color(config.text_color, default_text_color),
 		background_color = normalize_color(config.background_color, default_background_color),
 		duration_seconds = resolve_number(config.duration_seconds, 1.2, 0.1),
+		display_mode = normalize_display_mode(config.display_mode),
+		sequence_window_seconds = resolve_number(
+			config.sequence_window_seconds,
+			default_sequence_window_seconds,
+			0.05
+		),
 		padding_x = resolve_number(config.padding_x, 24, 0),
 		padding_y = resolve_number(config.padding_y, 12, 0),
 		corner_radius = resolve_number(config.corner_radius, 14, 0),
@@ -240,6 +270,11 @@ local function stop_hide_timer()
 
 	hide_timer:stop()
 	hide_timer = nil
+end
+
+local function reset_sequence_buffer()
+	sequence_text = nil
+	sequence_last_event_at = nil
 end
 
 local function destroy_display_canvas()
@@ -377,6 +412,14 @@ local function build_styled_text(text)
 	end
 
 	return hs.styledtext.new(text, style)
+end
+
+local function current_monotonic_seconds()
+	if type(hs.timer) == "table" and type(hs.timer.absoluteTime) == "function" then
+		return hs.timer.absoluteTime() / 1000000000
+	end
+
+	return os.clock()
 end
 
 local function measure_text(text)
@@ -558,6 +601,115 @@ local function modifier_display_text(event)
 	return format_key_combo(flags, nil)
 end
 
+local function plain_letter_text(flags, key_name)
+	local normalized = normalize_key_name(key_name)
+
+	if normalized == nil or normalized:match("^%a$") == nil then
+		return nil
+	end
+
+	flags = type(flags) == "table" and flags or {}
+
+	if flags.cmd == true or flags.ctrl == true or flags.alt == true or flags.fn == true then
+		return nil
+	end
+
+	return format_key_label(normalized)
+end
+
+local function next_keydown_overlay_text(event)
+	local flags = type(event.getFlags) == "function" and event:getFlags() or {}
+	local key_name = key_name_from_event(event)
+	local letter_text = nil
+
+	if state.display_mode == "sequence" then
+		letter_text = plain_letter_text(flags, key_name)
+	end
+
+	if letter_text == nil then
+		reset_sequence_buffer()
+		return format_key_combo(flags, key_name)
+	end
+
+	local now = current_monotonic_seconds()
+
+	if
+		sequence_text ~= nil
+		and sequence_last_event_at ~= nil
+		and (now - sequence_last_event_at) <= state.sequence_window_seconds
+	then
+		sequence_text = sequence_text .. letter_text
+	else
+		sequence_text = letter_text
+	end
+
+	sequence_last_event_at = now
+
+	return sequence_text
+end
+
+local function render_overlay_text(text)
+	if text == nil then
+		return
+	end
+
+	local text_width, text_height, styled_text = measure_text(text)
+	local width = math.max(state.min_width, text_width + (state.padding_x * 2))
+	local height = text_height + (state.padding_y * 2)
+	local frame = resolve_canvas_frame(width, height)
+
+	if frame == nil then
+		return
+	end
+
+	stop_hide_timer()
+	destroy_display_canvas()
+
+	display_canvas = hs.canvas.new(frame)
+
+	if display_canvas == nil then
+		return
+	end
+
+	if type(hs.canvas) == "table" and type(hs.canvas.windowLevels) == "table" and hs.canvas.windowLevels.overlay ~= nil then
+		display_canvas:level(hs.canvas.windowLevels.overlay)
+	end
+
+	display_canvas:appendElements({
+		type = "rectangle",
+		action = "fill",
+		frame = {
+			x = 0,
+			y = 0,
+			w = width,
+			h = height,
+		},
+		roundedRectRadii = {
+			xRadius = state.corner_radius,
+			yRadius = state.corner_radius,
+		},
+		fillColor = state.background_color,
+	}, {
+		type = "text",
+		text = styled_text,
+		frame = {
+			x = state.padding_x,
+			y = state.padding_y,
+			w = width - (state.padding_x * 2),
+			h = height - (state.padding_y * 2),
+		},
+	})
+
+	if type(display_canvas.show) == "function" then
+		display_canvas:show()
+	end
+
+	hide_timer = hs.timer.doAfter(state.duration_seconds, function()
+		hide_timer = nil
+		destroy_display_canvas()
+	end)
+end
+
 local function menubar_mode_label(mode)
 	if mode == "always" then
 		return "始终显示"
@@ -566,6 +718,14 @@ local function menubar_mode_label(mode)
 	end
 
 	return "自动显示"
+end
+
+local function display_mode_label(mode)
+	if mode == "sequence" then
+		return "连续拼接"
+	end
+
+	return "单键覆盖"
 end
 
 local function status_label()
@@ -598,10 +758,11 @@ end
 
 tooltip_text = function()
 	return string.format(
-		"按键显示\n状态: %s\n热键: %s\n菜单栏: %s",
+		"按键显示\n状态: %s\n热键: %s\n菜单栏: %s\n显示模式: %s",
 		status_label(),
 		display_hotkey_label(),
-		menubar_mode_label(state.menubar_mode)
+		menubar_mode_label(state.menubar_mode),
+		display_mode_label(state.display_mode)
 	)
 end
 
@@ -631,12 +792,32 @@ local function build_menubar_mode_menu()
 	}
 end
 
+local function build_display_mode_menu()
+	return {
+		{
+			title = "单键覆盖",
+			checked = state.display_mode == "single",
+			fn = function()
+				_M.single_display_mode()
+			end,
+		},
+		{
+			title = "连续拼接",
+			checked = state.display_mode == "sequence",
+			fn = function()
+				_M.sequence_display_mode()
+			end,
+		},
+	}
+end
+
 build_menu = function()
 	return {
 		{ title = "按键显示", disabled = true },
 		{ title = "状态: " .. status_label(), disabled = true },
 		{ title = "热键: " .. display_hotkey_label(), disabled = true },
 		{ title = "菜单栏: " .. menubar_mode_label(state.menubar_mode), disabled = true },
+		{ title = "显示模式: " .. display_mode_label(state.display_mode), disabled = true },
 		{ title = "-" },
 		{
 			title = "启用按键显示",
@@ -648,6 +829,10 @@ build_menu = function()
 		{
 			title = "菜单栏图标",
 			menu = build_menubar_mode_menu(),
+		},
+		{
+			title = "显示模式",
+			menu = build_display_mode_menu(),
 		},
 	}
 end
@@ -672,6 +857,7 @@ end
 
 local function deactivate_capture()
 	stop_hide_timer()
+	reset_sequence_buffer()
 
 	if event_tap ~= nil then
 		event_tap:stop()
@@ -728,127 +914,10 @@ local function activate_capture(reason)
 		local event_type = event:getType()
 
 		if event_type == hs.eventtap.event.types.keyDown then
-			local flags = type(event.getFlags) == "function" and event:getFlags() or {}
-			local key_name = key_name_from_event(event)
-			local text = format_key_combo(flags, key_name)
-
-			if text ~= nil then
-				local text_width, text_height, styled_text = measure_text(text)
-				local width = math.max(state.min_width, text_width + (state.padding_x * 2))
-				local height = text_height + (state.padding_y * 2)
-				local frame = resolve_canvas_frame(width, height)
-
-				if frame ~= nil then
-					stop_hide_timer()
-					destroy_display_canvas()
-
-					display_canvas = hs.canvas.new(frame)
-
-					if display_canvas ~= nil then
-						if
-							type(hs.canvas) == "table"
-							and type(hs.canvas.windowLevels) == "table"
-							and hs.canvas.windowLevels.overlay ~= nil
-						then
-							display_canvas:level(hs.canvas.windowLevels.overlay)
-						end
-
-						display_canvas:appendElements({
-							type = "rectangle",
-							action = "fill",
-							frame = {
-								x = 0,
-								y = 0,
-								w = width,
-								h = height,
-							},
-							roundedRectRadii = {
-								xRadius = state.corner_radius,
-								yRadius = state.corner_radius,
-							},
-							fillColor = state.background_color,
-						}, {
-							type = "text",
-							text = styled_text,
-							frame = {
-								x = state.padding_x,
-								y = state.padding_y,
-								w = width - (state.padding_x * 2),
-								h = height - (state.padding_y * 2),
-							},
-						})
-
-						if type(display_canvas.show) == "function" then
-							display_canvas:show()
-						end
-
-						hide_timer = hs.timer.doAfter(state.duration_seconds, function()
-							hide_timer = nil
-							destroy_display_canvas()
-						end)
-					end
-				end
-			end
+			render_overlay_text(next_keydown_overlay_text(event))
 		elseif event_type == hs.eventtap.event.types.flagsChanged then
-			local text = modifier_display_text(event)
-
-			if text ~= nil then
-				local text_width, text_height, styled_text = measure_text(text)
-				local width = math.max(state.min_width, text_width + (state.padding_x * 2))
-				local height = text_height + (state.padding_y * 2)
-				local frame = resolve_canvas_frame(width, height)
-
-				if frame ~= nil then
-					stop_hide_timer()
-					destroy_display_canvas()
-
-					display_canvas = hs.canvas.new(frame)
-
-					if display_canvas ~= nil then
-						if
-							type(hs.canvas) == "table"
-							and type(hs.canvas.windowLevels) == "table"
-							and hs.canvas.windowLevels.overlay ~= nil
-						then
-							display_canvas:level(hs.canvas.windowLevels.overlay)
-						end
-
-						display_canvas:appendElements({
-							type = "rectangle",
-							action = "fill",
-							frame = {
-								x = 0,
-								y = 0,
-								w = width,
-								h = height,
-							},
-							roundedRectRadii = {
-								xRadius = state.corner_radius,
-								yRadius = state.corner_radius,
-							},
-							fillColor = state.background_color,
-						}, {
-							type = "text",
-							text = styled_text,
-							frame = {
-								x = state.padding_x,
-								y = state.padding_y,
-								w = width - (state.padding_x * 2),
-								h = height - (state.padding_y * 2),
-							},
-						})
-
-						if type(display_canvas.show) == "function" then
-							display_canvas:show()
-						end
-
-						hide_timer = hs.timer.doAfter(state.duration_seconds, function()
-							hide_timer = nil
-							destroy_display_canvas()
-						end)
-					end
-				end
-			end
+			reset_sequence_buffer()
+			render_overlay_text(modifier_display_text(event))
 		end
 
 		return false
@@ -992,6 +1061,32 @@ local function set_menubar_mode(mode, reason, options)
 	end
 end
 
+local function set_display_mode(mode, reason, options)
+	mode = normalize_display_mode(mode)
+	options = options or {}
+
+	if state.display_mode == mode then
+		return
+	end
+
+	state.display_mode = mode
+	reset_sequence_buffer()
+	stop_hide_timer()
+	destroy_display_canvas()
+	log.i(string.format("key caster display mode updated (%s): %s", reason or "unknown", state.display_mode))
+	refresh_menubar()
+
+	if options.silent == true then
+		return
+	end
+
+	if mode == "sequence" then
+		hs.alert.show("已切换为连续拼接模式")
+	else
+		hs.alert.show("已切换为单键覆盖模式")
+	end
+end
+
 _M.enable = function()
 	if started ~= true then
 		_M.start()
@@ -1040,6 +1135,22 @@ _M.auto_menubar = function()
 	set_menubar_mode("auto", "manual api auto menubar")
 end
 
+_M.single_display_mode = function()
+	if started ~= true then
+		_M.start()
+	end
+
+	set_display_mode("single", "manual api single display mode")
+end
+
+_M.sequence_display_mode = function()
+	if started ~= true then
+		_M.start()
+	end
+
+	set_display_mode("sequence", "manual api sequence display mode")
+end
+
 _M.toggle_menubar_visibility = function()
 	if started ~= true then
 		_M.start()
@@ -1056,6 +1167,7 @@ _M.get_state = function()
 	local snapshot = {
 		started = started == true,
 		enabled = state ~= nil and state.enabled == true or false,
+		display_mode = state ~= nil and state.display_mode or nil,
 		menubar_mode = state ~= nil and state.menubar_mode or nil,
 		hotkey = state ~= nil and display_hotkey_label() or nil,
 		menubar_exists = menubar_item ~= nil,
