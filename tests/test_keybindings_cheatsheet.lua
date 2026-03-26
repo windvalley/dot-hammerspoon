@@ -137,6 +137,13 @@ function _M.run()
 			key = "C",
 			message = "Clipboard Center",
 		},
+		key_caster = {
+			toggle_hotkey = {
+				prefix = { "Ctrl", "Option", "Shift" },
+				key = "K",
+				message = "Toggle Key Caster",
+			},
+		},
 		websites = {
 			{ prefix = { "Option" }, key = "8", message = "github.com" },
 		},
@@ -230,6 +237,8 @@ function _M.run()
 	local rendered = table.concat(recorded.rendered_text, "\n")
 	assert_contains(rendered, "ctrl+shift+x: Clipboard Center", "clipboard hotkey should use runtime override")
 	assert_contains(rendered, "ctrl+option+a: Toggle Prevent Sleep", "keep awake hotkey should use runtime override")
+	assert_contains(rendered, "[Key Caster]", "key caster section should be rendered in cheatsheet")
+	assert_contains(rendered, "Ctrl+Option+Shift+k: Toggle Key Cas", "key caster toggle hotkey should be rendered in cheatsheet")
 	assert_contains(rendered, "Option+/: Cheatsheet", "cheatsheet should render its own configured shortcut")
 	assert_contains(rendered, "Ctrl+Option+h: Left Half of Screen", "named config sections should keep rendering after a missing leading item")
 	assert_true(#recorded.text_frames >= 2, "rendered cheatsheet should span multiple columns in the test fixture")

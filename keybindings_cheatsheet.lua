@@ -7,6 +7,7 @@ local keybindings_cheatsheet = require("keybindings_config").keybindings_cheatsh
 local input_methods = require("keybindings_config").manual_input_methods
 local system = require("keybindings_config").system
 local clipboard = require("keybindings_config").clipboard or {}
+local key_caster = require("keybindings_config").key_caster or {}
 local websites = require("keybindings_config").websites
 local apps = require("keybindings_config").apps
 
@@ -257,6 +258,18 @@ local function formatText()
 		append_section_line(clipboardCenter, clipboard_modifiers, clipboard_key, clipboard.message)
 	end
 
+	local keyCaster = {}
+	table.insert(keyCaster, { msg = "[Key Caster]" })
+	do
+		local toggle_hotkey = key_caster.toggle_hotkey or {}
+		append_section_line(
+			keyCaster,
+			toggle_hotkey.prefix,
+			toggle_hotkey.key,
+			toggle_hotkey.message or "Toggle Key Caster"
+		)
+	end
+
 	local WebsiteOpen = {}
 	table.insert(WebsiteOpen, { msg = "[Website Open]" })
 	append_config_items(WebsiteOpen, websites)
@@ -343,6 +356,12 @@ local function formatText()
 	table.insert(hotkeys, { msg = "" })
 
 	for _, v in ipairs(clipboardCenter) do
+		table.insert(hotkeys, { msg = v.msg })
+	end
+
+	table.insert(hotkeys, { msg = "" })
+
+	for _, v in ipairs(keyCaster) do
 		table.insert(hotkeys, { msg = v.msg })
 	end
 

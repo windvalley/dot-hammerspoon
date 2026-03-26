@@ -160,15 +160,23 @@ The menubar menu can also update the Clipboard Center hotkey at runtime. The ove
 
 Key Caster is designed for screen recording or live demos. When enabled, it listens for keyboard events and shows the latest key combination as an overlay on the active screen.
 
-There is no default hotkey. Enable or tune it in `~/.hammerspoon/keybindings_config.lua`:
+It now supports lightweight runtime control: by default, `⌃⌥⇧K` toggles it for the current Hammerspoon session, and the menubar entry can follow `auto`, `true`, or `false` visibility modes.
+
+You can enable or tune it in `~/.hammerspoon/keybindings_config.lua`:
 
 ```lua
 _M.key_caster = {
 	enabled = false,
+	show_menubar = "auto",
 	position = {
 		anchor = "bottom_center",
 		offset_x = 0,
 		offset_y = 140,
+	},
+	toggle_hotkey = {
+		prefix = { "Ctrl", "Option", "Shift" },
+		key = "K",
+		message = "Toggle Key Caster",
 	},
 	font = {
 		name = "Menlo Bold",
@@ -186,12 +194,16 @@ _M.key_caster = {
 }
 ```
 
-- `enabled`: whether the overlay is active. It is disabled by default to avoid visual noise during normal daily use.
+- `enabled`: whether the overlay starts enabled after Hammerspoon reload. It is disabled by default to avoid visual noise during normal daily use.
+- `show_menubar`: supports `auto`, `true`, or `false`. `auto` only shows the menubar entry while Key Caster is enabled; `true` keeps it visible all the time; runtime changes are session-only and reset after `hs.reload()`.
+- `toggle_hotkey`: configure the runtime on/off shortcut. Set `key = ""` to disable the hotkey entirely.
 - `position.anchor`: one of `top_left`, `top_center`, `top_right`, `center`, `bottom_left`, `bottom_center`, `bottom_right`.
 - `position.offset_x` and `position.offset_y`: fine tune the overlay position relative to the selected anchor.
 - `font`: configure the displayed font family and size.
 - `text_color` and `background_color`: configure overlay colors and alpha.
 - `duration_seconds`: how long each key overlay stays visible before it disappears.
+- The menubar menu provides a minimal runtime UI for enabling/disabling Key Caster and adjusting whether the icon is auto shown, always shown, or hidden for the current session.
+- You can also manage it from the Hammerspoon console with `package.loaded.key_caster.toggle()`, `package.loaded.key_caster.show_menubar()`, and `package.loaded.key_caster.auto_menubar()`.
 - Accessibility permission is required. If it is missing, startup will show a warning and the module may fail to capture key events.
 
 ### Application Launch or Hide

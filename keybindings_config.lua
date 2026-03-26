@@ -323,10 +323,19 @@ _M.clipboard = {
 _M.key_caster = {
 	-- 默认关闭，按需启用，避免日常输入时持续显示按键浮层
 	enabled = false,
+	-- auto: 启用时自动显示图标，关闭时自动隐藏
+	-- true: 始终显示图标
+	-- false: 始终隐藏图标
+	show_menubar = "auto",
 	position = {
 		anchor = "bottom_center",
 		offset_x = 0,
 		offset_y = 140,
+	},
+	toggle_hotkey = {
+		prefix = { "Ctrl", "Option", "Shift" },
+		key = "K",
+		message = "Toggle Key Caster",
 	},
 	font = {
 		name = "Menlo Bold",
