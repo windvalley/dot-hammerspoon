@@ -23,6 +23,7 @@ function _M.run()
 	local config = require("keybindings_config")
 	local break_reminder = config.break_reminder or {}
 	local key_caster = config.key_caster or {}
+	local selected_text_translate = config.selected_text_translate or {}
 
 	assert_equal(break_reminder.mode, "soft", "default break reminder mode should remain soft")
 	assert_equal(break_reminder.overlay_opacity, 0.32, "soft mode default opacity should stay translucent")
@@ -46,6 +47,20 @@ function _M.run()
 		type(key_caster.sequence_window_seconds) == "number" and key_caster.sequence_window_seconds >= 0.05,
 		"key caster sequence window should stay configurable with a sensible lower bound"
 	)
+	assert_equal(selected_text_translate.enabled, true, "selected_text_translate should stay enabled by default")
+	assert_equal(selected_text_translate.key, "R", "selected_text_translate should expose a default hotkey")
+	assert_equal(
+		selected_text_translate.target_language,
+		"简体中文",
+		"selected_text_translate should default to translating into Simplified Chinese"
+	)
+	assert_equal(
+		selected_text_translate.api_key_env,
+		"",
+		"selected_text_translate should allow local Ollama defaults without requiring an API key env var"
+	)
+	assert_equal(selected_text_translate.api_mode, "auto", "selected_text_translate should default to auto API mode")
+	assert_equal(selected_text_translate.disable_thinking, true, "selected_text_translate should disable thinking by default")
 
 	reset_modules()
 end

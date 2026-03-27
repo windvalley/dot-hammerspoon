@@ -19,6 +19,7 @@ local module_specs = {
 	{ name = "keep_awake", description = "持续工作/防休眠" },
 	{ name = "website_open", description = "网站快捷访问" },
 	{ name = "clipboard_center", description = "剪贴板历史" },
+	{ name = "selected_text_translate", description = "翻译当前选中的文本" },
 	{ name = "manual_input_method", description = "切换到指定输入法" },
 	{ name = "auto_input_method", description = "根据应用不同自动切换输入法" },
 	{ name = "bing_daily_wallpaper", description = "同步 Bing Daily Picture 壁纸" },

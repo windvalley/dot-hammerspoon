@@ -7,6 +7,7 @@ local keybindings_cheatsheet = require("keybindings_config").keybindings_cheatsh
 local input_methods = require("keybindings_config").manual_input_methods
 local system = require("keybindings_config").system
 local clipboard = require("keybindings_config").clipboard or {}
+local selected_text_translate = require("keybindings_config").selected_text_translate or {}
 local key_caster = require("keybindings_config").key_caster or {}
 local websites = require("keybindings_config").websites
 local apps = require("keybindings_config").apps
@@ -267,6 +268,20 @@ local function formatText()
 		append_section_line(clipboardCenter, clipboard_modifiers, clipboard_key, clipboard.message)
 	end
 
+	local selectedTextTranslate = {}
+	if selected_text_translate.enabled ~= false then
+		append_section_line(
+			selectedTextTranslate,
+			selected_text_translate.prefix,
+			selected_text_translate.key,
+			selected_text_translate.message or "Translate Selection"
+		)
+	end
+
+	if #selectedTextTranslate > 0 then
+		table.insert(selectedTextTranslate, 1, { msg = "[Selected Text Translate]" })
+	end
+
 	local keyCaster = {}
 	table.insert(keyCaster, { msg = "[Key Caster]" })
 	do
@@ -369,6 +384,14 @@ local function formatText()
 	end
 
 	table.insert(hotkeys, { msg = "" })
+
+	if #selectedTextTranslate > 0 then
+		for _, v in ipairs(selectedTextTranslate) do
+			table.insert(hotkeys, { msg = v.msg })
+		end
+
+		table.insert(hotkeys, { msg = "" })
+	end
 
 	for _, v in ipairs(keyCaster) do
 		table.insert(hotkeys, { msg = v.msg })

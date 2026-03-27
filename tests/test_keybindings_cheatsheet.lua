@@ -184,6 +184,12 @@ function _M.run()
 			key = "C",
 			message = "Clipboard Center",
 		},
+		selected_text_translate = {
+			enabled = true,
+			prefix = { "Option" },
+			key = "R",
+			message = "Translate Selection",
+		},
 		key_caster = {
 			toggle_hotkey = {
 				prefix = { "Command", "Ctrl" },
@@ -268,6 +274,8 @@ function _M.run()
 	local rendered = table.concat(recorded.rendered_text, "\n")
 	assert_contains(rendered, "⌃ ⇧ X: Clipboard Center", "clipboard hotkey should use runtime override")
 	assert_contains(rendered, "⌃ ⌥ A: Toggle Prevent Sleep", "keep awake hotkey should use runtime override")
+	assert_contains(rendered, "[Selected Text Translate]", "selected text translate section should be rendered in cheatsheet")
+	assert_contains(rendered, "⌥ R: Translate Selection", "selected text translate hotkey should be rendered in cheatsheet")
 	assert_contains(rendered, "[Key Caster]", "key caster section should be rendered in cheatsheet")
 	assert_contains(rendered, "⌘ ⌃ K: Toggle Key Cas", "key caster toggle hotkey should be rendered in cheatsheet")
 	assert_contains(rendered, "⌥ /: Cheatsheet", "cheatsheet should render its own configured shortcut")
@@ -395,6 +403,12 @@ function _M.run()
 			prefix = { "Option", "Shift" },
 			key = "C",
 			message = "Clipboard Center",
+		},
+		selected_text_translate = {
+			enabled = true,
+			prefix = { "Option" },
+			key = "R",
+			message = "Translate Selection",
 		},
 		key_caster = {
 			toggle_hotkey = {

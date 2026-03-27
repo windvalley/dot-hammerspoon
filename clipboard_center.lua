@@ -145,8 +145,17 @@ local state = {
 	chooser_screen_frame = nil,
 	suppressed_signature = nil,
 	suppressed_at = nil,
+	capture_suspended_until = nil,
 	menubar_icon = nil,
 }
+
+local function current_absolute_time()
+	if type(hs.timer) == "table" and type(hs.timer.absoluteTime) == "function" then
+		return tonumber(hs.timer.absoluteTime()) or 0
+	end
+
+	return 0
+end
 
 local function normalize_number(value, fallback, minimum)
 	local number = tonumber(value)
@@ -2031,7 +2040,35 @@ local function current_clipboard_item()
 	return build_text_history_item(hs.pasteboard.getContents(), timestamp)
 end
 
+local function capture_is_suspended()
+	if state.capture_suspended_until == nil then
+		return false
+	end
+
+	if current_absolute_time() <= state.capture_suspended_until then
+		return true
+	end
+
+	state.capture_suspended_until = nil
+
+	return false
+end
+
+local function suspend_capture(seconds)
+	local duration = tonumber(seconds) or 0
+
+	if duration <= 0 then
+		duration = 1
+	end
+
+	state.capture_suspended_until = current_absolute_time() + math.floor(duration * 1000000000)
+end
+
 local function handle_pasteboard_change(_)
+	if capture_is_suspended() == true then
+		return
+	end
+
 	local item = current_clipboard_item()
 
 	if item == nil then
@@ -2261,6 +2298,7 @@ function _M.stop()
 	destroy_chooser()
 	state.suppressed_signature = nil
 	state.suppressed_at = nil
+	state.capture_suspended_until = nil
 	history_loaded = false
 	startup_synchronized = false
 	started = false
@@ -2270,5 +2308,6 @@ end
 
 _M.show_chooser = show_chooser
 _M.clear_history = clear_history
+_M.suspend_capture = suspend_capture
 
 return _M

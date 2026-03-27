@@ -18,6 +18,7 @@
 - Switch to the specified input method.
 - Open the specified website directly.
 - Clipboard history with a menubar and chooser UI.
+- Translate selected text with an OpenAI-compatible model and show the result in a popup.
 - Toggle the keybindings cheatsheet.
 - Keep the desktop wallpaper the same as the bing daily picture.
 - Force a configurable break reminder, with support for soft or hard mode.
@@ -155,6 +156,43 @@ When the menubar menu is open, the first nine recent history items can also be r
 The menubar menu can also update the Clipboard Center hotkey at runtime. The override is persisted via `hs.settings`, and you can restore the file-configured hotkey from the same menu.
 
 `chooser_rows` controls how many rows are shown in the chooser, and `chooser_width` controls the chooser width as a percentage of the current screen width.
+
+### Selected Text Translate
+
+Select any text and press <kbd>⌥</kbd> + <kbd>R</kbd> to translate it into Simplified Chinese through an OpenAI-compatible `chat/completions` API. The translated text is shown in a popup, and the popup also lets you copy the result back to the clipboard.
+
+The module first tries to read the current accessibility selection directly. If that fails, it falls back to simulating <kbd>⌘</kbd> + <kbd>C</kbd>, reads the clipboard, then restores the previous clipboard contents. When Clipboard Center is enabled, the temporary copy/restore sequence is also suppressed from clipboard history.
+
+You can customize it in `~/.hammerspoon/keybindings_config.lua`:
+
+```lua
+_M.selected_text_translate = {
+	enabled = true,
+	prefix = { "Option" },
+	key = "R",
+	message = "Translate Selection",
+	target_language = "简体中文",
+	api_mode = "auto",
+	api_url = "http://localhost:11434/api/chat",
+	model = "qwen3.5:35b",
+	disable_thinking = true,
+	api_key_env = "",
+	api_key = "ollama",
+	request_timeout_seconds = 60,
+	clipboard_poll_interval_seconds = 0.05,
+	clipboard_max_wait_seconds = 0.4,
+}
+```
+
+`api_mode` supports `auto`, `ollama_native`, and `openai_compatible`. In `auto`, local `localhost:11434` requests will prefer Ollama’s native `/api/chat` endpoint so thinking models can use `think = false` by default for faster responses.
+
+If you switch back to a cloud OpenAI-compatible provider, change `api_url`, `model`, `api_key_env`, and `api_key` accordingly. For GUI-launched Hammerspoon, a practical way to expose the key is:
+
+```sh
+launchctl setenv OPENAI_API_KEY "your-api-key"
+```
+
+Then restart Hammerspoon so the app can read the variable.
 
 ### Key Caster
 
