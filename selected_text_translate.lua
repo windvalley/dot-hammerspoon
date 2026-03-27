@@ -1820,20 +1820,27 @@ local function resolve_popup_origin(screen_frame, width, height, anchor_bounds)
 	if anchor_bounds ~= nil then
 		local anchored_x = anchor_bounds.x + ((anchor_bounds.w - width) / 2)
 		local anchored_y = anchor_bounds.y - height - popup_anchor_gap
+		local placement = "above"
+		local below_y = anchor_bounds.y + anchor_bounds.h + popup_anchor_gap
 
-		if anchored_y < min_y then
-			anchored_y = anchor_bounds.y + anchor_bounds.h + popup_anchor_gap
+		if anchored_y < min_y and below_y <= max_y then
+			anchored_y = below_y
+			placement = "below"
+		elseif anchored_y < min_y then
+			anchored_y = min_y
 		end
 
 		return {
 			x = math.floor(clamp_number(anchored_x, min_x, max_x)),
 			y = math.floor(clamp_number(anchored_y, min_y, max_y)),
+			placement = placement,
 		}
 	end
 
 	return {
 		x = max_x,
 		y = min_y,
+		placement = "none",
 	}
 end
 
@@ -1866,14 +1873,36 @@ local function resolve_popup_layout(result, anchor_bounds)
 	height = math.min(max_height, math.max(min_height, height))
 	body_height = math.max(44, height - popup_chrome_height)
 	local popup_origin = resolve_popup_origin(screen_frame, width, height, anchor_bounds)
+	local surface_y = 0
+	local canvas_y = popup_origin.y
+	local canvas_height = height
+	local arrow_tip_x = nil
+
+	if anchor_bounds ~= nil then
+		local anchor_center_x = anchor_bounds.x + (anchor_bounds.w / 2)
+		local arrow_edge_inset = 16 + math.ceil(20 / 2) + 6
+		local max_arrow_x = math.max(arrow_edge_inset, width - arrow_edge_inset)
+
+		arrow_tip_x = math.floor(clamp_number(anchor_center_x - popup_origin.x, arrow_edge_inset, max_arrow_x) + 0.5)
+		canvas_height = height + 8
+
+		if popup_origin.placement == "below" then
+			surface_y = 8
+			canvas_y = popup_origin.y - 8
+		end
+	end
 
 	return {
 		x = popup_origin.x,
-		y = popup_origin.y,
+		y = canvas_y,
 		w = width,
-		h = height,
+		h = canvas_height,
+		surface_y = surface_y,
+		surface_h = height,
 		body_width = body_width,
 		body_height = body_height,
+		placement = popup_origin.placement,
+		arrow_tip_x = arrow_tip_x,
 	}
 end
 
@@ -1949,8 +1978,47 @@ local function show_translation_popup(result, anchor_bounds)
 	end
 
 	local theme = popup_theme_colors()
+	local arrow_fill = nil
+	local arrow_border = nil
+
+	if layout.arrow_tip_x ~= nil then
+		local half_width = 10
+		local base_y = layout.surface_y + 0.5
+		local tip_y = 0.5
+
+		if layout.placement ~= "below" then
+			base_y = layout.surface_y + layout.surface_h - 0.5
+			tip_y = layout.h - 0.5
+		end
+
+		local coordinates = {
+			{ x = layout.arrow_tip_x - half_width, y = base_y },
+			{ x = layout.arrow_tip_x, y = tip_y },
+			{ x = layout.arrow_tip_x + half_width, y = base_y },
+		}
+		arrow_fill = {
+			id = "arrow_fill",
+			type = "segments",
+			action = "fill",
+			closed = true,
+			fillColor = theme.background,
+			coordinates = coordinates,
+		}
+		arrow_border = {
+			id = "arrow_border",
+			type = "segments",
+			action = "stroke",
+			closed = false,
+			strokeColor = theme.border,
+			strokeWidth = 1,
+			strokeJoinStyle = "round",
+			strokeCapStyle = "round",
+			coordinates = coordinates,
+		}
+	end
+
 	local copy_button_x = layout.w - popup_copy_button_size - popup_copy_button_inset
-	local copy_button_y = 10
+	local copy_button_y = layout.surface_y + 10
 	local copy_back_icon_frame = {
 		x = copy_button_x + 9,
 		y = copy_button_y + 6,
@@ -1964,7 +2032,13 @@ local function show_translation_popup(result, anchor_bounds)
 		h = 11,
 	}
 
-	canvas:appendElements({
+	local elements = {}
+
+	if arrow_fill ~= nil then
+		table.insert(elements, arrow_fill)
+	end
+
+	table.insert(elements, {
 		id = "background",
 		type = "rectangle",
 		action = "fill",
@@ -1984,11 +2058,12 @@ local function show_translation_popup(result, anchor_bounds)
 		},
 		frame = {
 			x = 0,
-			y = 0,
+			y = layout.surface_y,
 			w = layout.w,
-			h = layout.h,
+			h = layout.surface_h,
 		},
-	}, {
+	})
+	table.insert(elements, {
 		id = "border",
 		type = "rectangle",
 		action = "stroke",
@@ -2000,11 +2075,17 @@ local function show_translation_popup(result, anchor_bounds)
 		},
 		frame = {
 			x = 0.5,
-			y = 0.5,
+			y = layout.surface_y + 0.5,
 			w = layout.w - 1,
-			h = layout.h - 1,
+			h = layout.surface_h - 1,
 		},
-	}, {
+	})
+
+	if arrow_border ~= nil then
+		table.insert(elements, arrow_border)
+	end
+
+	table.insert(elements, {
 		id = "title",
 		type = "text",
 		text = popup_title(),
@@ -2012,11 +2093,12 @@ local function show_translation_popup(result, anchor_bounds)
 		textColor = theme.title,
 		frame = {
 			x = 18,
-			y = 14,
+			y = layout.surface_y + 14,
 			w = layout.w - 68,
 			h = 18,
 		},
-	}, {
+	})
+	table.insert(elements, {
 		id = "copy_button",
 		type = "rectangle",
 		action = "fill",
@@ -2032,7 +2114,8 @@ local function show_translation_popup(result, anchor_bounds)
 		},
 		trackMouseDown = true,
 		trackMouseByBounds = true,
-	}, {
+	})
+	table.insert(elements, {
 		id = "copy_icon_back",
 		type = "rectangle",
 		action = "stroke",
@@ -2045,7 +2128,8 @@ local function show_translation_popup(result, anchor_bounds)
 		frame = copy_back_icon_frame,
 		trackMouseDown = true,
 		trackMouseByBounds = true,
-	}, {
+	})
+	table.insert(elements, {
 		id = "copy_icon_front",
 		type = "rectangle",
 		action = "stroke",
@@ -2058,18 +2142,20 @@ local function show_translation_popup(result, anchor_bounds)
 		frame = copy_front_icon_frame,
 		trackMouseDown = true,
 		trackMouseByBounds = true,
-	}, {
+	})
+	table.insert(elements, {
 		id = "divider",
 		type = "rectangle",
 		action = "fill",
 		fillColor = theme.divider,
 		frame = {
 			x = 18,
-			y = popup_divider_y,
+			y = layout.surface_y + popup_divider_y,
 			w = layout.w - 36,
 			h = 1,
 		},
-	}, {
+	})
+	table.insert(elements, {
 		id = "body",
 		type = "text",
 		text = result,
@@ -2077,11 +2163,13 @@ local function show_translation_popup(result, anchor_bounds)
 		textColor = theme.body,
 		frame = {
 			x = 18,
-			y = popup_body_top,
+			y = layout.surface_y + popup_body_top,
 			w = layout.body_width,
 			h = layout.body_height,
 		},
 	})
+
+	canvas:appendElements(table.unpack(elements))
 
 	if type(canvas.mouseCallback) == "function" then
 		canvas:mouseCallback(function(_, callback_message, element_id)
