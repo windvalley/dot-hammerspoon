@@ -179,10 +179,19 @@ _M.selected_text_translate = {
 	api_key_env = "",
 	api_key = "ollama",
 	request_timeout_seconds = 60,
+	popup_duration_seconds = 10,
+	popup_theme = "paper",
+	popup_background_alpha = 0.88,
 	clipboard_poll_interval_seconds = 0.05,
 	clipboard_max_wait_seconds = 0.4,
 }
 ```
+
+The translation popup supports a lightweight floating-card style. By default it auto-hides after `popup_duration_seconds`; when the mouse hovers over the popup, auto-hide pauses and resumes after the mouse leaves.
+
+`popup_theme` now uses preset themes, and `popup_background_alpha` controls transparency separately. Built-in themes: `paper`, `mist`, `graphite`, `slate`, `ocean`, `forest`, `amber`, `rose`, `cocoa`, `mint`.
+
+The older `popup_background = "#RRGGBB"` / `"#RRGGBBAA"` and `popup_background_color` fields still work for compatibility, but the preset theme approach is recommended because it keeps background, border, text, and copy-button colors coordinated.
 
 `api_mode` supports `auto`, `ollama_native`, and `openai_compatible`. In `auto`, local `localhost:11434` requests will prefer Ollama’s native `/api/chat` endpoint so thinking models can use `think = false` by default for faster responses.
 

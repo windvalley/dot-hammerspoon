@@ -88,16 +88,12 @@ _M.auto_input_methods = {
 	["org.hammerspoon.Hammerspoon"] = pinyin,
 	["com.apple.finder"] = pinyin,
 	["com.apple.Spotlight"] = pinyin,
-	["org.alacritty"] = pinyin,
-	["dev.warp.Warp-Stable"] = pinyin,
 	["com.google.Chrome"] = pinyin,
-	["org.virtualbox.app.VirtualBox"] = pinyin,
 	["com.postmanlabs.mac"] = pinyin,
 	["com.tencent.xinWeChat"] = pinyin,
 	["com.apple.mail"] = pinyin,
 	["com.microsoft.Excel"] = pinyin,
 	["mac.im.qihoo.net"] = pinyin,
-	["ynote-desktop"] = pinyin,
 	["md.obsidian"] = pinyin,
 	["com.microsoft.VSCode"] = pinyin,
 	["com.google.antigravity"] = pinyin,
@@ -343,6 +339,16 @@ _M.selected_text_translate = {
 	api_key = "",
 	-- 请求超时秒数
 	request_timeout_seconds = 20,
+	-- 翻译结果悬浮窗默认停留秒数；设为 0 表示不自动关闭
+	popup_duration_seconds = 5,
+	-- 悬浮窗主题预设，可选：
+	-- paper / mist / graphite / slate / ocean
+	-- forest / amber / rose / cocoa / mint
+	popup_theme = "slate",
+	-- 悬浮窗透明度，单独控制；0 为全透明，1 为不透明
+	popup_background_alpha = 0.88,
+	-- 兼容旧写法：popup_background 或 popup_background_color
+	-- popup_background = "#FAFAFA",
 	-- 选区无法直接读取时，模拟复制后等待剪贴板更新的轮询参数
 	clipboard_poll_interval_seconds = 0.05,
 	clipboard_max_wait_seconds = 0.4,
