@@ -345,6 +345,17 @@ _M.selected_text_translate = {
 	-- 选区无法直接读取时，模拟复制后等待剪贴板更新的轮询参数
 	clipboard_poll_interval_seconds = 0.05,
 	clipboard_max_wait_seconds = 0.4,
+	-- 某些终端（例如 Ghostty / zellij）选中文本后会自动写入剪贴板，可直接读取当前剪贴板
+	selection_auto_copy_by_bundle_id = {
+		["com.mitchellh.ghostty"] = true,
+	},
+	-- 如果某个应用不是自动复制，而是使用特殊复制键，可在这里按 bundle id 指定
+	-- copy_shortcuts_by_bundle_id = {
+	-- 	["com.example.Terminal"] = {
+	-- 		modifiers = { "Command", "Shift" },
+	-- 		key = "c",
+	-- 	},
+	-- },
 	-- 模型服务配置
 	model_service = {
 		-- 可选: ollama / openai_compatible / gemini / anthropic

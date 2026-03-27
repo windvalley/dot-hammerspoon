@@ -161,7 +161,7 @@ The menubar menu can also update the Clipboard Center hotkey at runtime. The ove
 
 Select any text and press <kbd>⌥</kbd> + <kbd>R</kbd> to translate it through an OpenAI-compatible `chat/completions` API. By default, non-Chinese text is translated into Simplified Chinese, while text containing Chinese characters is translated into English. The translated text is shown in a popup, and the popup also lets you copy the result back to the clipboard.
 
-The module first tries to read the current accessibility selection directly. If that fails, it falls back to simulating <kbd>⌘</kbd> + <kbd>C</kbd>, reads the clipboard, then restores the previous clipboard contents. When Clipboard Center is enabled, the temporary copy/restore sequence is also suppressed from clipboard history.
+The module first tries to read the current accessibility selection directly. If that fails, it can either read the current clipboard directly for apps that auto-copy selections, or simulate a copy shortcut and then restore the previous clipboard contents. The default fallback shortcut is <kbd>⌘</kbd> + <kbd>C</kbd>. When Clipboard Center is enabled, the temporary copy/restore sequence is also suppressed from clipboard history.
 
 It also adds a menubar entry, so you can adjust the main settings at runtime and persist them through `hs.settings`, including the hotkey, translation direction, target languages, popup theme, popup timing, and provider-grouped model service settings (`api_url`, `model`, and a locally saved API key). A `恢复默认` action clears these menu overrides and goes back to `keybindings_config.lua`.
 
@@ -182,6 +182,9 @@ _M.selected_text_translate = {
 	popup_background_alpha = 0.88,
 	clipboard_poll_interval_seconds = 0.05,
 	clipboard_max_wait_seconds = 0.4,
+	selection_auto_copy_by_bundle_id = {
+		["com.mitchellh.ghostty"] = true,
+	},
 	model_service = {
 		provider = "ollama",
 		request_timeout_seconds = 20,
@@ -215,6 +218,10 @@ _M.selected_text_translate = {
 ```
 
 The translation popup supports a lightweight floating-card style. By default it auto-hides after `popup_duration_seconds`; when the mouse hovers over the popup, auto-hide pauses and resumes after the mouse leaves.
+
+`selection_auto_copy_by_bundle_id` tells the module to trust the current clipboard directly for specific apps. This is useful for terminals such as Ghostty when selected text is already copied automatically, including common zellij setups.
+
+If an app does not auto-copy, but uses a nonstandard copy shortcut, you can still configure `copy_shortcuts_by_bundle_id` to override the fallback keystroke per bundle ID.
 
 `popup_theme` now uses preset themes, and `popup_background_alpha` controls transparency separately. Built-in themes: `paper`, `mist`, `graphite`, `slate`, `ocean`, `forest`, `amber`, `rose`, `cocoa`, `mint`.
 

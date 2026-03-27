@@ -2626,14 +2626,20 @@ local function wait_for_copied_selection(snapshot, remaining_attempts, callback)
 			copied_text = sanitize_selected_text(hs.pasteboard.getContents())
 		end
 
-		restore_clipboard(snapshot)
-		callback(copied_text, copied_text ~= nil and nil or "当前选区不是可复制文本")
+		callback({
+			copied_text = copied_text,
+			error_message = copied_text ~= nil and nil or "当前选区不是可复制文本",
+			clipboard_changed = true,
+		})
 		return
 	end
 
 	if remaining_attempts <= 0 then
-		restore_clipboard(snapshot)
-		callback(nil, "未检测到选中文本，请确认应用支持复制")
+		callback({
+			copied_text = nil,
+			error_message = "未检测到选中文本，请确认应用支持复制",
+			clipboard_changed = false,
+		})
 		return
 	end
 
@@ -2664,9 +2670,116 @@ local function capture_selection_from_clipboard(callback)
 	end
 
 	local snapshot = snapshot_clipboard()
+	local config = current_config()
+	local copy_shortcuts = {}
+	local seen_shortcuts = {}
+	local frontmost_bundle_id = nil
+
+	if type(hs.application) == "table" and type(hs.application.frontmostApplication) == "function" then
+		local app_ok, frontmost_app = pcall(hs.application.frontmostApplication)
+
+		if app_ok == true and frontmost_app ~= nil and type(frontmost_app.bundleID) == "function" then
+			local bundle_ok, bundle_id = pcall(frontmost_app.bundleID, frontmost_app)
+
+			if bundle_ok == true and type(bundle_id) == "string" and bundle_id ~= "" then
+				frontmost_bundle_id = bundle_id
+			end
+		end
+	end
+
+	if
+		frontmost_bundle_id ~= nil
+		and type(config.selection_auto_copy_by_bundle_id) == "table"
+		and config.selection_auto_copy_by_bundle_id[frontmost_bundle_id] == true
+	then
+		local clipboard_text = sanitize_selected_text(snapshot.text)
+
+		if clipboard_text ~= nil then
+			callback(clipboard_text, nil)
+			return
+		end
+	end
+
+	local function append_copy_shortcut(shortcut)
+		if type(shortcut) ~= "table" then
+			return
+		end
+
+		local modifiers = normalize_hotkey_modifiers(shortcut.modifiers or shortcut.prefix or {})
+		local key = normalize_hotkey_key(shortcut.key)
+
+		if modifiers == nil or key == nil then
+			return
+		end
+
+		local signature = table.concat(modifiers, "+") .. ":" .. key
+
+		if seen_shortcuts[signature] == true then
+			return
+		end
+
+		seen_shortcuts[signature] = true
+		table.insert(copy_shortcuts, {
+			modifiers = modifiers,
+			key = key,
+		})
+	end
+
+	local function append_copy_shortcut_group(shortcut_group)
+		if type(shortcut_group) ~= "table" then
+			return
+		end
+
+		if shortcut_group.key ~= nil then
+			append_copy_shortcut(shortcut_group)
+			return
+		end
+
+		for _, shortcut in ipairs(shortcut_group) do
+			append_copy_shortcut(shortcut)
+		end
+	end
+
+	if frontmost_bundle_id ~= nil and type(config.copy_shortcuts_by_bundle_id) == "table" then
+		append_copy_shortcut_group(config.copy_shortcuts_by_bundle_id[frontmost_bundle_id])
+	end
+
+	append_copy_shortcut({
+		modifiers = { "cmd" },
+		key = "c",
+	})
+
+	local function finish_capture(copied_text, error_message)
+		restore_clipboard(snapshot)
+		callback(copied_text, error_message)
+	end
+
+	local function try_copy_shortcut(index)
+		local shortcut = copy_shortcuts[index]
+
+		if shortcut == nil then
+			finish_capture(nil, "未检测到选中文本，请确认应用支持复制")
+			return
+		end
+
+		hs.eventtap.keyStroke(copy_list(shortcut.modifiers), shortcut.key, 0)
+		wait_for_copied_selection(snapshot, clipboard_poll_attempts(), function(result)
+			if result.copied_text ~= nil then
+				finish_capture(result.copied_text, nil)
+				return
+			end
+
+			if result.clipboard_changed ~= true and copy_shortcuts[index + 1] ~= nil then
+				try_copy_shortcut(index + 1)
+				return
+			end
+
+			finish_capture(nil, result.error_message)
+		end)
+	end
+
 	suspend_clipboard_history(clipboard_max_wait_seconds() + 0.5)
-	hs.eventtap.keyStroke({ "cmd" }, "c", 0)
-	wait_for_copied_selection(snapshot, clipboard_poll_attempts(), callback)
+	try_copy_shortcut(1)
 end
 
 local function translate_current_selection()

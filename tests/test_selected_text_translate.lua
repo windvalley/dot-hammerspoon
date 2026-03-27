@@ -975,6 +975,11 @@ function _M.run()
 			end,
 		},
 		timer = create_timer_stub(fallback_recorded),
+		application = {
+			frontmostApplication = function()
+				return nil
+			end,
+		},
 		uielement = {
 			focusedElement = function()
 				return {
@@ -1113,6 +1118,197 @@ function _M.run()
 	assert_equal(#fallback_recorded.alerts, 0, "closing the popup should not emit extra alerts")
 	assert_true(translator.stop(), "translator stop should succeed after clipboard fallback")
 	assert_equal(fallback_recorded.deleted_bindings, 1, "translator stop should delete its hotkey binding in fallback path")
+
+	reset_modules()
+
+	local ghostty_recorded = {
+		alerts = {},
+		block_alerts = {},
+		pasteboard_sets = {},
+		async_posts = {},
+		deleted_bindings = 0,
+		change_count = 9,
+		clipboard_text = "selected from ghostty auto copy",
+		suspended_capture = nil,
+		key_stroke = nil,
+		timers = {},
+		stopped_timers = 0,
+	}
+
+	rawset(os, "getenv", function(name)
+		if name == "OPENAI_API_KEY" then
+			return "sk-ghostty"
+		end
+
+		return original_getenv(name)
+	end)
+
+	hs = {
+		logger = {
+			new = function()
+				return {
+					i = function() end,
+					w = function() end,
+					e = function() end,
+				}
+			end,
+		},
+		alert = {
+			show = function(message)
+				table.insert(ghostty_recorded.alerts, message)
+			end,
+		},
+		dialog = {
+			blockAlert = function(message, informative_text)
+				table.insert(ghostty_recorded.block_alerts, {
+					message = message,
+					informative_text = informative_text,
+				})
+
+				return "关闭"
+			end,
+		},
+		timer = create_timer_stub(ghostty_recorded),
+		application = {
+			frontmostApplication = function()
+				return {
+					bundleID = function()
+						return "com.mitchellh.ghostty"
+					end,
+				}
+			end,
+		},
+			uielement = {
+				focusedElement = function()
+					return {
+						selectedText = function()
+							return nil
+					end,
+				}
+			end,
+			},
+			eventtap = {
+				keyStroke = function(modifiers, key)
+					ghostty_recorded.key_stroke = {
+						modifiers = modifiers,
+						key = key,
+					}
+					ghostty_recorded.clipboard_text = "selected from ghostty copy"
+					ghostty_recorded.change_count = ghostty_recorded.change_count + 1
+				end,
+			},
+		json = {
+			encode = function(value)
+				ghostty_recorded.encoded_payload = value
+				return "encoded-payload"
+			end,
+			decode = function(_)
+				return {
+					choices = {
+						{
+							message = {
+								content = "Ghostty 译文",
+							},
+						},
+					},
+				}
+			end,
+		},
+		http = {
+			asyncPost = function(url, data, headers, callback)
+				table.insert(ghostty_recorded.async_posts, {
+					url = url,
+					data = data,
+					headers = headers,
+				})
+				callback(200, "{\"ok\":true}", {})
+			end,
+		},
+		pasteboard = {
+			getContents = function()
+				return ghostty_recorded.clipboard_text
+			end,
+			setContents = function(value)
+				table.insert(ghostty_recorded.pasteboard_sets, value)
+				ghostty_recorded.clipboard_text = value
+				ghostty_recorded.change_count = ghostty_recorded.change_count + 1
+				return true
+			end,
+			changeCount = function()
+				return ghostty_recorded.change_count
+			end,
+			readImage = function()
+				return nil
+			end,
+			clearContents = function()
+				ghostty_recorded.clipboard_text = nil
+				ghostty_recorded.change_count = ghostty_recorded.change_count + 1
+			end,
+		},
+	}
+
+	loaded_modules["keybindings_config"] = {
+		selected_text_translate = {
+			enabled = true,
+			prefix = { "Option" },
+			key = "R",
+			message = "Translate Selection",
+			target_language = "简体中文",
+			clipboard_poll_interval_seconds = 0.05,
+			clipboard_max_wait_seconds = 0.3,
+			selection_auto_copy_by_bundle_id = {
+				["com.mitchellh.ghostty"] = true,
+			},
+			model_service = build_model_service({
+				provider = "openai_compatible",
+				openai_compatible = {
+					api_url = "https://example.com/v1/chat/completions",
+					model = "gpt-ghostty",
+					api_key_env = "OPENAI_API_KEY",
+				},
+			}),
+		},
+	}
+	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(ghostty_recorded)
+	loaded_modules["utils_lib"] = {
+		trim = function(value)
+			return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		end,
+		copy_list = function(items)
+			local copied = {}
+
+			for _, item in ipairs(items or {}) do
+				table.insert(copied, item)
+			end
+
+			return copied
+		end,
+	}
+	loaded_modules["clipboard_center"] = {
+		suspend_capture = function(seconds)
+			ghostty_recorded.suspended_capture = seconds
+		end,
+	}
+
+	translator = require("selected_text_translate")
+
+	assert_true(translator.start(), "translator should start successfully for Ghostty clipboard fallback")
+	ghostty_recorded.bound_handler()
+
+	assert_true(ghostty_recorded.key_stroke == nil, "Ghostty auto-copy fallback should not simulate an extra copy keystroke")
+	assert_equal(
+		ghostty_recorded.encoded_payload.messages[2].content,
+		"selected from ghostty auto copy",
+		"Ghostty auto-copy fallback should translate the current clipboard selection"
+	)
+	assert_equal(#ghostty_recorded.pasteboard_sets, 0, "Ghostty auto-copy fallback should not rewrite the clipboard")
+	assert_equal(
+		ghostty_recorded.block_alerts[1].informative_text,
+		"Ghostty 译文",
+		"Ghostty auto-copy fallback should still show the translated result"
+	)
+	assert_true(translator.stop(), "translator stop should succeed after Ghostty auto-copy fallback")
+	assert_equal(ghostty_recorded.deleted_bindings, 1, "translator stop should delete its hotkey binding after Ghostty auto-copy fallback")
 
 	reset_modules()
 
