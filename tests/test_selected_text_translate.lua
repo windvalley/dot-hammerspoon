@@ -992,6 +992,7 @@ function _M.run()
 		block_alerts = {},
 		pasteboard_sets = {},
 		async_posts = {},
+		encoded_payloads = {},
 		deleted_bindings = 0,
 		timers = {},
 		stopped_timers = 0,
@@ -1051,6 +1052,7 @@ function _M.run()
 		},
 		json = {
 			encode = function(value)
+				table.insert(ollama_recorded.encoded_payloads, value)
 				ollama_recorded.encoded_payload = value
 				return "encoded-payload"
 			end,
@@ -1092,6 +1094,8 @@ function _M.run()
 			api_mode = "auto",
 			api_url = "http://localhost:11434/v1/chat/completions",
 			model = "qwen3.5:35b",
+			enable_model_warmup = true,
+			model_keep_alive = "30m",
 			api_key_env = "",
 			api_key = "ollama",
 			disable_thinking = true,
@@ -1116,10 +1120,21 @@ function _M.run()
 	translator = require("selected_text_translate")
 
 	assert_true(translator.start(), "translator should start successfully for local ollama mode")
+	assert_equal(ollama_recorded.timers[1].seconds, 3, "local Ollama mode should schedule a delayed warmup")
+	ollama_recorded.timers[1].callback()
+	assert_equal(#ollama_recorded.async_posts, 1, "warmup should issue one silent request")
+	assert_equal(
+		ollama_recorded.encoded_payloads[1].keep_alive,
+		"30m",
+		"warmup should include the configured keep_alive value"
+	)
+	assert_equal(ollama_recorded.encoded_payloads[1].model, "qwen3.5:35b", "warmup should target the configured model")
+	assert_true(ollama_recorded.encoded_payloads[1].messages == nil, "warmup should use a minimal preload payload")
+	assert_equal(ollama_recorded.shown_canvases, 0, "warmup should not show a popup")
 	ollama_recorded.bound_handler()
 
 	assert_equal(
-		ollama_recorded.async_posts[1].url,
+		ollama_recorded.async_posts[2].url,
 		"http://localhost:11434/api/chat",
 		"auto mode should route local Ollama requests to the native chat endpoint"
 	)
@@ -1127,6 +1142,11 @@ function _M.run()
 		ollama_recorded.encoded_payload.think,
 		false,
 		"local Ollama mode should disable thinking by default when configured"
+	)
+	assert_equal(
+		ollama_recorded.encoded_payload.keep_alive,
+		"30m",
+		"local Ollama mode should include keep_alive in the translation request"
 	)
 	assert_equal(
 		ollama_recorded.encoded_payload.stream,

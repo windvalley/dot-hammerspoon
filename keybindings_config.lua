@@ -340,6 +340,10 @@ _M.selected_text_translate = {
 	api_url = "http://localhost:11434/api/chat",
 	-- 建议按需改成自己常用的模型
 	model = "qwen3.5:35b",
+	-- 启动后静默预热一次本地模型，减少首次翻译冷启动延迟
+	enable_model_warmup = true,
+	-- 仅对 Ollama 生效，表示模型在最后一次请求后尽量保活 30 分钟
+	model_keep_alive = "30m",
 	-- 对支持 thinking 的本地模型，默认关闭 thinking 以提升响应速度
 	disable_thinking = true,
 	-- 优先从这个环境变量读取 API Key；也可以留空后在菜单栏里直接填写并持久化

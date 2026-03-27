@@ -27,6 +27,7 @@ local default_chinese_target_language = "英文"
 local default_translation_direction = "auto"
 local default_request_message = "Translate Selection"
 local default_popup_title = "翻译结果"
+local default_model_warmup_delay_seconds = 3
 local default_request_timeout_seconds = 20
 local default_clipboard_poll_interval_seconds = 0.05
 local default_clipboard_max_wait_seconds = 0.4
@@ -56,81 +57,83 @@ local popup_divider_y = 46
 local popup_chrome_height = 74
 local popup_copy_button_size = 28
 local popup_copy_button_inset = 14
-local target_language_presets = {
-	"简体中文",
-	"繁體中文",
-	"英文",
-	"日文",
-	"韩文",
-	"法文",
-	"德文",
-}
-local chinese_target_language_presets = {
-	"繁體中文",
-	"英文",
-	"日文",
-	"韩文",
-	"法文",
-	"德文",
-}
-local popup_duration_presets = {
-	0,
-	5,
-	8,
-	10,
-	15,
-	20,
-}
-local popup_alpha_presets = {
-	0.72,
-	0.82,
-	0.88,
-	0.94,
-	1,
-}
-local request_timeout_presets = {
-	15,
-	20,
-	30,
-	60,
-}
-local popup_theme_order = {
-	"paper",
-	"mist",
-	"graphite",
-	"slate",
-	"ocean",
-	"forest",
-	"amber",
-	"rose",
-	"cocoa",
-	"mint",
-}
-local popup_theme_labels = {
-	paper = "Paper 米白",
-	mist = "Mist 清雾",
-	graphite = "Graphite 石墨",
-	slate = "Slate 岩蓝",
-	ocean = "Ocean 深海",
-	forest = "Forest 松林",
-	amber = "Amber 琥珀",
-	rose = "Rose 玫瑰",
-	cocoa = "Cocoa 可可",
-	mint = "Mint 薄荷",
-}
-local api_mode_order = {
-	"auto",
-	"ollama_native",
-	"openai_compatible",
-}
-local api_mode_labels = {
-	auto = "自动",
-	ollama_native = "Ollama 原生",
-	openai_compatible = "OpenAI 兼容",
-}
-local translation_direction_labels = {
-	auto = "自动双向",
-	to_target = "固定目标语言",
+local menu_options = {
+	target_language_presets = {
+		"简体中文",
+		"繁體中文",
+		"英文",
+		"日文",
+		"韩文",
+		"法文",
+		"德文",
+	},
+	chinese_target_language_presets = {
+		"繁體中文",
+		"英文",
+		"日文",
+		"韩文",
+		"法文",
+		"德文",
+	},
+	popup_duration_presets = {
+		0,
+		5,
+		8,
+		10,
+		15,
+		20,
+	},
+	popup_alpha_presets = {
+		0.72,
+		0.82,
+		0.88,
+		0.94,
+		1,
+	},
+	request_timeout_presets = {
+		15,
+		20,
+		30,
+		60,
+	},
+	popup_theme_order = {
+		"paper",
+		"mist",
+		"graphite",
+		"slate",
+		"ocean",
+		"forest",
+		"amber",
+		"rose",
+		"cocoa",
+		"mint",
+	},
+	popup_theme_labels = {
+		paper = "Paper 米白",
+		mist = "Mist 清雾",
+		graphite = "Graphite 石墨",
+		slate = "Slate 岩蓝",
+		ocean = "Ocean 深海",
+		forest = "Forest 松林",
+		amber = "Amber 琥珀",
+		rose = "Rose 玫瑰",
+		cocoa = "Cocoa 可可",
+		mint = "Mint 薄荷",
+	},
+	api_mode_order = {
+		"auto",
+		"ollama_native",
+		"openai_compatible",
+	},
+	api_mode_labels = {
+		auto = "自动",
+		ollama_native = "Ollama 原生",
+		openai_compatible = "OpenAI 兼容",
+	},
+	translation_direction_labels = {
+		auto = "自动双向",
+		to_target = "固定目标语言",
+	},
 }
 local popup_theme_presets = {
 	paper = {
@@ -243,6 +246,7 @@ local state = {
 	request_id = 0,
 	request_timeout_timer = nil,
 	clipboard_poll_timer = nil,
+	model_warmup_timer = nil,
 	popup_canvas = nil,
 	popup_frame = nil,
 	popup_hide_timer = nil,
@@ -452,6 +456,11 @@ end
 local function clear_clipboard_poll_timer()
 	stop_timer(state.clipboard_poll_timer)
 	state.clipboard_poll_timer = nil
+end
+
+local function clear_model_warmup_timer()
+	stop_timer(state.model_warmup_timer)
+	state.model_warmup_timer = nil
 end
 
 local function clear_popup_hide_timer()
@@ -900,6 +909,22 @@ local function api_key()
 	end
 
 	return trim(tostring(os.getenv(env_name) or ""))
+end
+
+local function model_keep_alive()
+	local config = current_config()
+	local keep_alive = trim(tostring(config.model_keep_alive or ""))
+
+	if keep_alive == "" then
+		return nil
+	end
+
+	return keep_alive
+end
+
+local function enable_model_warmup()
+	local config = current_config()
+	return config.enable_model_warmup == true
 end
 
 local function sanitize_selected_text(text)
@@ -1971,6 +1996,118 @@ local function show_request_error(message)
 	hs.alert.show(message)
 end
 
+local function apply_ollama_request_options(payload)
+	if type(payload) ~= "table" or resolved_api_mode() ~= "ollama_native" then
+		return payload
+	end
+
+	payload.stream = false
+
+	if disable_thinking() == true then
+		payload.think = false
+	else
+		payload.think = true
+	end
+
+	local keep_alive = model_keep_alive()
+
+	if keep_alive ~= nil then
+		payload.keep_alive = keep_alive
+	end
+
+	return payload
+end
+
+local function build_translation_payload(text)
+	local payload = {
+		model = api_model(),
+		messages = {
+			{
+				role = "system",
+				content = system_prompt(text),
+			},
+			{
+				role = "user",
+				content = text,
+			},
+		},
+	}
+
+	if resolved_api_mode() == "ollama_native" then
+		return apply_ollama_request_options(payload)
+	end
+
+	payload.temperature = 0.2
+
+	return payload
+end
+
+local function build_model_warmup_payload()
+	local payload = {
+		model = api_model(),
+	}
+
+	payload = apply_ollama_request_options(payload)
+
+	return payload
+end
+
+local function warmup_model()
+	if enable_model_warmup() ~= true or resolved_api_mode() ~= "ollama_native" then
+		return
+	end
+
+	if type(hs.http) ~= "table" or type(hs.http.asyncPost) ~= "function" then
+		return
+	end
+
+	if type(hs.json) ~= "table" or type(hs.json.encode) ~= "function" then
+		return
+	end
+
+	if state.request_inflight == true then
+		return
+	end
+
+	local payload = build_model_warmup_payload()
+	local encoded_ok, encoded_payload = pcall(hs.json.encode, payload)
+
+	if encoded_ok ~= true or type(encoded_payload) ~= "string" or encoded_payload == "" then
+		return
+	end
+
+	local headers = {
+		["Content-Type"] = "application/json",
+	}
+	local key = api_key()
+
+	if key ~= "" then
+		headers["Authorization"] = "Bearer " .. key
+	end
+
+	pcall(function()
+		hs.http.asyncPost(resolved_request_url(), encoded_payload, headers, function()
+		end)
+	end)
+end
+
+local function schedule_model_warmup()
+	clear_model_warmup_timer()
+
+	if enable_model_warmup() ~= true or resolved_api_mode() ~= "ollama_native" then
+		return
+	end
+
+	if type(hs.timer) ~= "table" or type(hs.timer.doAfter) ~= "function" then
+		return
+	end
+
+	state.model_warmup_timer = hs.timer.doAfter(default_model_warmup_delay_seconds, function()
+		state.model_warmup_timer = nil
+		warmup_model()
+	end)
+end
+
 local function request_translation(text, anchor_bounds)
 	if type(hs.http) ~= "table" or type(hs.http.asyncPost) ~= "function" then
 		show_request_error("当前 Hammerspoon 不支持 HTTP 请求")
@@ -1989,31 +2126,7 @@ local function request_translation(text, anchor_bounds)
 		return
 	end
 
-	local payload = {
-		model = api_model(),
-		messages = {
-			{
-				role = "system",
-				content = system_prompt(text),
-			},
-			{
-				role = "user",
-				content = text,
-			},
-		},
-	}
-
-	if resolved_api_mode() == "ollama_native" then
-		payload.stream = false
-
-		if disable_thinking() == true then
-			payload.think = false
-		else
-			payload.think = true
-		end
-	else
-		payload.temperature = 0.2
-	end
+	local payload = build_translation_payload(text)
 
 	local encoded_ok, encoded_payload = pcall(hs.json.encode, payload)
 
@@ -2237,17 +2350,18 @@ local function format_alpha_label(alpha)
 end
 
 local function translation_direction_label(direction)
-	return translation_direction_labels[direction or translation_direction()] or translation_direction_labels.auto
+	return menu_options.translation_direction_labels[direction or translation_direction()]
+		or menu_options.translation_direction_labels.auto
 end
 
 local function popup_theme_label(theme_name)
 	theme_name = theme_name or popup_theme_name()
 
-	return popup_theme_labels[theme_name] or theme_name
+	return menu_options.popup_theme_labels[theme_name] or theme_name
 end
 
 local function api_mode_label(mode)
-	return api_mode_labels[mode or api_mode()] or api_mode_labels.auto
+	return menu_options.api_mode_labels[mode or api_mode()] or menu_options.api_mode_labels.auto
 end
 
 local function api_key_source_label()
@@ -2696,7 +2810,7 @@ local function build_language_menu(field, current_value, title, informative_text
 		{ title = "当前: " .. tostring(current_value), disabled = true },
 	}
 
-	for _, language in ipairs(presets or target_language_presets) do
+	for _, language in ipairs(presets or menu_options.target_language_presets) do
 		table.insert(menu, {
 			title = language,
 			checked = current_value == language,
@@ -2729,7 +2843,7 @@ local function build_popup_theme_menu()
 		{ title = "当前: " .. popup_theme_label(), disabled = true },
 	}
 
-	for _, theme_name in ipairs(popup_theme_order) do
+	for _, theme_name in ipairs(menu_options.popup_theme_order) do
 		table.insert(menu, {
 			title = popup_theme_label(theme_name),
 			checked = popup_theme_name() == theme_name,
@@ -2756,7 +2870,7 @@ local function build_popup_alpha_menu()
 		{ title = "当前: " .. format_alpha_label(popup_background_fill_color().alpha), disabled = true },
 	}
 
-	for _, alpha in ipairs(popup_alpha_presets) do
+	for _, alpha in ipairs(menu_options.popup_alpha_presets) do
 		table.insert(menu, {
 			title = format_alpha_label(alpha),
 			checked = math.abs(popup_background_fill_color().alpha - alpha) < 0.001,
@@ -2803,7 +2917,7 @@ local function build_popup_duration_menu()
 		{ title = "当前: " .. format_duration_label(current_seconds), disabled = true },
 	}
 
-	for _, seconds in ipairs(popup_duration_presets) do
+	for _, seconds in ipairs(menu_options.popup_duration_presets) do
 		table.insert(menu, {
 			title = format_duration_label(seconds),
 			checked = math.abs(current_seconds - seconds) < 0.001,
@@ -2851,7 +2965,7 @@ local function build_api_mode_menu()
 		},
 	}
 
-	for _, mode in ipairs(api_mode_order) do
+	for _, mode in ipairs(menu_options.api_mode_order) do
 		table.insert(menu, {
 			title = api_mode_label(mode),
 			checked = api_mode() == mode,
@@ -2879,7 +2993,7 @@ local function build_request_timeout_menu()
 		{ title = "当前: " .. format_duration_label(current_seconds), disabled = true },
 	}
 
-	for _, seconds in ipairs(request_timeout_presets) do
+	for _, seconds in ipairs(menu_options.request_timeout_presets) do
 		table.insert(menu, {
 			title = format_duration_label(seconds),
 			checked = math.abs(current_seconds - seconds) < 0.001,
@@ -3062,7 +3176,7 @@ local function build_menu()
 				"设置非中文目标语言",
 				"请输入非中文文本的目标语言名称，例如 简体中文、英文、日文。",
 				"非中文目标语言已更新为 ",
-				target_language_presets
+				menu_options.target_language_presets
 			),
 		},
 		{
@@ -3073,7 +3187,7 @@ local function build_menu()
 				"设置中文目标语言",
 				"请输入中文文本的目标语言名称，例如 英文、繁體中文、日文。",
 				"中文目标语言已更新为 ",
-				chinese_target_language_presets
+				menu_options.chinese_target_language_presets
 			),
 		},
 		{
@@ -3156,11 +3270,14 @@ function _M.start()
 		hs.alert.show("划词翻译快捷键绑定失败，已临时显示菜单栏图标")
 	end
 
+	schedule_model_warmup()
+
 	return true
 end
 
 function _M.stop()
 	finish_request()
+	clear_model_warmup_timer()
 	destroy_popup()
 
 	if state.hotkey ~= nil then
@@ -3206,6 +3323,8 @@ _M.get_state = function()
 		resolved_api_mode = resolved_api_mode(),
 		api_url = api_url(),
 		model = api_model(),
+		enable_model_warmup = enable_model_warmup(),
+		model_keep_alive = model_keep_alive(),
 		api_key_source = api_key_source_label(),
 		runtime_overrides = copy_table(runtime_overrides),
 	}

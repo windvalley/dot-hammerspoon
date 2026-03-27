@@ -180,6 +180,8 @@ _M.selected_text_translate = {
 	api_mode = "auto",
 	api_url = "http://localhost:11434/api/chat",
 	model = "qwen3.5:35b",
+	enable_model_warmup = true,
+	model_keep_alive = "30m",
 	disable_thinking = true,
 	api_key_env = "",
 	api_key = "",
@@ -203,6 +205,8 @@ The older `popup_background = "#RRGGBB"` / `"#RRGGBBAA"` and `popup_background_c
 In the menubar presets, `中文目标语言` intentionally excludes `简体中文` to avoid a no-op same-language translation. If you still need a special case, you can enter it manually via the custom option.
 
 `api_mode` supports `auto`, `ollama_native`, and `openai_compatible`. In `auto`, local `localhost:11434` requests will prefer Ollama’s native `/api/chat` endpoint so thinking models can use `think = false` by default for faster responses.
+
+For local Ollama models, `enable_model_warmup = true` will silently send one lightweight warmup request a few seconds after startup, which helps reduce the first translation latency. `model_keep_alive = "30m"` attaches Ollama’s `keep_alive` option to both the warmup request and normal translation requests so the model stays loaded longer after use.
 
 If you do not want to rely on shell environment variables, you can leave `api_key` empty and save the key from the menubar. That value will persist locally via `hs.settings` and continue working after reboot. If you prefer environment variables, a practical way for GUI-launched Hammerspoon is:
 
