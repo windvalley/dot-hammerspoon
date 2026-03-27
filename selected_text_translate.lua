@@ -20,6 +20,8 @@ local log = hs.logger.new("selectionTranslate")
 local default_api_url = "https://api.openai.com/v1/chat/completions"
 local default_model = "gpt-4o-mini"
 local default_target_language = "简体中文"
+local default_chinese_target_language = "英文"
+local default_translation_direction = "auto"
 local default_request_timeout_seconds = 20
 local default_clipboard_poll_interval_seconds = 0.05
 local default_clipboard_max_wait_seconds = 0.4
@@ -507,11 +509,31 @@ local function popup_title()
 	return title
 end
 
+local function translation_direction()
+	local direction = string.lower(trim(tostring(selected_text_translate.translation_direction or default_translation_direction)))
+
+	if direction == "to_target" then
+		return "to_target"
+	end
+
+	return "auto"
+end
+
 local function target_language()
 	local language = trim(tostring(selected_text_translate.target_language or default_target_language))
 
 	if language == "" then
 		return default_target_language
+	end
+
+	return language
+end
+
+local function chinese_target_language()
+	local language = trim(tostring(selected_text_translate.chinese_target_language or default_chinese_target_language))
+
+	if language == "" then
+		return default_chinese_target_language
 	end
 
 	return language
@@ -884,10 +906,60 @@ local function suspend_clipboard_history(seconds)
 	pcall(clipboard_center.suspend_capture, seconds)
 end
 
-local function system_prompt()
+local function codepoint_is_han(codepoint)
+	return (codepoint >= 0x3400 and codepoint <= 0x4DBF)
+		or (codepoint >= 0x4E00 and codepoint <= 0x9FFF)
+		or (codepoint >= 0xF900 and codepoint <= 0xFAFF)
+		or (codepoint >= 0x20000 and codepoint <= 0x2A6DF)
+		or (codepoint >= 0x2A700 and codepoint <= 0x2B73F)
+		or (codepoint >= 0x2B740 and codepoint <= 0x2B81F)
+		or (codepoint >= 0x2B820 and codepoint <= 0x2CEAF)
+		or (codepoint >= 0x2CEB0 and codepoint <= 0x2EBEF)
+		or (codepoint >= 0x30000 and codepoint <= 0x3134F)
+end
+
+local function contains_han_characters(text)
+	local normalized = tostring(text or "")
+
+	if normalized == "" then
+		return false
+	end
+
+	if type(utf8_lib) == "table" and type(utf8_lib.codes) == "function" then
+		local found = false
+		local ok = pcall(function()
+			for _, codepoint in utf8_lib.codes(normalized) do
+				if codepoint_is_han(codepoint) == true then
+					found = true
+					break
+				end
+			end
+		end)
+
+		if ok == true then
+			return found
+		end
+	end
+
+	return normalized:find("[\228-\233][\128-\191][\128-\191]") ~= nil
+end
+
+local function resolved_target_language(text)
+	if translation_direction() ~= "auto" then
+		return target_language()
+	end
+
+	if contains_han_characters(text) == true then
+		return chinese_target_language()
+	end
+
+	return target_language()
+end
+
+local function system_prompt(text)
 	return string.format(
 		"你是翻译助手。请将用户提供的文本翻译成%s。只返回译文，不要解释，不要添加引号；尽量保留原文换行、列表和代码格式。",
-		target_language()
+		resolved_target_language(text)
 	)
 end
 
@@ -1676,7 +1748,7 @@ local function request_translation(text, anchor_bounds)
 		messages = {
 			{
 				role = "system",
-				content = system_prompt(),
+				content = system_prompt(text),
 			},
 			{
 				role = "user",

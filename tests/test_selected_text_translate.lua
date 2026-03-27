@@ -338,7 +338,9 @@ function _M.run()
 			prefix = { "Option" },
 			key = "R",
 			message = "Translate Selection",
+			translation_direction = "auto",
 			target_language = "简体中文",
+			chinese_target_language = "英文",
 			api_url = "https://example.com/v1/chat/completions",
 			model = "gpt-test",
 			api_key_env = "OPENAI_API_KEY",
@@ -389,6 +391,11 @@ function _M.run()
 		direct_recorded.encoded_payload.messages[2].content,
 		"hello world",
 		"translator should pass the selected text as the user message"
+	)
+	assert_contains(
+		direct_recorded.encoded_payload.messages[1].content,
+		"简体中文",
+		"non-Chinese selections should still translate to the configured target language"
 	)
 	assert_equal(direct_recorded.shown_canvases, 1, "translator should show one floating popup")
 	assert_equal(direct_recorded.canvas_levels[1], 17, "translator should use the modal panel window level for the popup")
@@ -441,6 +448,146 @@ function _M.run()
 	assert_true(translator.stop(), "translator stop should succeed")
 	assert_equal(direct_recorded.deleted_bindings, 1, "translator stop should delete its hotkey binding")
 	assert_equal(direct_recorded.deleted_canvases, 1, "translator stop should not delete an already closed popup twice")
+
+	reset_modules()
+
+	local chinese_to_english_recorded = {
+		alerts = {},
+		block_alerts = {},
+		async_posts = {},
+		deleted_bindings = 0,
+		timers = {},
+		stopped_timers = 0,
+	}
+
+	rawset(os, "getenv", function(name)
+		if name == "OPENAI_API_KEY" then
+			return "sk-bilingual"
+		end
+
+		return original_getenv(name)
+	end)
+
+	hs = {
+		logger = {
+			new = function()
+				return {
+					i = function() end,
+					w = function() end,
+					e = function() end,
+				}
+			end,
+		},
+		alert = {
+			show = function(message)
+				table.insert(chinese_to_english_recorded.alerts, message)
+			end,
+		},
+		dialog = {
+			blockAlert = function(message, informative_text)
+				table.insert(chinese_to_english_recorded.block_alerts, {
+					message = message,
+					informative_text = informative_text,
+				})
+
+				return "关闭"
+			end,
+		},
+		timer = create_timer_stub(chinese_to_english_recorded),
+		uielement = {
+			focusedElement = function()
+				return {
+					selectedText = function()
+						return "你好，世界"
+					end,
+				}
+			end,
+		},
+		json = {
+			encode = function(value)
+				chinese_to_english_recorded.encoded_payload = value
+				return "encoded-payload"
+			end,
+			decode = function(_)
+				return {
+					choices = {
+						{
+							message = {
+								content = "Hello, world",
+							},
+						},
+					},
+				}
+			end,
+		},
+		http = {
+			asyncPost = function(url, data, headers, callback)
+				table.insert(chinese_to_english_recorded.async_posts, {
+					url = url,
+					data = data,
+					headers = headers,
+				})
+				callback(200, "{\"ok\":true}", {})
+			end,
+		},
+	}
+
+	loaded_modules["keybindings_config"] = {
+		selected_text_translate = {
+			enabled = true,
+			prefix = { "Option" },
+			key = "R",
+			message = "Translate Selection",
+			translation_direction = "auto",
+			target_language = "简体中文",
+			chinese_target_language = "英文",
+			api_url = "https://example.com/v1/chat/completions",
+			model = "gpt-bilingual",
+			api_key_env = "OPENAI_API_KEY",
+		},
+	}
+	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(chinese_to_english_recorded)
+	loaded_modules["utils_lib"] = {
+		trim = function(value)
+			return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		end,
+		copy_list = function(items)
+			local copied = {}
+
+			for _, item in ipairs(items or {}) do
+				table.insert(copied, item)
+			end
+
+			return copied
+		end,
+	}
+
+	translator = require("selected_text_translate")
+
+	assert_true(translator.start(), "translator should start successfully for Chinese-to-English auto mode")
+	chinese_to_english_recorded.bound_handler()
+
+	assert_contains(
+		chinese_to_english_recorded.encoded_payload.messages[1].content,
+		"英文",
+		"Chinese selections should translate to the configured Chinese target language in auto mode"
+	)
+	assert_equal(
+		chinese_to_english_recorded.encoded_payload.messages[2].content,
+		"你好，世界",
+		"Chinese selections should be sent as the user content"
+	)
+	assert_equal(
+		chinese_to_english_recorded.block_alerts[1].informative_text,
+		"Hello, world",
+		"Chinese-to-English auto mode should still show the translated result"
+	)
+	assert_true(translator.stop(), "translator stop should succeed after Chinese-to-English auto mode")
+	assert_equal(
+		chinese_to_english_recorded.deleted_bindings,
+		1,
+		"translator stop should delete its hotkey binding after Chinese-to-English auto mode"
+	)
 
 	reset_modules()
 

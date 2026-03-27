@@ -322,8 +322,14 @@ _M.selected_text_translate = {
 	prefix = { "Option" },
 	key = "R",
 	message = "Translate Selection",
-	-- 目标语言
+	-- 自动双向翻译:
+	-- auto: 包含中文时翻译成 chinese_target_language，否则翻译成 target_language
+	-- to_target: 始终翻译成 target_language
+	translation_direction = "auto",
+	-- 非中文文本默认翻译目标语言
 	target_language = "简体中文",
+	-- 中文文本默认翻译目标语言
+	chinese_target_language = "英文",
 	-- auto: 自动识别本地 Ollama 并优先走原生 /api/chat，其余走 OpenAI 兼容接口
 	-- ollama_native: 强制走 Ollama 原生 /api/chat
 	-- openai_compatible: 强制走 OpenAI 兼容 /v1/chat/completions

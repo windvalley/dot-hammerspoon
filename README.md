@@ -159,7 +159,7 @@ The menubar menu can also update the Clipboard Center hotkey at runtime. The ove
 
 ### Selected Text Translate
 
-Select any text and press <kbd>⌥</kbd> + <kbd>R</kbd> to translate it into Simplified Chinese through an OpenAI-compatible `chat/completions` API. The translated text is shown in a popup, and the popup also lets you copy the result back to the clipboard.
+Select any text and press <kbd>⌥</kbd> + <kbd>R</kbd> to translate it through an OpenAI-compatible `chat/completions` API. By default, non-Chinese text is translated into Simplified Chinese, while text containing Chinese characters is translated into English. The translated text is shown in a popup, and the popup also lets you copy the result back to the clipboard.
 
 The module first tries to read the current accessibility selection directly. If that fails, it falls back to simulating <kbd>⌘</kbd> + <kbd>C</kbd>, reads the clipboard, then restores the previous clipboard contents. When Clipboard Center is enabled, the temporary copy/restore sequence is also suppressed from clipboard history.
 
@@ -171,7 +171,9 @@ _M.selected_text_translate = {
 	prefix = { "Option" },
 	key = "R",
 	message = "Translate Selection",
+	translation_direction = "auto",
 	target_language = "简体中文",
+	chinese_target_language = "英文",
 	api_mode = "auto",
 	api_url = "http://localhost:11434/api/chat",
 	model = "qwen3.5:35b",
@@ -192,6 +194,8 @@ The translation popup supports a lightweight floating-card style. By default it 
 `popup_theme` now uses preset themes, and `popup_background_alpha` controls transparency separately. Built-in themes: `paper`, `mist`, `graphite`, `slate`, `ocean`, `forest`, `amber`, `rose`, `cocoa`, `mint`.
 
 The older `popup_background = "#RRGGBB"` / `"#RRGGBBAA"` and `popup_background_color` fields still work for compatibility, but the preset theme approach is recommended because it keeps background, border, text, and copy-button colors coordinated.
+
+`translation_direction = "auto"` enables bidirectional translation: when the selection contains Chinese characters, it targets `chinese_target_language`; otherwise it targets `target_language`. If you want the old fixed behavior, set `translation_direction = "to_target"`.
 
 `api_mode` supports `auto`, `ollama_native`, and `openai_compatible`. In `auto`, local `localhost:11434` requests will prefer Ollama’s native `/api/chat` endpoint so thinking models can use `think = false` by default for faster responses.
 
