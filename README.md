@@ -163,7 +163,7 @@ Select any text and press <kbd>⌥</kbd> + <kbd>R</kbd> to translate it through 
 
 The module first tries to read the current accessibility selection directly. If that fails, it falls back to simulating <kbd>⌘</kbd> + <kbd>C</kbd>, reads the clipboard, then restores the previous clipboard contents. When Clipboard Center is enabled, the temporary copy/restore sequence is also suppressed from clipboard history.
 
-It also adds a menubar entry, so you can adjust the main settings at runtime and persist them through `hs.settings`, including the hotkey, translation direction, target languages, popup theme, popup timing, API URL/model, and a locally saved API key. A `恢复默认` action clears these menu overrides and goes back to `keybindings_config.lua`.
+It also adds a menubar entry, so you can adjust the main settings at runtime and persist them through `hs.settings`, including the hotkey, translation direction, target languages, popup theme, popup timing, and provider-grouped model service settings (`api_url`, `model`, and a locally saved API key). A `恢复默认` action clears these menu overrides and goes back to `keybindings_config.lua`.
 
 You can customize it in `~/.hammerspoon/keybindings_config.lua`:
 
@@ -224,7 +224,7 @@ The older `popup_background = "#RRGGBB"` / `"#RRGGBBAA"` and `popup_background_c
 
 In the menubar presets, `中文目标语言` intentionally excludes `简体中文` to avoid a no-op same-language translation. If you still need a special case, you can enter it manually via the custom option.
 
-`model_service.provider` supports `ollama`, `openai_compatible`, `gemini`, and `anthropic`. The currently selected provider decides which sub-config block supplies the active `api_url`, `model`, and API credential fields.
+`model_service.provider` supports `ollama`, `openai_compatible`, `gemini`, and `anthropic`. The currently selected provider decides which sub-config block supplies the active `api_url`, `model`, and API credential fields. In the menubar, these settings are grouped under each provider so you can inspect or edit another provider’s configuration without switching away from the current one first.
 
 For local Ollama models, `model_service.ollama.enable_warmup = true` will silently send one lightweight warmup request a few seconds after startup, which helps reduce the first translation latency. `model_service.ollama.keep_alive = "30m"` attaches Ollama’s `keep_alive` option to both the warmup request and normal translation requests so the model stays loaded longer after use. `model_service.ollama.disable_thinking = true` also sends `think = false` by default for faster responses.
 

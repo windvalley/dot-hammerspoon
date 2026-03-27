@@ -999,6 +999,16 @@ local function provider()
 	return default_model_service.provider
 end
 
+local function normalized_provider_name(provider_name)
+	local normalized = string.lower(trim(tostring(provider_name or "")))
+
+	if menu_options.provider_labels[normalized] ~= nil then
+		return normalized
+	end
+
+	return provider()
+end
+
 function config_utils.provider_config(provider_name)
 	local config = config_utils.model_service_config()
 	local settings = config[provider_name]
@@ -1010,8 +1020,8 @@ function config_utils.provider_config(provider_name)
 	return {}
 end
 
-local function api_url()
-	local provider_name = provider()
+local function api_url(provider_name)
+	provider_name = normalized_provider_name(provider_name)
 	local config = config_utils.provider_config(provider_name)
 	local default_url = type(default_model_service[provider_name]) == "table" and default_model_service[provider_name].api_url
 		or default_model_service.openai_compatible.api_url
@@ -1024,8 +1034,8 @@ local function api_url()
 	return url
 end
 
-local function api_model()
-	local provider_name = provider()
+local function api_model(provider_name)
+	provider_name = normalized_provider_name(provider_name)
 	local config = config_utils.provider_config(provider_name)
 	local default_value = type(default_model_service[provider_name]) == "table" and default_model_service[provider_name].model
 		or default_model_service.openai_compatible.model
@@ -1093,8 +1103,8 @@ local function resolved_request_url()
 	return normalized
 end
 
-local function api_key_env_name()
-	local provider_name = provider()
+local function api_key_env_name(provider_name)
+	provider_name = normalized_provider_name(provider_name)
 
 	if provider_name == "ollama" then
 		return ""
@@ -1107,6 +1117,8 @@ local function api_key_env_name()
 end
 
 function config_utils.provider_api_key(provider_name)
+	provider_name = normalized_provider_name(provider_name)
+
 	if provider_name == "ollama" then
 		return ""
 	end
@@ -1118,7 +1130,7 @@ function config_utils.provider_api_key(provider_name)
 		return configured
 	end
 
-	local env_name = api_key_env_name()
+	local env_name = api_key_env_name(provider_name)
 
 	if env_name == "" then
 		return ""
@@ -2688,11 +2700,11 @@ local function popup_theme_label(theme_name)
 end
 
 local function provider_label(provider_name)
-	return menu_options.provider_labels[provider_name or provider()] or menu_options.provider_labels[default_model_service.provider]
+	return menu_options.provider_labels[normalized_provider_name(provider_name)] or menu_options.provider_labels[default_model_service.provider]
 end
 
-local function api_key_source_label()
-	local provider_name = provider()
+local function api_key_source_label(provider_name)
+	provider_name = normalized_provider_name(provider_name)
 
 	if provider_name == "ollama" then
 		return "不需要"
@@ -2709,7 +2721,7 @@ local function api_key_source_label()
 		return "配置文件"
 	end
 
-	local env_name = api_key_env_name()
+	local env_name = api_key_env_name(provider_name)
 
 	if env_name ~= "" and trim(tostring(os.getenv(env_name) or "")) ~= "" then
 		return "环境变量 " .. env_name
@@ -3010,12 +3022,26 @@ local function set_request_timeout(seconds)
 	hs.alert.show("请求超时已更新为 " .. format_duration_label(seconds))
 end
 
-local function prompt_api_url_configuration()
-	local provider_label_text = provider_label()
+local function maybe_refresh_provider_warmup(provider_name)
+	if provider_name ~= provider() then
+		return
+	end
+
+	clear_model_warmup_timer()
+
+	if state.started == true then
+		schedule_model_warmup()
+	end
+end
+
+local function prompt_api_url_configuration(provider_name)
+	provider_name = normalized_provider_name(provider_name)
+
+	local provider_label_text = provider_label(provider_name)
 	local value = prompt_text(
 		"设置模型服务地址",
 		"请输入当前模型服务的接口地址。\n当前提供方: " .. provider_label_text,
-		api_url()
+		api_url(provider_name)
 	)
 
 	if value == nil then
@@ -3029,22 +3055,19 @@ local function prompt_api_url_configuration()
 		return
 	end
 
-	set_runtime_override({ "model_service", provider(), "api_url" }, url)
-	clear_model_warmup_timer()
-
-	if state.started == true then
-		schedule_model_warmup()
-	end
-
+	set_runtime_override({ "model_service", provider_name, "api_url" }, url)
+	maybe_refresh_provider_warmup(provider_name)
 	refresh_menubar()
-	hs.alert.show("接口地址已更新")
+	hs.alert.show(provider_label_text .. " 接口地址已更新")
 end
 
-local function prompt_model_configuration()
+local function prompt_model_configuration(provider_name)
+	provider_name = normalized_provider_name(provider_name)
+
 	local value = prompt_text(
 		"设置翻译模型",
-		"请输入当前模型服务要调用的模型名称。\n当前提供方: " .. provider_label(),
-		api_model()
+		"请输入当前模型服务要调用的模型名称。\n当前提供方: " .. provider_label(provider_name),
+		api_model(provider_name)
 	)
 
 	if value == nil then
@@ -3058,19 +3081,14 @@ local function prompt_model_configuration()
 		return
 	end
 
-	set_runtime_override({ "model_service", provider(), "model" }, model)
-	clear_model_warmup_timer()
-
-	if state.started == true then
-		schedule_model_warmup()
-	end
-
+	set_runtime_override({ "model_service", provider_name, "model" }, model)
+	maybe_refresh_provider_warmup(provider_name)
 	refresh_menubar()
-	hs.alert.show("翻译模型已更新为 " .. model)
+	hs.alert.show(provider_label(provider_name) .. " 模型已更新为 " .. model)
 end
 
-local function prompt_api_key_configuration()
-	local provider_name = provider()
+local function prompt_api_key_configuration(provider_name)
+	provider_name = normalized_provider_name(provider_name)
 
 	if provider_name == "ollama" then
 		hs.alert.show("当前模型服务不需要 API Key")
@@ -3092,23 +3110,26 @@ local function prompt_api_key_configuration()
 	if key == "" then
 		clear_runtime_override({ "model_service", provider_name, "api_key" })
 		refresh_menubar()
-		hs.alert.show("已清除菜单中保存的 API Key")
+		hs.alert.show("已清除 " .. provider_label(provider_name) .. " 的菜单 API Key")
 		return
 	end
 
 	set_runtime_override({ "model_service", provider_name, "api_key" }, key)
 	refresh_menubar()
-	hs.alert.show("API Key 已保存")
+	hs.alert.show(provider_label(provider_name) .. " API Key 已保存")
 end
 
 local function restore_default_field(field, success_message)
+	local normalized_field = config_utils.normalize_path(field)
 	clear_runtime_override(field)
 
-	if config_utils.normalize_path(field)[1] == "model_service" then
-		clear_model_warmup_timer()
+	if normalized_field[1] == "model_service" then
+		local affected_provider = normalized_field[2]
 
-		if state.started == true then
-			schedule_model_warmup()
+		if affected_provider == nil or affected_provider == "provider" then
+			maybe_refresh_provider_warmup(provider())
+		elseif menu_options.provider_labels[affected_provider] ~= nil then
+			maybe_refresh_provider_warmup(affected_provider)
 		end
 	end
 
@@ -3329,36 +3350,6 @@ local function build_popup_duration_menu()
 	return menu
 end
 
-local function build_provider_menu()
-	local menu = {
-		{
-			title = "当前: " .. provider_label(),
-			disabled = true,
-		},
-	}
-
-	for _, provider_name in ipairs(menu_options.provider_order) do
-		table.insert(menu, {
-			title = provider_label(provider_name),
-			checked = provider() == provider_name,
-			fn = function()
-				set_provider(provider_name)
-			end,
-		})
-	end
-
-	table.insert(menu, { title = "-" })
-	table.insert(menu, {
-		title = "恢复文件配置",
-		disabled = config_utils.path_exists(runtime_overrides, { "model_service", "provider" }) ~= true,
-		fn = function()
-			restore_default_field({ "model_service", "provider" }, "已恢复文件中的模型服务配置")
-		end,
-	})
-
-	return menu
-end
-
 local function build_request_timeout_menu()
 	local current_seconds = request_timeout_seconds()
 	local menu = {
@@ -3405,69 +3396,105 @@ local function build_request_timeout_menu()
 	return menu
 end
 
-local function build_api_key_menu()
-	return {
-		{ title = "当前来源: " .. api_key_source_label(), disabled = true },
-		{
-			title = "设置当前提供方 API Key...",
-			disabled = provider() == "ollama",
-			fn = prompt_api_key_configuration,
-		},
-		{
-			title = "清除菜单中保存的 API Key",
-			disabled = provider() == "ollama"
-				or config_utils.path_exists(runtime_overrides, { "model_service", provider(), "api_key" }) ~= true,
-			fn = function()
-				clear_runtime_override({ "model_service", provider(), "api_key" })
-				refresh_menubar()
-				hs.alert.show("已清除菜单中保存的 API Key")
-			end,
-		},
-	}
-end
-
-local function build_api_settings_menu()
-	return {
-		{ title = "提供方: " .. provider_label(), disabled = true },
-		{ title = "模型: " .. api_model(), disabled = true },
-		{ title = "地址: " .. api_url(), disabled = true },
-		{ title = "API Key: " .. api_key_source_label(), disabled = true },
+local function build_provider_configuration_menu(provider_name)
+	local active_provider = provider() == provider_name
+	local provider_title = provider_label(provider_name)
+	local menu = {
+		{ title = active_provider and "状态: 当前使用中" or "状态: 可切换", disabled = true },
+		{ title = "模型: " .. api_model(provider_name), disabled = true },
+		{ title = "地址: " .. api_url(provider_name), disabled = true },
+		{ title = "API Key: " .. api_key_source_label(provider_name), disabled = true },
 		{ title = "-" },
 		{
-			title = "提供方",
-			menu = build_provider_menu(),
+			title = active_provider and "当前提供方" or "设为当前提供方",
+			disabled = active_provider,
+			fn = function()
+				set_provider(provider_name)
+			end,
 		},
 		{
 			title = "模型名称...",
-			fn = prompt_model_configuration,
+			fn = function()
+				prompt_model_configuration(provider_name)
+			end,
 		},
 		{
-			title = "恢复文件中的当前模型",
-			disabled = config_utils.path_exists(runtime_overrides, { "model_service", provider(), "model" }) ~= true,
+			title = "恢复文件中的模型",
+			disabled = config_utils.path_exists(runtime_overrides, { "model_service", provider_name, "model" }) ~= true,
 			fn = function()
-				restore_default_field({ "model_service", provider(), "model" }, "已恢复文件中的模型配置")
+				restore_default_field(
+					{ "model_service", provider_name, "model" },
+					"已恢复文件中的 " .. provider_title .. " 模型配置"
+				)
 			end,
 		},
 		{
 			title = "接口地址...",
-			fn = prompt_api_url_configuration,
-		},
-		{
-			title = "恢复文件中的当前地址",
-			disabled = config_utils.path_exists(runtime_overrides, { "model_service", provider(), "api_url" }) ~= true,
 			fn = function()
-				restore_default_field({ "model_service", provider(), "api_url" }, "已恢复文件中的接口地址配置")
+				prompt_api_url_configuration(provider_name)
 			end,
 		},
+		{
+			title = "恢复文件中的地址",
+			disabled = config_utils.path_exists(runtime_overrides, { "model_service", provider_name, "api_url" }) ~= true,
+			fn = function()
+				restore_default_field(
+					{ "model_service", provider_name, "api_url" },
+					"已恢复文件中的 " .. provider_title .. " 接口地址配置"
+				)
+			end,
+		},
+	}
+
+	if provider_name ~= "ollama" then
+		table.insert(menu, {
+			title = "设置 API Key...",
+			fn = function()
+				prompt_api_key_configuration(provider_name)
+			end,
+		})
+		table.insert(menu, {
+			title = "清除菜单中保存的 API Key",
+			disabled = config_utils.path_exists(runtime_overrides, { "model_service", provider_name, "api_key" }) ~= true,
+			fn = function()
+				clear_runtime_override({ "model_service", provider_name, "api_key" })
+				refresh_menubar()
+				hs.alert.show("已清除 " .. provider_title .. " 的菜单 API Key")
+			end,
+		})
+	end
+
+	return menu
+end
+
+local function build_api_settings_menu()
+	local menu = {
+		{ title = "当前提供方: " .. provider_label(), disabled = true },
+		{ title = "当前模型: " .. api_model(), disabled = true },
 		{
 			title = "请求超时",
 			menu = build_request_timeout_menu(),
 		},
-		{
-			title = "API Key",
-			menu = build_api_key_menu(),
-		},
+		{ title = "-" },
 	}
+
+	for _, provider_name in ipairs(menu_options.provider_order) do
+		table.insert(menu, {
+			title = provider_label(provider_name),
+			menu = build_provider_configuration_menu(provider_name),
+		})
+	end
+
+	table.insert(menu, { title = "-" })
+	table.insert(menu, {
+		title = "恢复文件中的当前提供方",
+		disabled = config_utils.path_exists(runtime_overrides, { "model_service", "provider" }) ~= true,
+		fn = function()
+			restore_default_field({ "model_service", "provider" }, "已恢复文件中的模型服务配置")
+		end,
+	})
+
+	return menu
 end
 
 local function build_hotkey_menu()

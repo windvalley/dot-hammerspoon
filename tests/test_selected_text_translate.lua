@@ -623,6 +623,12 @@ function _M.run()
 	assert_true(find_menu_item(menu, "悬浮窗透明度") ~= nil, "menubar should expose a popup alpha submenu")
 	assert_true(find_menu_item(menu, "悬浮窗停留时间") ~= nil, "menubar should expose a popup duration submenu")
 	assert_true(find_menu_item(menu, "模型服务") ~= nil, "menubar should expose model service settings")
+	local model_service_menu = find_menu_item(menu, "模型服务").menu
+	assert_true(find_menu_item(model_service_menu, "Ollama") ~= nil, "model service menu should group settings under Ollama")
+	assert_true(
+		find_menu_item(model_service_menu, "OpenAI 兼容") ~= nil,
+		"model service menu should group settings under OpenAI-compatible"
+	)
 	assert_true(
 		find_menu_item(find_menu_item(menu, "中文目标语言").menu, "简体中文") == nil,
 		"Chinese target language presets should not offer Simplified Chinese"
@@ -645,7 +651,7 @@ function _M.run()
 		"theme updates should be persisted"
 	)
 
-	find_menu_item(find_menu_item(find_menu_item(menu, "模型服务").menu, "提供方").menu, "Ollama").fn()
+	find_menu_item(find_menu_item(model_service_menu, "Ollama").menu, "设为当前提供方").fn()
 	assert_equal(translator.get_state().provider, "ollama", "provider menu should switch to Ollama")
 	assert_equal(
 		get_path_value(direct_recorded.settings_store["selected_text_translate.runtime_overrides"], {
@@ -655,14 +661,10 @@ function _M.run()
 		"ollama",
 		"provider menu should persist the selected provider"
 	)
-	find_menu_item(find_menu_item(find_menu_item(menu, "模型服务").menu, "提供方").menu, "OpenAI 兼容").fn()
-	assert_equal(
-		translator.get_state().provider,
-		"openai_compatible",
-		"provider menu should switch back to OpenAI-compatible mode"
-	)
 
-	find_menu_item(find_menu_item(menu, "模型服务").menu, "API Key").menu[2].fn()
+	menu = direct_recorded.menu_builder()
+	model_service_menu = find_menu_item(menu, "模型服务").menu
+	find_menu_item(find_menu_item(model_service_menu, "OpenAI 兼容").menu, "设置 API Key...").fn()
 	assert_equal(
 		get_path_value(direct_recorded.settings_store["selected_text_translate.runtime_overrides"], {
 			"model_service",
@@ -670,9 +672,20 @@ function _M.run()
 			"api_key",
 		}),
 		"sk-menu",
-		"API key prompt should persist the entered key"
+		"provider-group API key prompt should persist the entered key"
 	)
-	assert_equal(translator.get_state().api_key_source, "菜单已保存", "API key menu should update runtime key source")
+	assert_equal(
+		translator.get_state().provider,
+		"ollama",
+		"editing another provider from its group should not switch the active provider"
+	)
+	find_menu_item(find_menu_item(model_service_menu, "OpenAI 兼容").menu, "设为当前提供方").fn()
+	assert_equal(
+		translator.get_state().provider,
+		"openai_compatible",
+		"provider group should switch back to OpenAI-compatible mode"
+	)
+	assert_equal(translator.get_state().api_key_source, "菜单已保存", "provider-group API key menu should update runtime key source")
 
 	direct_recorded.bound_handler()
 

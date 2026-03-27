@@ -32,7 +32,7 @@ _M.system = {
 		-- 是否默认开启防休眠状态
 		enabled = false,
 		-- 是否显示菜单栏图标
-		show_menubar = true,
+		show_menubar = false,
 		-- true 时同时阻止屏幕休眠; false 时仅阻止系统休眠, 屏幕仍可熄灭
 		keep_display_awake = false,
 	},
@@ -371,7 +371,7 @@ _M.selected_text_translate = {
 		gemini = {
 			-- 支持写成基础 models 路径，模块会自动拼上 /{model}:generateContent
 			api_url = "https://generativelanguage.googleapis.com/v1beta/models",
-			model = "gemini-2.0-flash",
+			model = "gemini-3-flash-preview",
 			api_key_env = "GEMINI_API_KEY",
 			api_key = "",
 		},
