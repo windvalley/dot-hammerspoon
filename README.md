@@ -163,11 +163,14 @@ Select any text and press <kbd>⌥</kbd> + <kbd>R</kbd> to translate it through 
 
 The module first tries to read the current accessibility selection directly. If that fails, it falls back to simulating <kbd>⌘</kbd> + <kbd>C</kbd>, reads the clipboard, then restores the previous clipboard contents. When Clipboard Center is enabled, the temporary copy/restore sequence is also suppressed from clipboard history.
 
+It also adds a menubar entry, so you can adjust the main settings at runtime and persist them through `hs.settings`, including the hotkey, translation direction, target languages, popup theme, popup timing, API URL/model, and a locally saved API key. A `恢复默认` action clears these menu overrides and goes back to `keybindings_config.lua`.
+
 You can customize it in `~/.hammerspoon/keybindings_config.lua`:
 
 ```lua
 _M.selected_text_translate = {
 	enabled = true,
+	show_menubar = true,
 	prefix = { "Option" },
 	key = "R",
 	message = "Translate Selection",
@@ -179,7 +182,7 @@ _M.selected_text_translate = {
 	model = "qwen3.5:35b",
 	disable_thinking = true,
 	api_key_env = "",
-	api_key = "ollama",
+	api_key = "",
 	request_timeout_seconds = 60,
 	popup_duration_seconds = 10,
 	popup_theme = "paper",
@@ -197,9 +200,11 @@ The older `popup_background = "#RRGGBB"` / `"#RRGGBBAA"` and `popup_background_c
 
 `translation_direction = "auto"` enables bidirectional translation: when the selection contains Chinese characters, it targets `chinese_target_language`; otherwise it targets `target_language`. If you want the old fixed behavior, set `translation_direction = "to_target"`.
 
+In the menubar presets, `中文目标语言` intentionally excludes `简体中文` to avoid a no-op same-language translation. If you still need a special case, you can enter it manually via the custom option.
+
 `api_mode` supports `auto`, `ollama_native`, and `openai_compatible`. In `auto`, local `localhost:11434` requests will prefer Ollama’s native `/api/chat` endpoint so thinking models can use `think = false` by default for faster responses.
 
-If you switch back to a cloud OpenAI-compatible provider, change `api_url`, `model`, `api_key_env`, and `api_key` accordingly. For GUI-launched Hammerspoon, a practical way to expose the key is:
+If you do not want to rely on shell environment variables, you can leave `api_key` empty and save the key from the menubar. That value will persist locally via `hs.settings` and continue working after reboot. If you prefer environment variables, a practical way for GUI-launched Hammerspoon is:
 
 ```sh
 launchctl setenv OPENAI_API_KEY "your-api-key"

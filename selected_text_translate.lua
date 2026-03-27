@@ -8,7 +8,10 @@ local hotkey_helper = require("hotkey_helper")
 local utils_lib = require("utils_lib")
 local trim = utils_lib.trim
 local copy_list = utils_lib.copy_list
+local prompt_text = utils_lib.prompt_text
 local normalize_hotkey_modifiers = hotkey_helper.normalize_hotkey_modifiers
+local format_hotkey = hotkey_helper.format_hotkey
+local modifier_prompt_names = hotkey_helper.modifier_prompt_names or {}
 local has_utf8, utf8_lib = pcall(require, "utf8")
 
 if has_utf8 ~= true then
@@ -22,6 +25,8 @@ local default_model = "gpt-4o-mini"
 local default_target_language = "简体中文"
 local default_chinese_target_language = "英文"
 local default_translation_direction = "auto"
+local default_request_message = "Translate Selection"
+local default_popup_title = "翻译结果"
 local default_request_timeout_seconds = 20
 local default_clipboard_poll_interval_seconds = 0.05
 local default_clipboard_max_wait_seconds = 0.4
@@ -34,8 +39,11 @@ local default_popup_background_color = {
 	blue = 0.95,
 }
 local default_popup_background_alpha = 0.98
+local runtime_settings_key = "selected_text_translate.runtime_overrides"
+local menubar_autosave_name = "dot-hammerspoon.selected_text_translate"
 local dialog_copy_button = "复制译文"
 local dialog_close_button = "关闭"
+local menubar_title_fallback = "译"
 local popup_margin = 24
 local popup_min_width = 320
 local popup_max_width = 540
@@ -48,6 +56,82 @@ local popup_divider_y = 46
 local popup_chrome_height = 74
 local popup_copy_button_size = 28
 local popup_copy_button_inset = 14
+local target_language_presets = {
+	"简体中文",
+	"繁體中文",
+	"英文",
+	"日文",
+	"韩文",
+	"法文",
+	"德文",
+}
+local chinese_target_language_presets = {
+	"繁體中文",
+	"英文",
+	"日文",
+	"韩文",
+	"法文",
+	"德文",
+}
+local popup_duration_presets = {
+	0,
+	5,
+	8,
+	10,
+	15,
+	20,
+}
+local popup_alpha_presets = {
+	0.72,
+	0.82,
+	0.88,
+	0.94,
+	1,
+}
+local request_timeout_presets = {
+	15,
+	20,
+	30,
+	60,
+}
+local popup_theme_order = {
+	"paper",
+	"mist",
+	"graphite",
+	"slate",
+	"ocean",
+	"forest",
+	"amber",
+	"rose",
+	"cocoa",
+	"mint",
+}
+local popup_theme_labels = {
+	paper = "Paper 米白",
+	mist = "Mist 清雾",
+	graphite = "Graphite 石墨",
+	slate = "Slate 岩蓝",
+	ocean = "Ocean 深海",
+	forest = "Forest 松林",
+	amber = "Amber 琥珀",
+	rose = "Rose 玫瑰",
+	cocoa = "Cocoa 可可",
+	mint = "Mint 薄荷",
+}
+local api_mode_order = {
+	"auto",
+	"ollama_native",
+	"openai_compatible",
+}
+local api_mode_labels = {
+	auto = "自动",
+	ollama_native = "Ollama 原生",
+	openai_compatible = "OpenAI 兼容",
+}
+local translation_direction_labels = {
+	auto = "自动双向",
+	to_target = "固定目标语言",
+}
 local popup_theme_presets = {
 	paper = {
 		background = { red = 0.98, green = 0.97, blue = 0.95 },
@@ -165,7 +249,12 @@ local state = {
 	popup_click_watcher = nil,
 	popup_hover_watcher = nil,
 	popup_hovered = false,
+	menubar = nil,
+	menubar_forced = false,
+	hotkey_error = nil,
 }
+
+local runtime_overrides = {}
 
 local function copy_table(value)
 	local copied = {}
@@ -190,6 +279,142 @@ local function normalize_hotkey_key(raw_key)
 
 	return normalized
 end
+
+local function table_is_empty(table_value)
+	return next(table_value or {}) == nil
+end
+
+local function current_config()
+	local merged = {}
+
+	for key, value in pairs(selected_text_translate or {}) do
+		merged[key] = type(value) == "table" and copy_table(value) or value
+	end
+
+	for key, value in pairs(runtime_overrides or {}) do
+		merged[key] = type(value) == "table" and copy_table(value) or value
+	end
+
+	return merged
+end
+
+local function sanitize_runtime_overrides(overrides)
+	local sanitized = {}
+
+	if type(overrides) ~= "table" then
+		return sanitized
+	end
+
+	if type(overrides.enabled) == "boolean" then
+		sanitized.enabled = overrides.enabled
+	end
+
+	if type(overrides.show_menubar) == "boolean" then
+		sanitized.show_menubar = overrides.show_menubar
+	end
+
+	if overrides.prefix ~= nil then
+		local normalized_modifiers = normalize_hotkey_modifiers(overrides.prefix)
+
+		if normalized_modifiers ~= nil then
+			sanitized.prefix = normalized_modifiers
+		end
+	end
+
+	if overrides.key ~= nil then
+		local normalized_key = normalize_hotkey_key(overrides.key)
+		sanitized.key = normalized_key == nil and "disabled" or normalized_key
+	end
+
+	for _, field in ipairs({
+		"message",
+		"popup_title",
+		"translation_direction",
+		"target_language",
+		"chinese_target_language",
+		"api_url",
+		"model",
+		"api_mode",
+		"api_key_env",
+		"api_key",
+		"popup_theme",
+	}) do
+		if type(overrides[field]) == "string" then
+			sanitized[field] = tostring(overrides[field])
+		end
+	end
+
+	if type(overrides.disable_thinking) == "boolean" then
+		sanitized.disable_thinking = overrides.disable_thinking
+	end
+
+	for _, field in ipairs({
+		"request_timeout_seconds",
+		"clipboard_poll_interval_seconds",
+		"clipboard_max_wait_seconds",
+		"popup_duration_seconds",
+		"popup_background_alpha",
+	}) do
+		if tonumber(overrides[field]) ~= nil then
+			sanitized[field] = tonumber(overrides[field])
+		end
+	end
+
+	return sanitized
+end
+
+local function persist_runtime_overrides()
+	if type(hs) ~= "table" or type(hs.settings) ~= "table" then
+		return
+	end
+
+	if table_is_empty(runtime_overrides) == true then
+		if type(hs.settings.clear) == "function" then
+			hs.settings.clear(runtime_settings_key)
+		end
+
+		return
+	end
+
+	if type(hs.settings.set) == "function" then
+		hs.settings.set(runtime_settings_key, runtime_overrides)
+	end
+end
+
+local function load_runtime_overrides()
+	if type(hs) ~= "table" or type(hs.settings) ~= "table" or type(hs.settings.get) ~= "function" then
+		return {}
+	end
+
+	local saved = hs.settings.get(runtime_settings_key)
+	local sanitized = sanitize_runtime_overrides(saved)
+
+	if table_is_empty(sanitized) == true then
+		if saved ~= nil and type(hs.settings.clear) == "function" then
+			hs.settings.clear(runtime_settings_key)
+		end
+
+		return {}
+	end
+
+	if type(hs.settings.set) == "function" then
+		hs.settings.set(runtime_settings_key, sanitized)
+	end
+
+	return sanitized
+end
+
+local function set_runtime_override(field, value)
+	if value == nil then
+		runtime_overrides[field] = nil
+	else
+		runtime_overrides[field] = value
+	end
+
+	persist_runtime_overrides()
+end
+
+runtime_overrides = load_runtime_overrides()
 
 local function normalize_number(value, fallback, minimum, maximum)
 	local number = tonumber(value)
@@ -273,12 +498,14 @@ local function finish_request()
 end
 
 local function request_timeout_seconds()
-	return normalize_number(selected_text_translate.request_timeout_seconds, default_request_timeout_seconds, 3, 120)
+	local config = current_config()
+	return normalize_number(config.request_timeout_seconds, default_request_timeout_seconds, 3, 120)
 end
 
 local function clipboard_poll_interval_seconds()
+	local config = current_config()
 	return normalize_number(
-		selected_text_translate.clipboard_poll_interval_seconds,
+		config.clipboard_poll_interval_seconds,
 		default_clipboard_poll_interval_seconds,
 		0.02,
 		0.5
@@ -286,8 +513,9 @@ local function clipboard_poll_interval_seconds()
 end
 
 local function clipboard_max_wait_seconds()
+	local config = current_config()
 	return normalize_number(
-		selected_text_translate.clipboard_max_wait_seconds,
+		config.clipboard_max_wait_seconds,
 		default_clipboard_max_wait_seconds,
 		0.05,
 		2
@@ -299,7 +527,8 @@ local function clipboard_poll_attempts()
 end
 
 local function popup_duration_seconds()
-	return normalize_number(selected_text_translate.popup_duration_seconds, default_popup_duration_seconds, 0, 60)
+	local config = current_config()
+	return normalize_number(config.popup_duration_seconds, default_popup_duration_seconds, 0, 60)
 end
 
 local function normalize_unit_interval(value, fallback)
@@ -368,7 +597,8 @@ local function normalize_color_table(value, fallback)
 end
 
 local function popup_theme_name()
-	local theme_name = string.lower(trim(tostring(selected_text_translate.popup_theme or default_popup_theme)))
+	local config = current_config()
+	local theme_name = string.lower(trim(tostring(config.popup_theme or default_popup_theme)))
 
 	if theme_name == "" then
 		theme_name = default_popup_theme
@@ -386,12 +616,15 @@ local function popup_theme_preset()
 end
 
 local function has_legacy_popup_background()
-	return selected_text_translate.popup_background ~= nil or selected_text_translate.popup_background_color ~= nil
+	local config = current_config()
+	return config.popup_background ~= nil or config.popup_background_color ~= nil
 end
 
 local function resolved_popup_background_alpha(color)
-	if selected_text_translate.popup_background_alpha ~= nil then
-		return normalize_unit_interval(selected_text_translate.popup_background_alpha, default_popup_background_alpha)
+	local config = current_config()
+
+	if config.popup_background_alpha ~= nil then
+		return normalize_unit_interval(config.popup_background_alpha, default_popup_background_alpha)
 	end
 
 	return normalize_unit_interval(type(color) == "table" and color.alpha, default_popup_background_alpha)
@@ -402,10 +635,11 @@ local function legacy_popup_background_fill_color()
 		return nil
 	end
 
-	local configured_background = selected_text_translate.popup_background
+	local config = current_config()
+	local configured_background = config.popup_background
 
 	if configured_background == nil then
-		configured_background = selected_text_translate.popup_background_color
+		configured_background = config.popup_background_color
 	end
 
 	local color = normalize_color_table(configured_background, default_popup_background_color)
@@ -500,17 +734,19 @@ local function popup_theme_colors()
 end
 
 local function popup_title()
-	local title = trim(tostring(selected_text_translate.popup_title or ""))
+	local config = current_config()
+	local title = trim(tostring(config.popup_title or ""))
 
 	if title == "" then
-		return "翻译结果"
+		return default_popup_title
 	end
 
 	return title
 end
 
 local function translation_direction()
-	local direction = string.lower(trim(tostring(selected_text_translate.translation_direction or default_translation_direction)))
+	local config = current_config()
+	local direction = string.lower(trim(tostring(config.translation_direction or default_translation_direction)))
 
 	if direction == "to_target" then
 		return "to_target"
@@ -520,7 +756,8 @@ local function translation_direction()
 end
 
 local function target_language()
-	local language = trim(tostring(selected_text_translate.target_language or default_target_language))
+	local config = current_config()
+	local language = trim(tostring(config.target_language or default_target_language))
 
 	if language == "" then
 		return default_target_language
@@ -530,7 +767,8 @@ local function target_language()
 end
 
 local function chinese_target_language()
-	local language = trim(tostring(selected_text_translate.chinese_target_language or default_chinese_target_language))
+	local config = current_config()
+	local language = trim(tostring(config.chinese_target_language or default_chinese_target_language))
 
 	if language == "" then
 		return default_chinese_target_language
@@ -540,17 +778,19 @@ local function chinese_target_language()
 end
 
 local function request_message()
-	local message = trim(tostring(selected_text_translate.message or ""))
+	local config = current_config()
+	local message = trim(tostring(config.message or ""))
 
 	if message == "" then
-		return "Translate Selection"
+		return default_request_message
 	end
 
 	return message
 end
 
 local function api_url()
-	local url = trim(tostring(selected_text_translate.api_url or default_api_url))
+	local config = current_config()
+	local url = trim(tostring(config.api_url or default_api_url))
 
 	if url == "" then
 		return default_api_url
@@ -560,7 +800,8 @@ local function api_url()
 end
 
 local function api_model()
-	local model = trim(tostring(selected_text_translate.model or default_model))
+	local config = current_config()
+	local model = trim(tostring(config.model or default_model))
 
 	if model == "" then
 		return default_model
@@ -570,7 +811,8 @@ local function api_model()
 end
 
 local function api_mode()
-	local mode = string.lower(trim(tostring(selected_text_translate.api_mode or default_api_mode)))
+	local config = current_config()
+	local mode = string.lower(trim(tostring(config.api_mode or default_api_mode)))
 
 	if mode == "" then
 		mode = default_api_mode
@@ -615,8 +857,10 @@ local function resolved_api_mode()
 end
 
 local function disable_thinking()
-	if selected_text_translate.disable_thinking ~= nil then
-		return selected_text_translate.disable_thinking ~= false
+	local config = current_config()
+
+	if config.disable_thinking ~= nil then
+		return config.disable_thinking ~= false
 	end
 
 	return resolved_api_mode() == "ollama_native"
@@ -637,11 +881,13 @@ local function resolved_request_url()
 end
 
 local function api_key_env_name()
-	return trim(tostring(selected_text_translate.api_key_env or "OPENAI_API_KEY"))
+	local config = current_config()
+	return trim(tostring(config.api_key_env or "OPENAI_API_KEY"))
 end
 
 local function api_key()
-	local configured = trim(tostring(selected_text_translate.api_key or ""))
+	local config = current_config()
+	local configured = trim(tostring(config.api_key or ""))
 
 	if configured ~= "" then
 		return configured
@@ -1910,28 +2156,989 @@ local function translate_current_selection()
 end
 
 local function create_hotkey_binding()
-	local modifiers, invalid_modifier = normalize_hotkey_modifiers(selected_text_translate.prefix or {})
+	local config = current_config()
+	local modifiers, invalid_modifier = normalize_hotkey_modifiers(config.prefix or {})
 
 	if modifiers == nil then
 		log.e("invalid selected text translate hotkey modifier in config: " .. tostring(invalid_modifier))
-		return false, nil
+		return false, nil, "快捷键修饰键无效"
 	end
 
-	local key = normalize_hotkey_key(selected_text_translate.key)
+	local key = normalize_hotkey_key(config.key)
 
 	if key == nil then
-		return true, nil
+		return true, nil, nil
 	end
 
-	local binding = hotkey_helper.bind(copy_list(modifiers), key, request_message(), function()
+	local binding, binding_error = hotkey_helper.bind(copy_list(modifiers), key, request_message(), function()
 		translate_current_selection()
 	end, nil, nil, { logger = log })
 
 	if binding == nil then
-		return false, nil
+		return false, nil, tostring(binding_error or "快捷键绑定失败")
 	end
 
-	return true, binding
+	return true, binding, nil
+end
+
+local function hotkey_enabled()
+	local config = current_config()
+	return config.enabled ~= false
+end
+
+local function menubar_enabled()
+	local config = current_config()
+
+	if state.menubar_forced == true then
+		return true
+	end
+
+	return config.show_menubar ~= false
+end
+
+local function current_hotkey_components()
+	local config = current_config()
+	local modifiers = normalize_hotkey_modifiers(config.prefix or {}) or {}
+	local key = normalize_hotkey_key(config.key)
+
+	return modifiers, key
+end
+
+local function display_hotkey_label()
+	local modifiers, key = current_hotkey_components()
+
+	if key == nil then
+		return "未设置"
+	end
+
+	if type(format_hotkey) == "function" then
+		return format_hotkey(modifiers, key)
+	end
+
+	return key
+end
+
+local function format_duration_label(seconds)
+	seconds = tonumber(seconds) or 0
+
+	if math.abs(seconds) < 0.000001 then
+		return "常驻"
+	end
+
+	if math.abs(seconds - math.floor(seconds)) < 0.000001 then
+		return string.format("%d 秒", math.floor(seconds))
+	end
+
+	return string.format("%.1f 秒", seconds)
+end
+
+local function format_alpha_label(alpha)
+	return string.format("%d%%", math.floor((tonumber(alpha) or 0) * 100 + 0.5))
+end
+
+local function translation_direction_label(direction)
+	return translation_direction_labels[direction or translation_direction()] or translation_direction_labels.auto
+end
+
+local function popup_theme_label(theme_name)
+	theme_name = theme_name or popup_theme_name()
+
+	return popup_theme_labels[theme_name] or theme_name
+end
+
+local function api_mode_label(mode)
+	return api_mode_labels[mode or api_mode()] or api_mode_labels.auto
+end
+
+local function api_key_source_label()
+	local config = current_config()
+	local configured = trim(tostring(config.api_key or ""))
+
+	if configured ~= "" then
+		if runtime_overrides.api_key ~= nil then
+			return "菜单已保存"
+		end
+
+		return "配置文件"
+	end
+
+	local env_name = api_key_env_name()
+
+	if env_name ~= "" and trim(tostring(os.getenv(env_name) or "")) ~= "" then
+		return "环境变量 " .. env_name
+	end
+
+	return "未配置"
+end
+
+local function menu_config_source_label()
+	if table_is_empty(runtime_overrides) == true then
+		return "配置: 文件"
+	end
+
+	return "配置: 文件+菜单"
+end
+
+local function tooltip_text()
+	return string.format(
+		"划词翻译\n状态: %s\n热键: %s\n方向: %s\n非中文: %s\n中文: %s\n模型: %s\n接口模式: %s\n主题: %s | 透明度: %s | 停留: %s",
+		hotkey_enabled() == true and "已启用" or "已停用",
+		display_hotkey_label(),
+		translation_direction_label(),
+		target_language(),
+		chinese_target_language(),
+		api_model(),
+		api_mode_label(api_mode()),
+		popup_theme_label(),
+		format_alpha_label(resolved_popup_background_alpha({ alpha = popup_background_fill_color().alpha })),
+		format_duration_label(popup_duration_seconds())
+	)
+end
+
+local function prompt_number(message, informative_text, default_value, minimum, maximum, options)
+	options = options or {}
+
+	if type(prompt_text) ~= "function" then
+		hs.alert.show("当前环境不支持输入配置")
+		return nil
+	end
+
+	local value = prompt_text(message, informative_text, tostring(default_value or ""))
+
+	if value == nil then
+		return nil
+	end
+
+	local number = tonumber(trim(value))
+
+	if number == nil then
+		hs.alert.show("请输入有效数字")
+		return nil
+	end
+
+	if options.integer == true then
+		number = math.floor(number)
+	end
+
+	if minimum ~= nil then
+		number = math.max(minimum, number)
+	end
+
+	if maximum ~= nil then
+		number = math.min(maximum, number)
+	end
+
+	return number
+end
+
+local function format_hotkey_for_prompt(modifiers, key)
+	local modifier_names = {}
+
+	for _, modifier in ipairs(modifiers or {}) do
+		table.insert(modifier_names, modifier_prompt_names[modifier] or modifier)
+	end
+
+	return table.concat(modifier_names, "+"), key or ""
+end
+
+local refresh_menubar
+
+local function destroy_menubar()
+	if state.menubar == nil then
+		return
+	end
+
+	state.menubar:delete()
+	state.menubar = nil
+end
+
+local function replace_runtime_overrides(snapshot)
+	runtime_overrides = sanitize_runtime_overrides(snapshot)
+	persist_runtime_overrides()
+end
+
+local function rebind_hotkey(_, options)
+	options = options or {}
+
+	if state.hotkey ~= nil then
+		state.hotkey:delete()
+		state.hotkey = nil
+	end
+
+	state.hotkey_error = nil
+
+	if hotkey_enabled() ~= true then
+		if options.refresh_menubar ~= false and refresh_menubar ~= nil then
+			refresh_menubar()
+		end
+
+		return true
+	end
+
+	local ok, binding, error_message = create_hotkey_binding()
+	state.hotkey = binding
+
+	if ok ~= true then
+		state.hotkey = nil
+		state.hotkey_error = error_message or "快捷键绑定失败"
+		state.menubar_forced = true
+
+		if options.show_alert ~= false then
+			hs.alert.show("划词翻译快捷键绑定失败，已保留菜单栏入口")
+		end
+	else
+		state.hotkey_error = nil
+
+		if current_config().show_menubar ~= false then
+			state.menubar_forced = false
+		end
+	end
+
+	if options.refresh_menubar ~= false and refresh_menubar ~= nil then
+		refresh_menubar()
+	end
+
+	return ok
+end
+
+local function clear_runtime_override(field)
+	runtime_overrides[field] = nil
+	persist_runtime_overrides()
+end
+
+local function set_enabled(enabled, reason)
+	set_runtime_override("enabled", enabled == true)
+
+	if enabled ~= true then
+		finish_request()
+		destroy_popup()
+	end
+
+	rebind_hotkey(reason or "menu update enabled", { show_alert = enabled ~= true })
+	hs.alert.show(enabled == true and "划词翻译已开启" or "划词翻译已关闭")
+end
+
+local function set_hotkey_configuration(modifiers, key, reason)
+	local snapshot = copy_table(runtime_overrides)
+
+	set_runtime_override("prefix", copy_list(modifiers or {}))
+	set_runtime_override("key", key == nil and "disabled" or key)
+
+	local ok = rebind_hotkey(reason or "menu update hotkey", { show_alert = false })
+
+	if ok ~= true and hotkey_enabled() == true then
+		replace_runtime_overrides(snapshot)
+		rebind_hotkey("restore previous selection translate hotkey", { show_alert = false })
+		hs.alert.show("划词翻译快捷键设置失败")
+		return false
+	end
+
+	hs.alert.show(key == nil and "已禁用划词翻译快捷键" or ("划词翻译快捷键已更新: " .. display_hotkey_label()))
+	return true
+end
+
+local function restore_default_hotkey()
+	local snapshot = copy_table(runtime_overrides)
+
+	clear_runtime_override("prefix")
+	clear_runtime_override("key")
+
+	local ok = rebind_hotkey("restore default selection translate hotkey", { show_alert = false })
+
+	if ok ~= true and hotkey_enabled() == true then
+		replace_runtime_overrides(snapshot)
+		rebind_hotkey("restore previous selection translate hotkey", { show_alert = false })
+		hs.alert.show("恢复默认快捷键失败")
+		return false
+	end
+
+	hs.alert.show("已恢复默认快捷键: " .. display_hotkey_label())
+	return true
+end
+
+local function prompt_hotkey_configuration()
+	local modifiers, key = current_hotkey_components()
+	local current_modifiers, current_key = format_hotkey_for_prompt(modifiers, key)
+	local modifier_text = prompt_text(
+		"设置划词翻译快捷键",
+		"请输入修饰键，多个值用 + 分隔。\n可用: ctrl option command shift fn\n留空表示无修饰键。",
+		current_modifiers
+	)
+
+	if modifier_text == nil then
+		return
+	end
+
+	local key_text = prompt_text(
+		"设置划词翻译快捷键",
+		"请输入主键，例如 r、t、space、return、f18。",
+		current_key
+	)
+
+	if key_text == nil then
+		return
+	end
+
+	local normalized_modifiers, invalid_modifier = normalize_hotkey_modifiers(modifier_text)
+	local normalized_key = normalize_hotkey_key(key_text)
+
+	if normalized_modifiers == nil then
+		hs.alert.show("无效修饰键: " .. tostring(invalid_modifier))
+		return
+	end
+
+	if normalized_key == nil then
+		hs.alert.show("主键不能为空")
+		return
+	end
+
+	set_hotkey_configuration(normalized_modifiers, normalized_key, "menu prompt hotkey")
+end
+
+local function set_translation_direction(direction)
+	set_runtime_override("translation_direction", direction)
+	refresh_menubar()
+	hs.alert.show("翻译方向已切换为" .. translation_direction_label(direction))
+end
+
+local function set_language_field(field, value, success_message)
+	local language = trim(tostring(value or ""))
+
+	if language == "" then
+		hs.alert.show("目标语言不能为空")
+		return
+	end
+
+	set_runtime_override(field, language)
+	refresh_menubar()
+	hs.alert.show(success_message .. language)
+end
+
+local function prompt_language_field(field, title, informative_text, success_message)
+	local value = prompt_text(title, informative_text, current_config()[field] or "")
+
+	if value == nil then
+		return
+	end
+
+	set_language_field(field, value, success_message)
+end
+
+local function set_popup_theme(theme_name)
+	set_runtime_override("popup_theme", theme_name)
+	refresh_menubar()
+	hs.alert.show("悬浮窗主题已切换为" .. popup_theme_label(theme_name))
+end
+
+local function set_popup_alpha(alpha)
+	alpha = normalize_unit_interval(alpha, default_popup_background_alpha)
+	set_runtime_override("popup_background_alpha", alpha)
+	refresh_menubar()
+	hs.alert.show("悬浮窗透明度已更新为 " .. format_alpha_label(alpha))
+end
+
+local function set_popup_duration(seconds)
+	seconds = normalize_number(seconds, default_popup_duration_seconds, 0, 60)
+	set_runtime_override("popup_duration_seconds", seconds)
+	refresh_menubar()
+	hs.alert.show("悬浮窗停留时间已更新为 " .. format_duration_label(seconds))
+end
+
+local function set_api_mode(mode)
+	set_runtime_override("api_mode", mode)
+	refresh_menubar()
+	hs.alert.show("接口模式已切换为" .. api_mode_label(mode))
+end
+
+local function set_request_timeout(seconds)
+	seconds = normalize_number(seconds, default_request_timeout_seconds, 3, 120)
+	set_runtime_override("request_timeout_seconds", seconds)
+	refresh_menubar()
+	hs.alert.show("请求超时已更新为 " .. format_duration_label(seconds))
+end
+
+local function prompt_api_url_configuration()
+	local value = prompt_text(
+		"设置翻译接口地址",
+		"请输入 OpenAI 兼容接口或 Ollama 本地接口地址。",
+		api_url()
+	)
+
+	if value == nil then
+		return
+	end
+
+	local url = trim(value)
+
+	if url == "" then
+		hs.alert.show("接口地址不能为空")
+		return
+	end
+
+	set_runtime_override("api_url", url)
+	refresh_menubar()
+	hs.alert.show("接口地址已更新")
+end
+
+local function prompt_model_configuration()
+	local value = prompt_text("设置翻译模型", "请输入要调用的模型名称。", api_model())
+
+	if value == nil then
+		return
+	end
+
+	local model = trim(value)
+
+	if model == "" then
+		hs.alert.show("模型名称不能为空")
+		return
+	end
+
+	set_runtime_override("model", model)
+	refresh_menubar()
+	hs.alert.show("翻译模型已更新为 " .. model)
+end
+
+local function prompt_api_key_configuration()
+	local value = prompt_text(
+		"设置 API Key",
+		"将保存到 hs.settings，重启 Hammerspoon 或电脑后仍可继续使用。\n留空表示清除菜单中保存的 API Key，并回退到配置文件或环境变量。",
+		current_config().api_key or ""
+	)
+
+	if value == nil then
+		return
+	end
+
+	local key = trim(value)
+
+	if key == "" then
+		clear_runtime_override("api_key")
+		refresh_menubar()
+		hs.alert.show("已清除菜单中保存的 API Key")
+		return
+	end
+
+	set_runtime_override("api_key", key)
+	refresh_menubar()
+	hs.alert.show("API Key 已保存")
+end
+
+local function restore_default_field(field, success_message)
+	clear_runtime_override(field)
+	refresh_menubar()
+
+	if success_message ~= nil then
+		hs.alert.show(success_message)
+	end
+end
+
+local function restore_persisted_menu_configuration()
+	replace_runtime_overrides({})
+	rebind_hotkey("restore selection translate defaults", { show_alert = false })
+	refresh_menubar()
+end
+
+local function confirm_restore_defaults()
+	if table_is_empty(runtime_overrides) == true then
+		return false
+	end
+
+	local button = "恢复默认"
+
+	if type(hs.dialog) == "table" and type(hs.dialog.blockAlert) == "function" then
+		button = hs.dialog.blockAlert(
+			"恢复默认",
+			"这会清除当前通过菜单栏保存的划词翻译配置，并恢复为 keybindings_config.lua 中定义的默认值。是否继续？",
+			"恢复默认",
+			"取消"
+		)
+	end
+
+	if button ~= "恢复默认" then
+		return false
+	end
+
+	restore_persisted_menu_configuration()
+	hs.alert.show("已恢复默认配置")
+
+	return true
+end
+
+local function build_translation_direction_menu()
+	return {
+		{
+			title = "自动双向",
+			checked = translation_direction() == "auto",
+			fn = function()
+				set_translation_direction("auto")
+			end,
+		},
+		{
+			title = "固定翻译到非中文目标语言",
+			checked = translation_direction() == "to_target",
+			fn = function()
+				set_translation_direction("to_target")
+			end,
+		},
+		{
+			title = "恢复文件配置",
+			disabled = runtime_overrides.translation_direction == nil,
+			fn = function()
+				restore_default_field("translation_direction", "已恢复文件中的翻译方向配置")
+			end,
+		},
+	}
+end
+
+local function build_language_menu(field, current_value, title, informative_text, success_message, presets)
+	local menu = {
+		{ title = "当前: " .. tostring(current_value), disabled = true },
+	}
+
+	for _, language in ipairs(presets or target_language_presets) do
+		table.insert(menu, {
+			title = language,
+			checked = current_value == language,
+			fn = function()
+				set_language_field(field, language, success_message)
+			end,
+		})
+	end
+
+	table.insert(menu, {
+		title = "自定义...",
+		fn = function()
+			prompt_language_field(field, title, informative_text, success_message)
+		end,
+	})
+	table.insert(menu, { title = "-" })
+	table.insert(menu, {
+		title = "恢复文件配置",
+		disabled = runtime_overrides[field] == nil,
+		fn = function()
+			restore_default_field(field, "已恢复文件中的语言配置")
+		end,
+	})
+
+	return menu
+end
+
+local function build_popup_theme_menu()
+	local menu = {
+		{ title = "当前: " .. popup_theme_label(), disabled = true },
+	}
+
+	for _, theme_name in ipairs(popup_theme_order) do
+		table.insert(menu, {
+			title = popup_theme_label(theme_name),
+			checked = popup_theme_name() == theme_name,
+			fn = function()
+				set_popup_theme(theme_name)
+			end,
+		})
+	end
+
+	table.insert(menu, { title = "-" })
+	table.insert(menu, {
+		title = "恢复文件配置",
+		disabled = runtime_overrides.popup_theme == nil,
+		fn = function()
+			restore_default_field("popup_theme", "已恢复文件中的主题配置")
+		end,
+	})
+
+	return menu
+end
+
+local function build_popup_alpha_menu()
+	local menu = {
+		{ title = "当前: " .. format_alpha_label(popup_background_fill_color().alpha), disabled = true },
+	}
+
+	for _, alpha in ipairs(popup_alpha_presets) do
+		table.insert(menu, {
+			title = format_alpha_label(alpha),
+			checked = math.abs(popup_background_fill_color().alpha - alpha) < 0.001,
+			fn = function()
+				set_popup_alpha(alpha)
+			end,
+		})
+	end
+
+	table.insert(menu, {
+		title = "自定义透明度...",
+		fn = function()
+			local percent = prompt_number(
+				"设置悬浮窗透明度",
+				"请输入 0 到 100 之间的透明度百分比。",
+				math.floor((popup_background_fill_color().alpha or default_popup_background_alpha) * 100 + 0.5),
+				0,
+				100,
+				{ integer = true }
+			)
+
+			if percent == nil then
+				return
+			end
+
+			set_popup_alpha(percent / 100)
+		end,
+	})
+	table.insert(menu, { title = "-" })
+	table.insert(menu, {
+		title = "恢复文件配置",
+		disabled = runtime_overrides.popup_background_alpha == nil,
+		fn = function()
+			restore_default_field("popup_background_alpha", "已恢复文件中的透明度配置")
+		end,
+	})
+
+	return menu
+end
+
+local function build_popup_duration_menu()
+	local current_seconds = popup_duration_seconds()
+	local menu = {
+		{ title = "当前: " .. format_duration_label(current_seconds), disabled = true },
+	}
+
+	for _, seconds in ipairs(popup_duration_presets) do
+		table.insert(menu, {
+			title = format_duration_label(seconds),
+			checked = math.abs(current_seconds - seconds) < 0.001,
+			fn = function()
+				set_popup_duration(seconds)
+			end,
+		})
+	end
+
+	table.insert(menu, {
+		title = "自定义停留时间...",
+		fn = function()
+			local seconds = prompt_number(
+				"设置悬浮窗停留时间",
+				"请输入悬浮窗停留秒数，输入 0 表示不自动关闭。",
+				current_seconds,
+				0,
+				60
+			)
+
+			if seconds == nil then
+				return
+			end
+
+			set_popup_duration(seconds)
+		end,
+	})
+	table.insert(menu, { title = "-" })
+	table.insert(menu, {
+		title = "恢复文件配置",
+		disabled = runtime_overrides.popup_duration_seconds == nil,
+		fn = function()
+			restore_default_field("popup_duration_seconds", "已恢复文件中的停留时间配置")
+		end,
+	})
+
+	return menu
+end
+
+local function build_api_mode_menu()
+	local menu = {
+		{
+			title = "当前: " .. api_mode_label(api_mode()) .. " | 实际请求: " .. api_mode_label(resolved_api_mode()),
+			disabled = true,
+		},
+	}
+
+	for _, mode in ipairs(api_mode_order) do
+		table.insert(menu, {
+			title = api_mode_label(mode),
+			checked = api_mode() == mode,
+			fn = function()
+				set_api_mode(mode)
+			end,
+		})
+	end
+
+	table.insert(menu, { title = "-" })
+	table.insert(menu, {
+		title = "恢复文件配置",
+		disabled = runtime_overrides.api_mode == nil,
+		fn = function()
+			restore_default_field("api_mode", "已恢复文件中的接口模式配置")
+		end,
+	})
+
+	return menu
+end
+
+local function build_request_timeout_menu()
+	local current_seconds = request_timeout_seconds()
+	local menu = {
+		{ title = "当前: " .. format_duration_label(current_seconds), disabled = true },
+	}
+
+	for _, seconds in ipairs(request_timeout_presets) do
+		table.insert(menu, {
+			title = format_duration_label(seconds),
+			checked = math.abs(current_seconds - seconds) < 0.001,
+			fn = function()
+				set_request_timeout(seconds)
+			end,
+		})
+	end
+
+	table.insert(menu, {
+		title = "自定义超时...",
+		fn = function()
+			local seconds = prompt_number(
+				"设置请求超时",
+				"请输入请求超时秒数，范围 3 到 120。",
+				current_seconds,
+				3,
+				120
+			)
+
+			if seconds == nil then
+				return
+			end
+
+			set_request_timeout(seconds)
+		end,
+	})
+	table.insert(menu, { title = "-" })
+	table.insert(menu, {
+		title = "恢复文件配置",
+		disabled = runtime_overrides.request_timeout_seconds == nil,
+		fn = function()
+			restore_default_field("request_timeout_seconds", "已恢复文件中的超时配置")
+		end,
+	})
+
+	return menu
+end
+
+local function build_api_key_menu()
+	return {
+		{ title = "当前来源: " .. api_key_source_label(), disabled = true },
+		{
+			title = "设置 API Key...",
+			fn = prompt_api_key_configuration,
+		},
+		{
+			title = "清除菜单中保存的 API Key",
+			disabled = runtime_overrides.api_key == nil,
+			fn = function()
+				clear_runtime_override("api_key")
+				refresh_menubar()
+				hs.alert.show("已清除菜单中保存的 API Key")
+			end,
+		},
+	}
+end
+
+local function build_api_settings_menu()
+	return {
+		{ title = "模型: " .. api_model(), disabled = true },
+		{ title = "地址: " .. api_url(), disabled = true },
+		{ title = "API Key: " .. api_key_source_label(), disabled = true },
+		{ title = "-" },
+		{
+			title = "接口模式",
+			menu = build_api_mode_menu(),
+		},
+		{
+			title = "模型名称...",
+			fn = prompt_model_configuration,
+		},
+		{
+			title = "恢复文件中的模型配置",
+			disabled = runtime_overrides.model == nil,
+			fn = function()
+				restore_default_field("model", "已恢复文件中的模型配置")
+			end,
+		},
+		{
+			title = "接口地址...",
+			fn = prompt_api_url_configuration,
+		},
+		{
+			title = "恢复文件中的接口地址",
+			disabled = runtime_overrides.api_url == nil,
+			fn = function()
+				restore_default_field("api_url", "已恢复文件中的接口地址配置")
+			end,
+		},
+		{
+			title = "请求超时",
+			menu = build_request_timeout_menu(),
+		},
+		{
+			title = "API Key",
+			menu = build_api_key_menu(),
+		},
+	}
+end
+
+local function build_hotkey_menu()
+	return {
+		{ title = "当前: " .. display_hotkey_label(), disabled = true },
+		{
+			title = "设置快捷键...",
+			fn = prompt_hotkey_configuration,
+		},
+		{
+			title = "恢复默认快捷键",
+			disabled = runtime_overrides.prefix == nil and runtime_overrides.key == nil,
+			fn = restore_default_hotkey,
+		},
+	}
+end
+
+local function build_menu()
+	return {
+		{ title = "划词翻译", disabled = true },
+		{
+			title = string.format(
+				"状态: %s | 热键: %s",
+				hotkey_enabled() == true and "已启用" or "已停用",
+				display_hotkey_label()
+			),
+			disabled = true,
+		},
+		{
+			title = string.format(
+				"方向: %s | 非中文: %s | 中文: %s",
+				translation_direction_label(),
+				target_language(),
+				chinese_target_language()
+			),
+			disabled = true,
+		},
+		{
+			title = string.format(
+				"主题: %s | 透明度: %s | 停留: %s",
+				popup_theme_label(),
+				format_alpha_label(popup_background_fill_color().alpha),
+				format_duration_label(popup_duration_seconds())
+			),
+			disabled = true,
+		},
+		{
+			title = string.format(
+				"模型: %s | 模式: %s",
+				api_model(),
+				api_mode_label(api_mode())
+			),
+			disabled = true,
+		},
+		{ title = menu_config_source_label(), disabled = true },
+		{ title = "-" },
+		{
+			title = "翻译当前选区",
+			fn = translate_current_selection,
+		},
+		{
+			title = "启用划词翻译",
+			checked = hotkey_enabled(),
+			fn = function()
+				set_enabled(not hotkey_enabled(), "menu toggle enabled")
+			end,
+		},
+		{
+			title = "快捷键",
+			menu = build_hotkey_menu(),
+		},
+		{
+			title = "翻译方向",
+			menu = build_translation_direction_menu(),
+		},
+		{
+			title = "非中文目标语言",
+			menu = build_language_menu(
+				"target_language",
+				target_language(),
+				"设置非中文目标语言",
+				"请输入非中文文本的目标语言名称，例如 简体中文、英文、日文。",
+				"非中文目标语言已更新为 ",
+				target_language_presets
+			),
+		},
+		{
+			title = "中文目标语言",
+			menu = build_language_menu(
+				"chinese_target_language",
+				chinese_target_language(),
+				"设置中文目标语言",
+				"请输入中文文本的目标语言名称，例如 英文、繁體中文、日文。",
+				"中文目标语言已更新为 ",
+				chinese_target_language_presets
+			),
+		},
+		{
+			title = "悬浮窗主题",
+			menu = build_popup_theme_menu(),
+		},
+		{
+			title = "悬浮窗透明度",
+			menu = build_popup_alpha_menu(),
+		},
+		{
+			title = "悬浮窗停留时间",
+			menu = build_popup_duration_menu(),
+		},
+		{
+			title = "模型服务",
+			menu = build_api_settings_menu(),
+		},
+		{ title = "-" },
+		{
+			title = "恢复默认",
+			disabled = table_is_empty(runtime_overrides) == true,
+			fn = confirm_restore_defaults,
+		},
+	}
+end
+
+refresh_menubar = function()
+	if type(hs.menubar) ~= "table" or type(hs.menubar.new) ~= "function" then
+		return
+	end
+
+	if menubar_enabled() ~= true then
+		destroy_menubar()
+		return
+	end
+
+	if state.menubar == nil then
+		state.menubar = hs.menubar.new()
+
+		if state.menubar == nil then
+			log.e("failed to create selected text translate menubar item")
+			return
+		end
+	end
+
+	if type(state.menubar.autosaveName) == "function" then
+		pcall(state.menubar.autosaveName, state.menubar, menubar_autosave_name)
+	end
+
+	if type(state.menubar.setIcon) == "function" then
+		state.menubar:setIcon(nil)
+	end
+
+	if type(state.menubar.setTitle) == "function" then
+		state.menubar:setTitle(menubar_title_fallback)
+	end
+
+	if type(state.menubar.setTooltip) == "function" then
+		state.menubar:setTooltip(tooltip_text())
+	end
+
+	if type(state.menubar.setMenu) == "function" then
+		state.menubar:setMenu(build_menu)
+	end
 end
 
 function _M.start()
@@ -1939,19 +3146,17 @@ function _M.start()
 		return state.start_ok
 	end
 
-	if selected_text_translate.enabled == false then
-		state.started = true
-		state.start_ok = true
-		return true
+	state.started = true
+	state.start_ok = true
+	refresh_menubar()
+
+	local ok = rebind_hotkey("startup selected text translate", { show_alert = false })
+
+	if ok ~= true and hotkey_enabled() == true then
+		hs.alert.show("划词翻译快捷键绑定失败，已临时显示菜单栏图标")
 	end
 
-	local ok, binding = create_hotkey_binding()
-
-	state.started = true
-	state.start_ok = ok
-	state.hotkey = binding
-
-	return ok
+	return true
 end
 
 function _M.stop()
@@ -1963,10 +3168,47 @@ function _M.stop()
 		state.hotkey = nil
 	end
 
+	destroy_menubar()
+	state.menubar_forced = false
+	state.hotkey_error = nil
+
 	state.started = false
 	state.start_ok = true
 
 	return true
+end
+
+_M.translate_current_selection = translate_current_selection
+_M.refresh_menubar = function()
+	refresh_menubar()
+end
+_M.restore_defaults = function()
+	return confirm_restore_defaults()
+end
+_M.get_state = function()
+	local modifiers, key = current_hotkey_components()
+
+	return {
+		started = state.started,
+		enabled = hotkey_enabled(),
+		hotkey_modifiers = copy_list(modifiers),
+		hotkey_key = key,
+		hotkey_label = display_hotkey_label(),
+		hotkey_error = state.hotkey_error,
+		menubar_exists = state.menubar ~= nil,
+		translation_direction = translation_direction(),
+		target_language = target_language(),
+		chinese_target_language = chinese_target_language(),
+		popup_theme = popup_theme_name(),
+		popup_background_alpha = popup_background_fill_color().alpha,
+		popup_duration_seconds = popup_duration_seconds(),
+		api_mode = api_mode(),
+		resolved_api_mode = resolved_api_mode(),
+		api_url = api_url(),
+		model = api_model(),
+		api_key_source = api_key_source_label(),
+		runtime_overrides = copy_table(runtime_overrides),
+	}
 end
 
 return _M

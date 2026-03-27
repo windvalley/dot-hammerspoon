@@ -318,6 +318,8 @@ _M.clipboard = {
 -- 翻译当前选中的文本
 _M.selected_text_translate = {
 	enabled = true,
+	-- 显示菜单栏入口，可直接在菜单中调整常用配置并持久化
+	show_menubar = true,
 	-- NOTE: message 的值建议保持英文，避免快捷键面板错位
 	prefix = { "Option" },
 	key = "R",
@@ -340,7 +342,7 @@ _M.selected_text_translate = {
 	model = "qwen3.5:35b",
 	-- 对支持 thinking 的本地模型，默认关闭 thinking 以提升响应速度
 	disable_thinking = true,
-	-- 优先从这个环境变量读取 API Key；为空时也支持直接填写 api_key
+	-- 优先从这个环境变量读取 API Key；也可以留空后在菜单栏里直接填写并持久化
 	api_key_env = "",
 	api_key = "",
 	-- 请求超时秒数

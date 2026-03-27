@@ -47,6 +47,16 @@ local function find_watcher(recorded, expected_event_type)
 	return nil
 end
 
+local function find_menu_item(menu, title)
+	for _, item in ipairs(menu or {}) do
+		if item.title == title then
+			return item
+		end
+	end
+
+	return nil
+end
+
 local function reset_modules()
 	loaded_modules["selected_text_translate"] = nil
 	loaded_modules["keybindings_config"] = nil
@@ -56,21 +66,124 @@ local function reset_modules()
 end
 
 local function create_hotkey_helper_stub(recorded)
+	local modifier_aliases = {
+		ctrl = "ctrl",
+		control = "ctrl",
+		option = "alt",
+		alt = "alt",
+		command = "cmd",
+		cmd = "cmd",
+		shift = "shift",
+		fn = "fn",
+	}
+	local modifier_order = {
+		ctrl = 1,
+		alt = 2,
+		cmd = 3,
+		shift = 4,
+		fn = 5,
+	}
+
 	return {
 		normalize_hotkey_modifiers = function(modifiers)
-			return modifiers or {}
+			local values = {}
+
+			if modifiers == nil then
+				return {}
+			end
+
+			if type(modifiers) == "table" then
+				values = modifiers
+			else
+				for token in tostring(modifiers):gmatch("[^,%+%s]+") do
+					table.insert(values, token)
+				end
+			end
+
+			local normalized = {}
+			local seen = {}
+
+			for _, raw in ipairs(values) do
+				local modifier = modifier_aliases[tostring(raw):lower()]
+
+				if modifier == nil then
+					return nil, raw
+				end
+
+				if seen[modifier] ~= true then
+					seen[modifier] = true
+					table.insert(normalized, modifier)
+				end
+			end
+
+			table.sort(normalized, function(left, right)
+				return modifier_order[left] < modifier_order[right]
+			end)
+
+			return normalized
 		end,
+		format_hotkey = function(modifiers, key)
+			local parts = {}
+
+			for _, modifier in ipairs(modifiers or {}) do
+				table.insert(parts, tostring(modifier))
+			end
+
+			if key ~= nil then
+				table.insert(parts, tostring(key))
+			end
+
+			return table.concat(parts, "+")
+		end,
+		modifier_prompt_names = {
+			ctrl = "ctrl",
+			alt = "option",
+			cmd = "command",
+			shift = "shift",
+			fn = "fn",
+		},
 		bind = function(modifiers, key, message, pressedfn)
 			recorded.binding = {
 				modifiers = modifiers,
 				key = key,
 				message = message,
 			}
+			recorded.bindings = recorded.bindings or {}
+			table.insert(recorded.bindings, recorded.binding)
 			recorded.bound_handler = pressedfn
 
 			return {
 				delete = function()
 					recorded.deleted_bindings = recorded.deleted_bindings + 1
+				end,
+			}
+		end,
+	}
+end
+
+local function create_menu_stub(recorded)
+	return {
+		new = function()
+			recorded.menubar_created = recorded.menubar_created + 1
+
+			return {
+				setMenu = function(_, builder)
+					recorded.menu_builder = builder
+				end,
+				setTitle = function(_, title)
+					recorded.menubar_title = title
+				end,
+				setIcon = function(_, icon)
+					recorded.menubar_icon = icon
+				end,
+				setTooltip = function(_, tooltip)
+					recorded.menubar_tooltip = tooltip
+				end,
+				autosaveName = function(_, name)
+					recorded.menubar_autosave_name = name
+				end,
+				delete = function()
+					recorded.menubar_deleted = recorded.menubar_deleted + 1
 				end,
 			}
 		end,
@@ -222,9 +335,18 @@ function _M.run()
 	local direct_recorded = {
 		alerts = {},
 		block_alerts = {},
+		dialog_responses = { "恢复默认" },
 		pasteboard_sets = {},
 		async_posts = {},
 		deleted_bindings = 0,
+		menubar_created = 0,
+		menubar_deleted = 0,
+		settings_store = {},
+		prompt_values = {
+			"command+shift",
+			"t",
+			"sk-menu",
+		},
 		timers = {},
 		stopped_timers = 0,
 		canvas_states = {},
@@ -259,9 +381,35 @@ function _M.run()
 				}
 			end,
 		},
+		settings = {
+			get = function(key)
+				return direct_recorded.settings_store[key]
+			end,
+			set = function(key, value)
+				direct_recorded.settings_store[key] = value
+			end,
+			clear = function(key)
+				direct_recorded.settings_store[key] = nil
+			end,
+		},
+		menubar = create_menu_stub(direct_recorded),
 		alert = {
 			show = function(message)
 				table.insert(direct_recorded.alerts, message)
+			end,
+		},
+		dialog = {
+			blockAlert = function(message, informative_text)
+				table.insert(direct_recorded.block_alerts, {
+					message = message,
+					informative_text = informative_text,
+				})
+
+				if #direct_recorded.dialog_responses > 0 then
+					return table.remove(direct_recorded.dialog_responses, 1)
+				end
+
+				return "关闭"
 			end,
 		},
 		timer = create_timer_stub(direct_recorded),
@@ -364,13 +512,67 @@ function _M.run()
 
 			return copied
 		end,
+		prompt_text = function(_, _, default_value)
+			if #direct_recorded.prompt_values == 0 then
+				return default_value
+			end
+
+			return table.remove(direct_recorded.prompt_values, 1)
+		end,
 	}
 
 	local translator = require("selected_text_translate")
 
 	assert_true(translator.start(), "translator should start successfully")
+	assert_equal(direct_recorded.menubar_created, 1, "translator should create a menubar entry during startup")
+	assert_equal(direct_recorded.menubar_title, "译", "translator should expose a stable menubar marker")
+	assert_equal(
+		direct_recorded.menubar_autosave_name,
+		"dot-hammerspoon.selected_text_translate",
+		"translator should apply a stable menubar autosave name"
+	)
 	assert_equal(direct_recorded.binding.key, "r", "translator should normalize its hotkey key")
 	assert_true(type(direct_recorded.bound_handler) == "function", "translator should register a hotkey handler")
+	assert_true(type(direct_recorded.menu_builder) == "function", "translator should expose a menubar menu builder")
+
+	local menu = direct_recorded.menu_builder()
+	assert_true(find_menu_item(menu, "快捷键") ~= nil, "menubar should expose a hotkey submenu")
+	assert_true(find_menu_item(menu, "翻译方向") ~= nil, "menubar should expose a direction submenu")
+	assert_true(find_menu_item(menu, "非中文目标语言") ~= nil, "menubar should expose a target language submenu")
+	assert_true(find_menu_item(menu, "中文目标语言") ~= nil, "menubar should expose a reverse target language submenu")
+	assert_true(find_menu_item(menu, "悬浮窗主题") ~= nil, "menubar should expose a popup theme submenu")
+	assert_true(find_menu_item(menu, "悬浮窗透明度") ~= nil, "menubar should expose a popup alpha submenu")
+	assert_true(find_menu_item(menu, "悬浮窗停留时间") ~= nil, "menubar should expose a popup duration submenu")
+	assert_true(find_menu_item(menu, "模型服务") ~= nil, "menubar should expose model service settings")
+	assert_true(
+		find_menu_item(find_menu_item(menu, "中文目标语言").menu, "简体中文") == nil,
+		"Chinese target language presets should not offer Simplified Chinese"
+	)
+
+	find_menu_item(find_menu_item(menu, "快捷键").menu, "设置快捷键...").fn()
+	assert_equal(translator.get_state().hotkey_key, "t", "menu hotkey prompt should update the runtime hotkey")
+	assert_equal(direct_recorded.binding.key, "t", "menu hotkey prompt should rebind the configured hotkey")
+	assert_equal(
+		direct_recorded.settings_store["selected_text_translate.runtime_overrides"].key,
+		"t",
+		"menu hotkey updates should be persisted"
+	)
+
+	find_menu_item(find_menu_item(menu, "悬浮窗主题").menu, "Forest 松林").fn()
+	assert_equal(translator.get_state().popup_theme, "forest", "theme menu should update the runtime popup theme")
+	assert_equal(
+		direct_recorded.settings_store["selected_text_translate.runtime_overrides"].popup_theme,
+		"forest",
+		"theme updates should be persisted"
+	)
+
+	find_menu_item(find_menu_item(menu, "模型服务").menu, "API Key").menu[2].fn()
+	assert_equal(
+		direct_recorded.settings_store["selected_text_translate.runtime_overrides"].api_key,
+		"sk-menu",
+		"API key prompt should persist the entered key"
+	)
+	assert_equal(translator.get_state().api_key_source, "菜单已保存", "API key menu should update runtime key source")
 
 	direct_recorded.bound_handler()
 
@@ -382,8 +584,8 @@ function _M.run()
 	)
 	assert_equal(
 		direct_recorded.async_posts[1].headers["Authorization"],
-		"Bearer sk-direct",
-		"translator should send the configured bearer token"
+		"Bearer sk-menu",
+		"translator should prefer the persisted menu API key"
 	)
 	assert_equal(direct_recorded.encoded_payload.model, "gpt-test", "translator should encode the configured model")
 	assert_equal(direct_recorded.encoded_payload.temperature, 0.2, "openai-compatible mode should keep temperature in the payload")
@@ -402,14 +604,14 @@ function _M.run()
 	assert_equal(direct_recorded.started_watchers, 2, "translator should start outside-click and hover watchers while the popup is visible")
 	assert_equal(direct_recorded.canvas_states[1].frame.x, 290, "translator should anchor the popup horizontally above the selection when bounds are available")
 	assert_equal(direct_recorded.canvas_states[1].frame.y, 156, "translator should anchor the popup above the selected text when bounds are available")
-	assert_close(find_element(direct_recorded.canvas_states[1].elements, "background").fillColor.red, 0.09, 0.0001, "translator should use the selected theme background red channel")
-	assert_close(find_element(direct_recorded.canvas_states[1].elements, "background").fillColor.green, 0.18, 0.0001, "translator should use the selected theme background green channel")
-	assert_close(find_element(direct_recorded.canvas_states[1].elements, "background").fillColor.blue, 0.29, 0.0001, "translator should use the selected theme background blue channel")
+	assert_close(find_element(direct_recorded.canvas_states[1].elements, "background").fillColor.red, 0.12, 0.0001, "translator should use the selected theme background red channel")
+	assert_close(find_element(direct_recorded.canvas_states[1].elements, "background").fillColor.green, 0.23, 0.0001, "translator should use the selected theme background green channel")
+	assert_close(find_element(direct_recorded.canvas_states[1].elements, "background").fillColor.blue, 0.18, 0.0001, "translator should use the selected theme background blue channel")
 	assert_close(find_element(direct_recorded.canvas_states[1].elements, "background").fillColor.alpha, 0.84, 0.0001, "translator should apply popup alpha separately from the theme")
 	assert_equal(find_element(direct_recorded.canvas_states[1].elements, "title").text, "翻译结果", "translator should render the popup title")
 	assert_equal(find_element(direct_recorded.canvas_states[1].elements, "body").text, "你好，世界", "translator should render the translated text")
 	assert_close(find_element(direct_recorded.canvas_states[1].elements, "copy_button").fillColor.alpha, 0, 0.0001, "translator should keep the copy hit area invisible")
-	assert_close(find_element(direct_recorded.canvas_states[1].elements, "copy_icon_front").strokeColor.red, 0.22, 0.0001, "translator should use the selected theme accent color for the copy icon")
+	assert_close(find_element(direct_recorded.canvas_states[1].elements, "copy_icon_front").strokeColor.red, 0.24, 0.0001, "translator should use the selected theme accent color for the copy icon")
 	assert_true(find_element(direct_recorded.canvas_states[1].elements, "copy_icon_front") ~= nil, "translator should render the copy icon")
 	assert_true(find_element(direct_recorded.canvas_states[1].elements, "close_button") == nil, "translator should not render a close button")
 	assert_true(type(direct_recorded.canvas_states[1].mouse_callback) == "function", "translator should register popup mouse handlers")
@@ -418,7 +620,7 @@ function _M.run()
 	direct_recorded.canvas_states[1].mouse_callback(nil, "mouseDown", "copy_button")
 
 	assert_equal(direct_recorded.pasteboard_sets[1], "你好，世界", "copy button should write the translation to the clipboard")
-	assert_contains(direct_recorded.alerts[1], "译文已复制", "copy success should be surfaced to the user")
+	assert_contains(direct_recorded.alerts[#direct_recorded.alerts], "译文已复制", "copy success should be surfaced to the user")
 
 	direct_recorded.mouse_position = {
 		x = 320,
@@ -445,8 +647,18 @@ function _M.run()
 	assert_equal(direct_recorded.hidden_canvases, 1, "outside clicks should hide the popup")
 	assert_equal(direct_recorded.deleted_canvases, 1, "outside clicks should delete the popup canvas")
 	assert_equal(direct_recorded.stopped_watchers, 2, "outside clicks should stop all popup watchers")
+
+	local restored_menu = direct_recorded.menu_builder()
+	find_menu_item(restored_menu, "恢复默认").fn()
+	assert_equal(translator.get_state().hotkey_key, "r", "restore defaults should recover the configured hotkey")
+	assert_equal(translator.get_state().popup_theme, "ocean", "restore defaults should recover the configured popup theme")
+	assert_equal(
+		direct_recorded.settings_store["selected_text_translate.runtime_overrides"],
+		nil,
+		"restore defaults should clear persisted menu overrides"
+	)
 	assert_true(translator.stop(), "translator stop should succeed")
-	assert_equal(direct_recorded.deleted_bindings, 1, "translator stop should delete its hotkey binding")
+	assert_equal(direct_recorded.deleted_bindings, 3, "translator stop should delete the active hotkey after menu rebinds")
 	assert_equal(direct_recorded.deleted_canvases, 1, "translator stop should not delete an already closed popup twice")
 
 	reset_modules()
@@ -940,6 +1152,94 @@ function _M.run()
 	assert_equal(ollama_recorded.deleted_canvases, 1, "translator stop should clean up the active popup canvas")
 	assert_equal(ollama_recorded.stopped_watchers, 2, "translator stop should stop all popup watchers")
 	assert_equal(ollama_recorded.deleted_bindings, 1, "translator stop should delete its hotkey binding in local Ollama mode")
+
+	reset_modules()
+
+	local persisted_recorded = {
+		alerts = {},
+		deleted_bindings = 0,
+		menubar_created = 0,
+		menubar_deleted = 0,
+		settings_store = {
+			["selected_text_translate.runtime_overrides"] = {
+				key = "t",
+				prefix = { "alt", "shift" },
+				popup_theme = "forest",
+				api_key = "sk-persisted",
+				popup_duration_seconds = 15,
+			},
+		},
+	}
+
+	hs = {
+		logger = {
+			new = function()
+				return {
+					i = function() end,
+					w = function() end,
+					e = function() end,
+				}
+			end,
+		},
+		settings = {
+			get = function(key)
+				return persisted_recorded.settings_store[key]
+			end,
+			set = function(key, value)
+				persisted_recorded.settings_store[key] = value
+			end,
+			clear = function(key)
+				persisted_recorded.settings_store[key] = nil
+			end,
+		},
+		menubar = create_menu_stub(persisted_recorded),
+		alert = {
+			show = function(message)
+				table.insert(persisted_recorded.alerts, message)
+			end,
+		},
+	}
+
+	loaded_modules["keybindings_config"] = {
+		selected_text_translate = {
+			enabled = true,
+			prefix = { "Option" },
+			key = "R",
+			message = "Translate Selection",
+			target_language = "简体中文",
+			chinese_target_language = "英文",
+			api_url = "https://example.com/v1/chat/completions",
+			model = "gpt-test",
+		},
+	}
+	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(persisted_recorded)
+	loaded_modules["utils_lib"] = {
+		trim = function(value)
+			return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		end,
+		copy_list = function(items)
+			local copied = {}
+
+			for _, item in ipairs(items or {}) do
+				table.insert(copied, item)
+			end
+
+			return copied
+		end,
+		prompt_text = function()
+			return nil
+		end,
+	}
+
+	translator = require("selected_text_translate")
+
+	assert_true(translator.start(), "translator should start successfully with persisted menu overrides")
+	assert_equal(translator.get_state().hotkey_key, "t", "persisted runtime overrides should restore the saved hotkey")
+	assert_equal(translator.get_state().popup_theme, "forest", "persisted runtime overrides should restore the saved popup theme")
+	assert_equal(translator.get_state().popup_duration_seconds, 15, "persisted runtime overrides should restore popup duration")
+	assert_equal(translator.get_state().api_key_source, "菜单已保存", "persisted runtime overrides should restore the saved API key source")
+	assert_equal(persisted_recorded.binding.key, "t", "persisted runtime overrides should affect the startup hotkey binding")
+	assert_true(translator.stop(), "translator stop should succeed after loading persisted overrides")
 
 	reset_modules()
 	rawset(os, "getenv", original_getenv)
