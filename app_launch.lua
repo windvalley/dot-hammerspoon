@@ -7,6 +7,7 @@ local apps = require("keybindings_config").apps
 local hotkey_helper = require("hotkey_helper")
 
 local log = hs.logger.new("appLaunch")
+local hide_verification_delay_seconds = 0.05
 local state = {
 	started = false,
 	bindings = {},
@@ -34,15 +35,54 @@ local function clearBindings()
 	state.bindings = {}
 end
 
+local function app_is_hidden(app)
+	if app == nil or type(app.isHidden) ~= "function" then
+		return false
+	end
+
+	local ok, is_hidden = pcall(function()
+		return app:isHidden()
+	end)
+
+	return ok == true and is_hidden == true
+end
+
+local function warn_if_hide_failed(app, bundleID)
+	if app_is_hidden(app) ~= true then
+		log.w(string.format("failed to hide app: %s", bundleID))
+	end
+end
+
+local function schedule_hide_verification(app, bundleID)
+	if type(hs.timer) == "table" and type(hs.timer.doAfter) == "function" then
+		hs.timer.doAfter(hide_verification_delay_seconds, function()
+			warn_if_hide_failed(app, bundleID)
+		end)
+		return
+	end
+
+	warn_if_hide_failed(app, bundleID)
+end
+
+local function hide_app(app, bundleID)
+	local ok, hidden = pcall(function()
+		return app:hide()
+	end)
+
+	if ok == true and (hidden == true or app_is_hidden(app) == true) then
+		return
+	end
+
+	schedule_hide_verification(app, bundleID)
+end
+
 -- App显示或隐藏
 local function toggleAppByBundleId(bundleID)
 	local frontApp = hs.application.frontmostApplication()
 
 	if frontApp ~= nil and frontApp:bundleID() == bundleID then
 		log.d(string.format("hide app: %s", bundleID))
-		if frontApp:hide() ~= true then
-			log.w(string.format("failed to hide app: %s", bundleID))
-		end
+		hide_app(frontApp, bundleID)
 	else
 		log.d(string.format("launch app: %s", bundleID))
 		if hs.application.launchOrFocusByBundleID(bundleID) ~= true then

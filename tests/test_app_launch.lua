@@ -27,27 +27,43 @@ function _M.run()
 		launches = {},
 		hide_count = 0,
 		deleted_bindings = 0,
+		after_timers = {},
+		warnings = {},
 	}
 	local frontmost_app = nil
 
-		hs = {
-			logger = {
-				new = function()
-					return {
-						d = function() end,
-						w = function() end,
-					}
-				end,
-			},
-			application = {
-				frontmostApplication = function()
-					return frontmost_app
-				end,
-				launchOrFocusByBundleID = function(bundle_id)
-					table.insert(recorded.launches, bundle_id)
-					return true
-				end,
-			},
+	hs = {
+		logger = {
+			new = function()
+				return {
+					d = function() end,
+					w = function(message)
+						table.insert(recorded.warnings, message)
+					end,
+				}
+			end,
+		},
+		application = {
+			frontmostApplication = function()
+				return frontmost_app
+			end,
+			launchOrFocusByBundleID = function(bundle_id)
+				table.insert(recorded.launches, bundle_id)
+				return true
+			end,
+		},
+		timer = {
+			doAfter = function(delay, fn)
+				local timer = {
+					delay = delay,
+					callback = fn,
+				}
+
+				table.insert(recorded.after_timers, timer)
+
+				return timer
+			end,
+		},
 		fnutils = {
 			each = function(items, fn)
 				for _, item in ipairs(items or {}) do
@@ -89,18 +105,68 @@ function _M.run()
 	recorded.bindings[1].pressedfn()
 	assert_equal(recorded.launches[#recorded.launches], "com.google.Chrome", "nil frontmost app should fall back to launch")
 
-		frontmost_app = {
-			bundleID = function()
-				return "com.google.Chrome"
-			end,
-			hide = function()
-				recorded.hide_count = recorded.hide_count + 1
-				return true
-			end,
-		}
+	frontmost_app = {
+		hidden = false,
+		bundleID = function()
+			return "com.google.Chrome"
+		end,
+		hide = function(self)
+			recorded.hide_count = recorded.hide_count + 1
+			self.hidden = true
+			return true
+		end,
+		isHidden = function(self)
+			return self.hidden == true
+		end,
+	}
 
 	recorded.bindings[1].pressedfn()
 	assert_equal(recorded.hide_count, 1, "focused target app should be hidden")
+	assert_equal(#recorded.after_timers, 0, "successful hide should not schedule delayed verification")
+	assert_equal(#recorded.warnings, 0, "successful hide should not log warnings")
+
+	frontmost_app = {
+		hidden = false,
+		bundleID = function()
+			return "com.google.Chrome"
+		end,
+		hide = function()
+			recorded.hide_count = recorded.hide_count + 1
+			return false
+		end,
+		isHidden = function(self)
+			return self.hidden == true
+		end,
+	}
+
+	recorded.bindings[1].pressedfn()
+	assert_equal(recorded.hide_count, 2, "failed immediate hide should still attempt to hide once")
+	assert_equal(#recorded.after_timers, 1, "failed immediate hide should schedule delayed verification")
+	assert_equal(#recorded.warnings, 0, "warning should wait for delayed verification")
+
+	frontmost_app.hidden = true
+	recorded.after_timers[1].callback()
+	assert_equal(#recorded.warnings, 0, "delayed hidden state should suppress false positive warnings")
+
+	frontmost_app = {
+		hidden = false,
+		bundleID = function()
+			return "com.google.Chrome"
+		end,
+		hide = function()
+			recorded.hide_count = recorded.hide_count + 1
+			return false
+		end,
+		isHidden = function(self)
+			return self.hidden == true
+		end,
+	}
+
+	recorded.bindings[1].pressedfn()
+	assert_equal(recorded.hide_count, 3, "subsequent hide attempts should still call the app hide API")
+	assert_equal(#recorded.after_timers, 2, "each failed immediate hide should schedule its own verification")
+	recorded.after_timers[2].callback()
+	assert_equal(#recorded.warnings, 1, "warning should be logged when the app is still visible after delayed verification")
 
 	app_launch.stop()
 	assert_equal(recorded.deleted_bindings, 1, "stop should delete registered bindings")
@@ -112,7 +178,10 @@ function _M.run()
 		launches = {},
 		hide_count = 0,
 		deleted_bindings = 0,
+		after_timers = {},
+		warnings = {},
 	}
+	frontmost_app = nil
 
 	loaded_modules["keybindings_config"] = {
 		apps = {
