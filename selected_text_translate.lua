@@ -20,8 +20,18 @@ end
 
 local log = hs.logger.new("selectionTranslate")
 
-local default_api_url = "https://api.openai.com/v1/chat/completions"
-local default_model = "gpt-4o-mini"
+local default_model_service = {
+	provider = "openai_compatible",
+	ollama = {
+		api_url = "http://localhost:11434/api/chat",
+		model = "qwen3.5:35b",
+	},
+	openai_compatible = {
+		api_url = "https://api.openai.com/v1/chat/completions",
+		model = "gpt-4o-mini",
+		api_key_env = "OPENAI_API_KEY",
+	},
+}
 local default_target_language = "简体中文"
 local default_chinese_target_language = "英文"
 local default_translation_direction = "auto"
@@ -31,7 +41,6 @@ local default_model_warmup_delay_seconds = 3
 local default_request_timeout_seconds = 20
 local default_clipboard_poll_interval_seconds = 0.05
 local default_clipboard_max_wait_seconds = 0.4
-local default_api_mode = "auto"
 local default_popup_duration_seconds = 10
 local default_popup_theme = "paper"
 local default_popup_background_color = {
@@ -120,14 +129,12 @@ local menu_options = {
 		cocoa = "Cocoa 可可",
 		mint = "Mint 薄荷",
 	},
-	api_mode_order = {
-		"auto",
-		"ollama_native",
+	provider_order = {
+		"ollama",
 		"openai_compatible",
 	},
-	api_mode_labels = {
-		auto = "自动",
-		ollama_native = "Ollama 原生",
+	provider_labels = {
+		ollama = "Ollama",
 		openai_compatible = "OpenAI 兼容",
 	},
 	translation_direction_labels = {
@@ -259,15 +266,24 @@ local state = {
 }
 
 local runtime_overrides = {}
+local config_utils = {}
 
-local function copy_table(value)
+function config_utils.copy_value(value)
+	if type(value) ~= "table" then
+		return value
+	end
+
 	local copied = {}
 
 	for key, item in pairs(value or {}) do
-		copied[key] = item
+		copied[key] = config_utils.copy_value(item)
 	end
 
 	return copied
+end
+
+local function copy_table(value)
+	return config_utils.copy_value(value or {})
 end
 
 local function normalize_hotkey_key(raw_key)
@@ -288,18 +304,169 @@ local function table_is_empty(table_value)
 	return next(table_value or {}) == nil
 end
 
-local function current_config()
-	local merged = {}
+function config_utils.merge_tables(base, overrides)
+	local merged = copy_table(base or {})
 
-	for key, value in pairs(selected_text_translate or {}) do
-		merged[key] = type(value) == "table" and copy_table(value) or value
-	end
-
-	for key, value in pairs(runtime_overrides or {}) do
-		merged[key] = type(value) == "table" and copy_table(value) or value
+	for key, value in pairs(overrides or {}) do
+		if type(value) == "table" and type(merged[key]) == "table" then
+			merged[key] = config_utils.merge_tables(merged[key], value)
+		else
+			merged[key] = config_utils.copy_value(value)
+		end
 	end
 
 	return merged
+end
+
+function config_utils.normalize_path(path)
+	if type(path) == "table" then
+		return path
+	end
+
+	return { path }
+end
+
+function config_utils.get_path_value(root, path)
+	local value = root
+
+	for _, segment in ipairs(config_utils.normalize_path(path)) do
+		if type(value) ~= "table" then
+			return nil
+		end
+
+		value = value[segment]
+	end
+
+	return value
+end
+
+function config_utils.path_exists(root, path)
+	return config_utils.get_path_value(root, path) ~= nil
+end
+
+function config_utils.set_path_value(root, path, value)
+	local segments = config_utils.normalize_path(path)
+
+	if #segments == 0 then
+		return
+	end
+
+	local current = root
+
+	for index = 1, #segments - 1 do
+		local segment = segments[index]
+
+		if type(current[segment]) ~= "table" then
+			current[segment] = {}
+		end
+
+		current = current[segment]
+	end
+
+	current[segments[#segments]] = config_utils.copy_value(value)
+end
+
+function config_utils.clear_path_value(root, path)
+	local segments = config_utils.normalize_path(path)
+
+	if #segments == 0 then
+		return
+	end
+
+	if #segments == 1 then
+		root[segments[1]] = nil
+		return
+	end
+
+	local stack = {}
+	local current = root
+
+	for index = 1, #segments - 1 do
+		local segment = segments[index]
+
+		if type(current[segment]) ~= "table" then
+			return
+		end
+
+		stack[index] = {
+			parent = current,
+			key = segment,
+		}
+		current = current[segment]
+	end
+
+	current[segments[#segments]] = nil
+
+	for index = #stack, 1, -1 do
+		local parent = stack[index].parent
+		local key = stack[index].key
+
+		if type(parent[key]) == "table" and next(parent[key]) == nil then
+			parent[key] = nil
+		else
+			break
+		end
+	end
+end
+
+function config_utils.sanitize_model_service_overrides(overrides)
+	local sanitized = {}
+
+	if type(overrides) ~= "table" then
+		return sanitized
+	end
+
+	local provider_name = string.lower(trim(tostring(overrides.provider or "")))
+
+	if provider_name == "ollama" or provider_name == "openai_compatible" then
+		sanitized.provider = provider_name
+	end
+
+	if tonumber(overrides.request_timeout_seconds) ~= nil then
+		sanitized.request_timeout_seconds = tonumber(overrides.request_timeout_seconds)
+	end
+
+	if type(overrides.ollama) == "table" then
+		local ollama = {}
+
+		for _, field in ipairs({ "api_url", "model", "keep_alive" }) do
+			if type(overrides.ollama[field]) == "string" then
+				ollama[field] = tostring(overrides.ollama[field])
+			end
+		end
+
+		if type(overrides.ollama.enable_warmup) == "boolean" then
+			ollama.enable_warmup = overrides.ollama.enable_warmup
+		end
+
+		if type(overrides.ollama.disable_thinking) == "boolean" then
+			ollama.disable_thinking = overrides.ollama.disable_thinking
+		end
+
+		if table_is_empty(ollama) ~= true then
+			sanitized.ollama = ollama
+		end
+	end
+
+	if type(overrides.openai_compatible) == "table" then
+		local openai_compatible = {}
+
+		for _, field in ipairs({ "api_url", "model", "api_key_env", "api_key" }) do
+			if type(overrides.openai_compatible[field]) == "string" then
+				openai_compatible[field] = tostring(overrides.openai_compatible[field])
+			end
+		end
+
+		if table_is_empty(openai_compatible) ~= true then
+			sanitized.openai_compatible = openai_compatible
+		end
+	end
+
+	return sanitized
+end
+
+local function current_config()
+	return config_utils.merge_tables(selected_text_translate or {}, runtime_overrides or {})
 end
 
 local function sanitize_runtime_overrides(overrides)
@@ -336,11 +503,6 @@ local function sanitize_runtime_overrides(overrides)
 		"translation_direction",
 		"target_language",
 		"chinese_target_language",
-		"api_url",
-		"model",
-		"api_mode",
-		"api_key_env",
-		"api_key",
 		"popup_theme",
 	}) do
 		if type(overrides[field]) == "string" then
@@ -348,12 +510,7 @@ local function sanitize_runtime_overrides(overrides)
 		end
 	end
 
-	if type(overrides.disable_thinking) == "boolean" then
-		sanitized.disable_thinking = overrides.disable_thinking
-	end
-
 	for _, field in ipairs({
-		"request_timeout_seconds",
 		"clipboard_poll_interval_seconds",
 		"clipboard_max_wait_seconds",
 		"popup_duration_seconds",
@@ -362,6 +519,12 @@ local function sanitize_runtime_overrides(overrides)
 		if tonumber(overrides[field]) ~= nil then
 			sanitized[field] = tonumber(overrides[field])
 		end
+	end
+
+	local model_service = config_utils.sanitize_model_service_overrides(overrides.model_service)
+
+	if table_is_empty(model_service) ~= true then
+		sanitized.model_service = model_service
 	end
 
 	return sanitized
@@ -410,9 +573,9 @@ end
 
 local function set_runtime_override(field, value)
 	if value == nil then
-		runtime_overrides[field] = nil
+		config_utils.clear_path_value(runtime_overrides, field)
 	else
-		runtime_overrides[field] = value
+		config_utils.set_path_value(runtime_overrides, field, value)
 	end
 
 	persist_runtime_overrides()
@@ -508,7 +671,9 @@ end
 
 local function request_timeout_seconds()
 	local config = current_config()
-	return normalize_number(config.request_timeout_seconds, default_request_timeout_seconds, 3, 120)
+	local model_service = type(config.model_service) == "table" and config.model_service or {}
+
+	return normalize_number(model_service.request_timeout_seconds, default_request_timeout_seconds, 3, 120)
 end
 
 local function clipboard_poll_interval_seconds()
@@ -797,68 +962,68 @@ local function request_message()
 	return message
 end
 
-local function api_url()
+function config_utils.model_service_config()
 	local config = current_config()
-	local url = trim(tostring(config.api_url or default_api_url))
+
+	if type(config.model_service) == "table" then
+		return config.model_service
+	end
+
+	return {}
+end
+
+local function provider()
+	local config = config_utils.model_service_config()
+	local provider_name = string.lower(trim(tostring(config.provider or default_model_service.provider)))
+
+	if provider_name == "ollama" or provider_name == "openai_compatible" then
+		return provider_name
+	end
+
+	return default_model_service.provider
+end
+
+function config_utils.provider_config(provider_name)
+	local config = config_utils.model_service_config()
+	local settings = config[provider_name]
+
+	if type(settings) == "table" then
+		return settings
+	end
+
+	return {}
+end
+
+local function api_url()
+	local provider_name = provider()
+	local config = config_utils.provider_config(provider_name)
+	local default_url = provider_name == "ollama" and default_model_service.ollama.api_url
+		or default_model_service.openai_compatible.api_url
+	local url = trim(tostring(config.api_url or default_url))
 
 	if url == "" then
-		return default_api_url
+		return default_url
 	end
 
 	return url
 end
 
 local function api_model()
-	local config = current_config()
-	local model = trim(tostring(config.model or default_model))
+	local provider_name = provider()
+	local config = config_utils.provider_config(provider_name)
+	local default_value = provider_name == "ollama" and default_model_service.ollama.model
+		or default_model_service.openai_compatible.model
+	local model = trim(tostring(config.model or default_value))
 
 	if model == "" then
-		return default_model
+		return default_value
 	end
 
 	return model
 end
 
-local function api_mode()
-	local config = current_config()
-	local mode = string.lower(trim(tostring(config.api_mode or default_api_mode)))
-
-	if mode == "" then
-		mode = default_api_mode
-	end
-
-	if mode == "openai_compatible" or mode == "ollama_native" then
-		return mode
-	end
-
-	return "auto"
-end
-
-local function url_uses_local_ollama(raw_url)
-	local normalized = string.lower(trim(tostring(raw_url or "")))
-
-	if normalized == "" then
-		return false
-	end
-
-	return normalized:match("^https?://localhost:11434/") ~= nil
-		or normalized:match("^https?://127%.0%.0%.1:11434/") ~= nil
-end
-
 local function resolved_api_mode()
-	local configured_mode = api_mode()
-
-	if configured_mode ~= "auto" then
-		return configured_mode
-	end
-
-	if url_uses_local_ollama(api_url()) ~= true then
-		return "openai_compatible"
-	end
-
-	local normalized = string.lower(api_url())
-
-	if normalized:find("/api/chat", 1, true) ~= nil or normalized:find("/v1/chat/completions", 1, true) ~= nil then
+	if provider() == "ollama" then
 		return "ollama_native"
 	end
 
@@ -866,13 +1031,17 @@ local function resolved_api_mode()
 end
 
 local function disable_thinking()
-	local config = current_config()
+	if provider() ~= "ollama" then
+		return false
+	end
+
+	local config = config_utils.provider_config("ollama")
 
 	if config.disable_thinking ~= nil then
 		return config.disable_thinking ~= false
 	end
 
-	return resolved_api_mode() == "ollama_native"
+	return true
 end
 
 local function resolved_request_url()
@@ -890,12 +1059,12 @@ local function resolved_request_url()
 end
 
 local function api_key_env_name()
-	local config = current_config()
-	return trim(tostring(config.api_key_env or "OPENAI_API_KEY"))
+	local config = config_utils.provider_config("openai_compatible")
+	return trim(tostring(config.api_key_env or default_model_service.openai_compatible.api_key_env))
 end
 
-local function api_key()
-	local config = current_config()
+function config_utils.openai_compatible_api_key()
+	local config = config_utils.provider_config("openai_compatible")
 	local configured = trim(tostring(config.api_key or ""))
 
 	if configured ~= "" then
@@ -911,9 +1080,21 @@ local function api_key()
 	return trim(tostring(os.getenv(env_name) or ""))
 end
 
+local function api_key()
+	if provider() ~= "openai_compatible" then
+		return ""
+	end
+
+	return config_utils.openai_compatible_api_key()
+end
+
 local function model_keep_alive()
-	local config = current_config()
-	local keep_alive = trim(tostring(config.model_keep_alive or ""))
+	if provider() ~= "ollama" then
+		return nil
+	end
+
+	local config = config_utils.provider_config("ollama")
+	local keep_alive = trim(tostring(config.keep_alive or ""))
 
 	if keep_alive == "" then
 		return nil
@@ -923,8 +1104,8 @@ local function model_keep_alive()
 end
 
 local function enable_model_warmup()
-	local config = current_config()
-	return config.enable_model_warmup == true
+	local config = config_utils.provider_config("ollama")
+	return config.enable_warmup == true
 end
 
 local function sanitize_selected_text(text)
@@ -2122,7 +2303,7 @@ local function request_translation(text, anchor_bounds)
 	local key = api_key()
 
 	if resolved_api_mode() ~= "ollama_native" and key == "" then
-		show_request_error("未找到翻译 API Key，请配置 api_key 或环境变量")
+		show_request_error("未找到翻译 API Key，请在模型服务中配置 API Key 或环境变量")
 		return
 	end
 
@@ -2360,16 +2541,16 @@ local function popup_theme_label(theme_name)
 	return menu_options.popup_theme_labels[theme_name] or theme_name
 end
 
-local function api_mode_label(mode)
-	return menu_options.api_mode_labels[mode or api_mode()] or menu_options.api_mode_labels.auto
+local function provider_label(provider_name)
+	return menu_options.provider_labels[provider_name or provider()] or menu_options.provider_labels[default_model_service.provider]
 end
 
 local function api_key_source_label()
-	local config = current_config()
+	local config = config_utils.provider_config("openai_compatible")
 	local configured = trim(tostring(config.api_key or ""))
 
 	if configured ~= "" then
-		if runtime_overrides.api_key ~= nil then
+		if config_utils.path_exists(runtime_overrides, { "model_service", "openai_compatible", "api_key" }) == true then
 			return "菜单已保存"
 		end
 
@@ -2395,14 +2576,14 @@ end
 
 local function tooltip_text()
 	return string.format(
-		"划词翻译\n状态: %s\n热键: %s\n方向: %s\n非中文: %s\n中文: %s\n模型: %s\n接口模式: %s\n主题: %s | 透明度: %s | 停留: %s",
+		"划词翻译\n状态: %s\n热键: %s\n方向: %s\n非中文: %s\n中文: %s\n模型: %s\n模型服务: %s\n主题: %s | 透明度: %s | 停留: %s",
 		hotkey_enabled() == true and "已启用" or "已停用",
 		display_hotkey_label(),
 		translation_direction_label(),
 		target_language(),
 		chinese_target_language(),
 		api_model(),
-		api_mode_label(api_mode()),
+		provider_label(),
 		popup_theme_label(),
 		format_alpha_label(resolved_popup_background_alpha({ alpha = popup_background_fill_color().alpha })),
 		format_duration_label(popup_duration_seconds())
@@ -2516,7 +2697,7 @@ local function rebind_hotkey(_, options)
 end
 
 local function clear_runtime_override(field)
-	runtime_overrides[field] = nil
+	config_utils.clear_path_value(runtime_overrides, field)
 	persist_runtime_overrides()
 end
 
@@ -2658,23 +2839,30 @@ local function set_popup_duration(seconds)
 	hs.alert.show("悬浮窗停留时间已更新为 " .. format_duration_label(seconds))
 end
 
-local function set_api_mode(mode)
-	set_runtime_override("api_mode", mode)
+local function set_provider(provider_name)
+	set_runtime_override({ "model_service", "provider" }, provider_name)
+	clear_model_warmup_timer()
+
+	if state.started == true then
+		schedule_model_warmup()
+	end
+
 	refresh_menubar()
-	hs.alert.show("接口模式已切换为" .. api_mode_label(mode))
+	hs.alert.show("模型服务已切换为" .. provider_label(provider_name))
 end
 
 local function set_request_timeout(seconds)
 	seconds = normalize_number(seconds, default_request_timeout_seconds, 3, 120)
-	set_runtime_override("request_timeout_seconds", seconds)
+	set_runtime_override({ "model_service", "request_timeout_seconds" }, seconds)
 	refresh_menubar()
 	hs.alert.show("请求超时已更新为 " .. format_duration_label(seconds))
 end
 
 local function prompt_api_url_configuration()
+	local provider_label_text = provider_label()
 	local value = prompt_text(
-		"设置翻译接口地址",
-		"请输入 OpenAI 兼容接口或 Ollama 本地接口地址。",
+		"设置模型服务地址",
+		"请输入当前模型服务的接口地址。\n当前提供方: " .. provider_label_text,
 		api_url()
 	)
 
@@ -2689,13 +2877,23 @@ local function prompt_api_url_configuration()
 		return
 	end
 
-	set_runtime_override("api_url", url)
+	set_runtime_override({ "model_service", provider(), "api_url" }, url)
+	clear_model_warmup_timer()
+
+	if state.started == true then
+		schedule_model_warmup()
+	end
+
 	refresh_menubar()
 	hs.alert.show("接口地址已更新")
 end
 
 local function prompt_model_configuration()
-	local value = prompt_text("设置翻译模型", "请输入要调用的模型名称。", api_model())
+	local value = prompt_text(
+		"设置翻译模型",
+		"请输入当前模型服务要调用的模型名称。\n当前提供方: " .. provider_label(),
+		api_model()
+	)
 
 	if value == nil then
 		return
@@ -2708,16 +2906,22 @@ local function prompt_model_configuration()
 		return
 	end
 
-	set_runtime_override("model", model)
+	set_runtime_override({ "model_service", provider(), "model" }, model)
+	clear_model_warmup_timer()
+
+	if state.started == true then
+		schedule_model_warmup()
+	end
+
 	refresh_menubar()
 	hs.alert.show("翻译模型已更新为 " .. model)
 end
 
 local function prompt_api_key_configuration()
 	local value = prompt_text(
-		"设置 API Key",
+		"设置 OpenAI 兼容 API Key",
 		"将保存到 hs.settings，重启 Hammerspoon 或电脑后仍可继续使用。\n留空表示清除菜单中保存的 API Key，并回退到配置文件或环境变量。",
-		current_config().api_key or ""
+		tostring(config_utils.get_path_value(current_config(), { "model_service", "openai_compatible", "api_key" }) or "")
 	)
 
 	if value == nil then
@@ -2727,19 +2931,28 @@ local function prompt_api_key_configuration()
 	local key = trim(value)
 
 	if key == "" then
-		clear_runtime_override("api_key")
+		clear_runtime_override({ "model_service", "openai_compatible", "api_key" })
 		refresh_menubar()
 		hs.alert.show("已清除菜单中保存的 API Key")
 		return
 	end
 
-	set_runtime_override("api_key", key)
+	set_runtime_override({ "model_service", "openai_compatible", "api_key" }, key)
 	refresh_menubar()
 	hs.alert.show("API Key 已保存")
 end
 
 local function restore_default_field(field, success_message)
 	clear_runtime_override(field)
+
+	if config_utils.normalize_path(field)[1] == "model_service" then
+		clear_model_warmup_timer()
+
+		if state.started == true then
+			schedule_model_warmup()
+		end
+	end
+
 	refresh_menubar()
 
 	if success_message ~= nil then
@@ -2957,20 +3170,20 @@ local function build_popup_duration_menu()
 	return menu
 end
 
-local function build_api_mode_menu()
+local function build_provider_menu()
 	local menu = {
 		{
-			title = "当前: " .. api_mode_label(api_mode()) .. " | 实际请求: " .. api_mode_label(resolved_api_mode()),
+			title = "当前: " .. provider_label(),
 			disabled = true,
 		},
 	}
 
-	for _, mode in ipairs(menu_options.api_mode_order) do
+	for _, provider_name in ipairs(menu_options.provider_order) do
 		table.insert(menu, {
-			title = api_mode_label(mode),
-			checked = api_mode() == mode,
+			title = provider_label(provider_name),
+			checked = provider() == provider_name,
 			fn = function()
-				set_api_mode(mode)
+				set_provider(provider_name)
 			end,
 		})
 	end
@@ -2978,9 +3191,9 @@ local function build_api_mode_menu()
 	table.insert(menu, { title = "-" })
 	table.insert(menu, {
 		title = "恢复文件配置",
-		disabled = runtime_overrides.api_mode == nil,
+		disabled = config_utils.path_exists(runtime_overrides, { "model_service", "provider" }) ~= true,
 		fn = function()
-			restore_default_field("api_mode", "已恢复文件中的接口模式配置")
+			restore_default_field({ "model_service", "provider" }, "已恢复文件中的模型服务配置")
 		end,
 	})
 
@@ -3024,9 +3237,9 @@ local function build_request_timeout_menu()
 	table.insert(menu, { title = "-" })
 	table.insert(menu, {
 		title = "恢复文件配置",
-		disabled = runtime_overrides.request_timeout_seconds == nil,
+		disabled = config_utils.path_exists(runtime_overrides, { "model_service", "request_timeout_seconds" }) ~= true,
 		fn = function()
-			restore_default_field("request_timeout_seconds", "已恢复文件中的超时配置")
+			restore_default_field({ "model_service", "request_timeout_seconds" }, "已恢复文件中的超时配置")
 		end,
 	})
 
@@ -3037,14 +3250,14 @@ local function build_api_key_menu()
 	return {
 		{ title = "当前来源: " .. api_key_source_label(), disabled = true },
 		{
-			title = "设置 API Key...",
+			title = "设置 OpenAI 兼容 API Key...",
 			fn = prompt_api_key_configuration,
 		},
 		{
 			title = "清除菜单中保存的 API Key",
-			disabled = runtime_overrides.api_key == nil,
+			disabled = config_utils.path_exists(runtime_overrides, { "model_service", "openai_compatible", "api_key" }) ~= true,
 			fn = function()
-				clear_runtime_override("api_key")
+				clear_runtime_override({ "model_service", "openai_compatible", "api_key" })
 				refresh_menubar()
 				hs.alert.show("已清除菜单中保存的 API Key")
 			end,
@@ -3054,23 +3267,24 @@ end
 
 local function build_api_settings_menu()
 	return {
+		{ title = "提供方: " .. provider_label(), disabled = true },
 		{ title = "模型: " .. api_model(), disabled = true },
 		{ title = "地址: " .. api_url(), disabled = true },
-		{ title = "API Key: " .. api_key_source_label(), disabled = true },
+		{ title = "OpenAI API Key: " .. api_key_source_label(), disabled = true },
 		{ title = "-" },
 		{
-			title = "接口模式",
-			menu = build_api_mode_menu(),
+			title = "提供方",
+			menu = build_provider_menu(),
 		},
 		{
 			title = "模型名称...",
 			fn = prompt_model_configuration,
 		},
 		{
-			title = "恢复文件中的模型配置",
-			disabled = runtime_overrides.model == nil,
+			title = "恢复文件中的当前模型",
+			disabled = config_utils.path_exists(runtime_overrides, { "model_service", provider(), "model" }) ~= true,
 			fn = function()
-				restore_default_field("model", "已恢复文件中的模型配置")
+				restore_default_field({ "model_service", provider(), "model" }, "已恢复文件中的模型配置")
 			end,
 		},
 		{
@@ -3078,10 +3292,10 @@ local function build_api_settings_menu()
 			fn = prompt_api_url_configuration,
 		},
 		{
-			title = "恢复文件中的接口地址",
-			disabled = runtime_overrides.api_url == nil,
+			title = "恢复文件中的当前地址",
+			disabled = config_utils.path_exists(runtime_overrides, { "model_service", provider(), "api_url" }) ~= true,
 			fn = function()
-				restore_default_field("api_url", "已恢复文件中的接口地址配置")
+				restore_default_field({ "model_service", provider(), "api_url" }, "已恢复文件中的接口地址配置")
 			end,
 		},
 		{
@@ -3089,7 +3303,7 @@ local function build_api_settings_menu()
 			menu = build_request_timeout_menu(),
 		},
 		{
-			title = "API Key",
+			title = "OpenAI API Key",
 			menu = build_api_key_menu(),
 		},
 	}
@@ -3141,9 +3355,9 @@ local function build_menu()
 		},
 		{
 			title = string.format(
-				"模型: %s | 模式: %s",
+				"模型: %s | 服务: %s",
 				api_model(),
-				api_mode_label(api_mode())
+				provider_label()
 			),
 			disabled = true,
 		},
@@ -3319,7 +3533,9 @@ _M.get_state = function()
 		popup_theme = popup_theme_name(),
 		popup_background_alpha = popup_background_fill_color().alpha,
 		popup_duration_seconds = popup_duration_seconds(),
-		api_mode = api_mode(),
+		provider = provider(),
+		model_service = copy_table(config_utils.model_service_config()),
+		api_mode = resolved_api_mode(),
 		resolved_api_mode = resolved_api_mode(),
 		api_url = api_url(),
 		model = api_model(),

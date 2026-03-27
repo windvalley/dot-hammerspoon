@@ -55,12 +55,20 @@ function _M.run()
 		"selected_text_translate should default to translating into Simplified Chinese"
 	)
 	assert_equal(
-		selected_text_translate.api_key_env,
-		"",
-		"selected_text_translate should allow local Ollama defaults without requiring an API key env var"
+		selected_text_translate.model_service.provider,
+		"ollama",
+		"selected_text_translate should default to the local Ollama provider"
 	)
-	assert_equal(selected_text_translate.api_mode, "auto", "selected_text_translate should default to auto API mode")
-	assert_equal(selected_text_translate.disable_thinking, true, "selected_text_translate should disable thinking by default")
+	assert_equal(
+		selected_text_translate.model_service.ollama.disable_thinking,
+		true,
+		"selected_text_translate should disable thinking by default for Ollama"
+	)
+	assert_equal(
+		selected_text_translate.model_service.openai_compatible.api_key_env,
+		"OPENAI_API_KEY",
+		"selected_text_translate should expose the default OpenAI-compatible API key env name"
+	)
 
 	reset_modules()
 end

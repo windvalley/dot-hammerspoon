@@ -177,20 +177,28 @@ _M.selected_text_translate = {
 	translation_direction = "auto",
 	target_language = "简体中文",
 	chinese_target_language = "英文",
-	api_mode = "auto",
-	api_url = "http://localhost:11434/api/chat",
-	model = "qwen3.5:35b",
-	enable_model_warmup = true,
-	model_keep_alive = "30m",
-	disable_thinking = true,
-	api_key_env = "",
-	api_key = "",
-	request_timeout_seconds = 60,
 	popup_duration_seconds = 10,
 	popup_theme = "paper",
 	popup_background_alpha = 0.88,
 	clipboard_poll_interval_seconds = 0.05,
 	clipboard_max_wait_seconds = 0.4,
+	model_service = {
+		provider = "ollama",
+		request_timeout_seconds = 20,
+		ollama = {
+			api_url = "http://localhost:11434/api/chat",
+			model = "qwen3.5:35b",
+			enable_warmup = true,
+			keep_alive = "30m",
+			disable_thinking = true,
+		},
+		openai_compatible = {
+			api_url = "https://api.openai.com/v1/chat/completions",
+			model = "gpt-4o-mini",
+			api_key_env = "OPENAI_API_KEY",
+			api_key = "",
+		},
+	},
 }
 ```
 
@@ -204,11 +212,11 @@ The older `popup_background = "#RRGGBB"` / `"#RRGGBBAA"` and `popup_background_c
 
 In the menubar presets, `中文目标语言` intentionally excludes `简体中文` to avoid a no-op same-language translation. If you still need a special case, you can enter it manually via the custom option.
 
-`api_mode` supports `auto`, `ollama_native`, and `openai_compatible`. In `auto`, local `localhost:11434` requests will prefer Ollama’s native `/api/chat` endpoint so thinking models can use `think = false` by default for faster responses.
+`model_service.provider` supports `ollama` and `openai_compatible`. The currently selected provider decides which sub-config block supplies the active `api_url` and `model`.
 
-For local Ollama models, `enable_model_warmup = true` will silently send one lightweight warmup request a few seconds after startup, which helps reduce the first translation latency. `model_keep_alive = "30m"` attaches Ollama’s `keep_alive` option to both the warmup request and normal translation requests so the model stays loaded longer after use.
+For local Ollama models, `model_service.ollama.enable_warmup = true` will silently send one lightweight warmup request a few seconds after startup, which helps reduce the first translation latency. `model_service.ollama.keep_alive = "30m"` attaches Ollama’s `keep_alive` option to both the warmup request and normal translation requests so the model stays loaded longer after use. `model_service.ollama.disable_thinking = true` also sends `think = false` by default for faster responses.
 
-If you do not want to rely on shell environment variables, you can leave `api_key` empty and save the key from the menubar. That value will persist locally via `hs.settings` and continue working after reboot. If you prefer environment variables, a practical way for GUI-launched Hammerspoon is:
+For OpenAI-compatible services, you can leave `model_service.openai_compatible.api_key` empty and save the key from the menubar. That value will persist locally via `hs.settings` and continue working after reboot. If you prefer environment variables, a practical way for GUI-launched Hammerspoon is:
 
 ```sh
 launchctl setenv OPENAI_API_KEY "your-api-key"

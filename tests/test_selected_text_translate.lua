@@ -57,6 +57,68 @@ local function find_menu_item(menu, title)
 	return nil
 end
 
+local function copy_value(value)
+	if type(value) ~= "table" then
+		return value
+	end
+
+	local copied = {}
+
+	for key, item in pairs(value) do
+		copied[key] = copy_value(item)
+	end
+
+	return copied
+end
+
+local function merge_tables(base, overrides)
+	local merged = copy_value(base or {})
+
+	for key, value in pairs(overrides or {}) do
+		if type(value) == "table" and type(merged[key]) == "table" then
+			merged[key] = merge_tables(merged[key], value)
+		else
+			merged[key] = copy_value(value)
+		end
+	end
+
+	return merged
+end
+
+local function get_path_value(root, path)
+	local value = root
+
+	for _, segment in ipairs(path or {}) do
+		if type(value) ~= "table" then
+			return nil
+		end
+
+		value = value[segment]
+	end
+
+	return value
+end
+
+local function build_model_service(overrides)
+	return merge_tables({
+		provider = "openai_compatible",
+		request_timeout_seconds = 20,
+		ollama = {
+			api_url = "http://localhost:11434/api/chat",
+			model = "qwen3.5:35b",
+			enable_warmup = false,
+			keep_alive = "",
+			disable_thinking = true,
+		},
+		openai_compatible = {
+			api_url = "https://example.com/v1/chat/completions",
+			model = "gpt-test",
+			api_key_env = "OPENAI_API_KEY",
+			api_key = "",
+		},
+	}, overrides)
+end
+
 local function reset_modules()
 	loaded_modules["selected_text_translate"] = nil
 	loaded_modules["keybindings_config"] = nil
@@ -489,13 +551,18 @@ function _M.run()
 			translation_direction = "auto",
 			target_language = "简体中文",
 			chinese_target_language = "英文",
-			api_url = "https://example.com/v1/chat/completions",
-			model = "gpt-test",
-			api_key_env = "OPENAI_API_KEY",
-			request_timeout_seconds = 15,
 			popup_duration_seconds = 8,
 			popup_theme = "ocean",
 			popup_background_alpha = 0.84,
+			model_service = build_model_service({
+				provider = "openai_compatible",
+				request_timeout_seconds = 15,
+				openai_compatible = {
+					api_url = "https://example.com/v1/chat/completions",
+					model = "gpt-test",
+					api_key_env = "OPENAI_API_KEY",
+				},
+			}),
 		},
 	}
 	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(direct_recorded)
@@ -566,9 +633,30 @@ function _M.run()
 		"theme updates should be persisted"
 	)
 
-	find_menu_item(find_menu_item(menu, "模型服务").menu, "API Key").menu[2].fn()
+	find_menu_item(find_menu_item(find_menu_item(menu, "模型服务").menu, "提供方").menu, "Ollama").fn()
+	assert_equal(translator.get_state().provider, "ollama", "provider menu should switch to Ollama")
 	assert_equal(
-		direct_recorded.settings_store["selected_text_translate.runtime_overrides"].api_key,
+		get_path_value(direct_recorded.settings_store["selected_text_translate.runtime_overrides"], {
+			"model_service",
+			"provider",
+		}),
+		"ollama",
+		"provider menu should persist the selected provider"
+	)
+	find_menu_item(find_menu_item(find_menu_item(menu, "模型服务").menu, "提供方").menu, "OpenAI 兼容").fn()
+	assert_equal(
+		translator.get_state().provider,
+		"openai_compatible",
+		"provider menu should switch back to OpenAI-compatible mode"
+	)
+
+	find_menu_item(find_menu_item(menu, "模型服务").menu, "OpenAI API Key").menu[2].fn()
+	assert_equal(
+		get_path_value(direct_recorded.settings_store["selected_text_translate.runtime_overrides"], {
+			"model_service",
+			"openai_compatible",
+			"api_key",
+		}),
 		"sk-menu",
 		"API key prompt should persist the entered key"
 	)
@@ -753,9 +841,14 @@ function _M.run()
 			translation_direction = "auto",
 			target_language = "简体中文",
 			chinese_target_language = "英文",
-			api_url = "https://example.com/v1/chat/completions",
-			model = "gpt-bilingual",
-			api_key_env = "OPENAI_API_KEY",
+			model_service = build_model_service({
+				provider = "openai_compatible",
+				openai_compatible = {
+					api_url = "https://example.com/v1/chat/completions",
+					model = "gpt-bilingual",
+					api_key_env = "OPENAI_API_KEY",
+				},
+			}),
 		},
 	}
 	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(chinese_to_english_recorded)
@@ -927,11 +1020,16 @@ function _M.run()
 			key = "R",
 			message = "Translate Selection",
 			target_language = "简体中文",
-			api_url = "https://example.com/v1/chat/completions",
-			model = "gpt-fallback",
-			api_key_env = "OPENAI_API_KEY",
 			clipboard_poll_interval_seconds = 0.05,
 			clipboard_max_wait_seconds = 0.3,
+			model_service = build_model_service({
+				provider = "openai_compatible",
+				openai_compatible = {
+					api_url = "https://example.com/v1/chat/completions",
+					model = "gpt-fallback",
+					api_key_env = "OPENAI_API_KEY",
+				},
+			}),
 		},
 	}
 	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(fallback_recorded)
@@ -1091,14 +1189,20 @@ function _M.run()
 			key = "R",
 			message = "Translate Selection",
 			target_language = "简体中文",
-			api_mode = "auto",
-			api_url = "http://localhost:11434/v1/chat/completions",
-			model = "qwen3.5:35b",
-			enable_model_warmup = true,
-			model_keep_alive = "30m",
-			api_key_env = "",
-			api_key = "ollama",
-			disable_thinking = true,
+			model_service = build_model_service({
+				provider = "ollama",
+				ollama = {
+					api_url = "http://localhost:11434/v1/chat/completions",
+					model = "qwen3.5:35b",
+					enable_warmup = true,
+					keep_alive = "30m",
+					disable_thinking = true,
+				},
+				openai_compatible = {
+					api_key_env = "",
+					api_key = "ollama",
+				},
+			}),
 		},
 	}
 	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(ollama_recorded)
@@ -1185,8 +1289,12 @@ function _M.run()
 				key = "t",
 				prefix = { "alt", "shift" },
 				popup_theme = "forest",
-				api_key = "sk-persisted",
 				popup_duration_seconds = 15,
+				model_service = {
+					openai_compatible = {
+						api_key = "sk-persisted",
+					},
+				},
 			},
 		},
 	}
@@ -1228,8 +1336,13 @@ function _M.run()
 			message = "Translate Selection",
 			target_language = "简体中文",
 			chinese_target_language = "英文",
-			api_url = "https://example.com/v1/chat/completions",
-			model = "gpt-test",
+			model_service = build_model_service({
+				provider = "openai_compatible",
+				openai_compatible = {
+					api_url = "https://example.com/v1/chat/completions",
+					model = "gpt-test",
+				},
+			}),
 		},
 	}
 	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(persisted_recorded)

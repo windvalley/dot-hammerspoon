@@ -332,25 +332,6 @@ _M.selected_text_translate = {
 	target_language = "简体中文",
 	-- 中文文本默认翻译目标语言
 	chinese_target_language = "英文",
-	-- auto: 自动识别本地 Ollama 并优先走原生 /api/chat，其余走 OpenAI 兼容接口
-	-- ollama_native: 强制走 Ollama 原生 /api/chat
-	-- openai_compatible: 强制走 OpenAI 兼容 /v1/chat/completions
-	api_mode = "auto",
-	-- 本地 Ollama 可直接写 /api/chat；如果写成 /v1/chat/completions，auto 模式也会自动转到原生接口
-	api_url = "http://localhost:11434/api/chat",
-	-- 建议按需改成自己常用的模型
-	model = "qwen3.5:35b",
-	-- 启动后静默预热一次本地模型，减少首次翻译冷启动延迟
-	enable_model_warmup = true,
-	-- 仅对 Ollama 生效，表示模型在最后一次请求后尽量保活 30 分钟
-	model_keep_alive = "30m",
-	-- 对支持 thinking 的本地模型，默认关闭 thinking 以提升响应速度
-	disable_thinking = true,
-	-- 优先从这个环境变量读取 API Key；也可以留空后在菜单栏里直接填写并持久化
-	api_key_env = "",
-	api_key = "",
-	-- 请求超时秒数
-	request_timeout_seconds = 20,
 	-- 翻译结果悬浮窗默认停留秒数；设为 0 表示不自动关闭
 	popup_duration_seconds = 5,
 	-- 悬浮窗主题预设，可选：
@@ -364,6 +345,30 @@ _M.selected_text_translate = {
 	-- 选区无法直接读取时，模拟复制后等待剪贴板更新的轮询参数
 	clipboard_poll_interval_seconds = 0.05,
 	clipboard_max_wait_seconds = 0.4,
+	-- 模型服务配置
+	model_service = {
+		-- 可选: ollama / openai_compatible
+		provider = "ollama",
+		-- 请求超时秒数
+		request_timeout_seconds = 20,
+		ollama = {
+			api_url = "http://localhost:11434/api/chat",
+			model = "qwen3.5:35b",
+			-- 启动后静默预热一次本地模型，减少首次翻译冷启动延迟
+			enable_warmup = true,
+			-- 表示模型在最后一次请求后尽量保活 30 分钟
+			keep_alive = "30m",
+			-- 对支持 thinking 的本地模型，默认关闭 thinking 以提升响应速度
+			disable_thinking = true,
+		},
+		openai_compatible = {
+			api_url = "https://api.openai.com/v1/chat/completions",
+			model = "gpt-4o-mini",
+			-- 优先从这个环境变量读取 API Key；也可以留空后在菜单栏里直接填写并持久化
+			api_key_env = "OPENAI_API_KEY",
+			api_key = "",
+		},
+	},
 }
 
 -- 录屏/演示场景下的按键可视化
