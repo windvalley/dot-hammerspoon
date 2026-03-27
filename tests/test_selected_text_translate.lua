@@ -116,6 +116,18 @@ local function build_model_service(overrides)
 			api_key_env = "OPENAI_API_KEY",
 			api_key = "",
 		},
+		gemini = {
+			api_url = "https://generativelanguage.googleapis.com/v1beta/models",
+			model = "gemini-2.0-flash",
+			api_key_env = "GEMINI_API_KEY",
+			api_key = "",
+		},
+		anthropic = {
+			api_url = "https://api.anthropic.com/v1/messages",
+			model = "claude-3-5-haiku-latest",
+			api_key_env = "ANTHROPIC_API_KEY",
+			api_key = "",
+		},
 	}, overrides)
 end
 
@@ -650,7 +662,7 @@ function _M.run()
 		"provider menu should switch back to OpenAI-compatible mode"
 	)
 
-	find_menu_item(find_menu_item(menu, "模型服务").menu, "OpenAI API Key").menu[2].fn()
+	find_menu_item(find_menu_item(menu, "模型服务").menu, "API Key").menu[2].fn()
 	assert_equal(
 		get_path_value(direct_recorded.settings_store["selected_text_translate.runtime_overrides"], {
 			"model_service",
@@ -1082,6 +1094,329 @@ function _M.run()
 	assert_equal(#fallback_recorded.alerts, 0, "closing the popup should not emit extra alerts")
 	assert_true(translator.stop(), "translator stop should succeed after clipboard fallback")
 	assert_equal(fallback_recorded.deleted_bindings, 1, "translator stop should delete its hotkey binding in fallback path")
+
+	reset_modules()
+
+	local gemini_recorded = {
+		alerts = {},
+		block_alerts = {},
+		async_posts = {},
+		deleted_bindings = 0,
+		timers = {},
+		stopped_timers = 0,
+	}
+
+	rawset(os, "getenv", function(name)
+		if name == "GEMINI_API_KEY" then
+			return "gemini-key"
+		end
+
+		return original_getenv(name)
+	end)
+
+	hs = {
+		logger = {
+			new = function()
+				return {
+					i = function() end,
+					w = function() end,
+					e = function() end,
+				}
+			end,
+		},
+		alert = {
+			show = function(message)
+				table.insert(gemini_recorded.alerts, message)
+			end,
+		},
+		dialog = {
+			blockAlert = function(message, informative_text)
+				table.insert(gemini_recorded.block_alerts, {
+					message = message,
+					informative_text = informative_text,
+				})
+
+				return "关闭"
+			end,
+		},
+		timer = create_timer_stub(gemini_recorded),
+		uielement = {
+			focusedElement = function()
+				return {
+					selectedText = function()
+						return "gemini source"
+					end,
+				}
+			end,
+		},
+		json = {
+			encode = function(value)
+				gemini_recorded.encoded_payload = value
+				return "encoded-payload"
+			end,
+			decode = function(_)
+				return {
+					candidates = {
+						{
+							content = {
+								parts = {
+									{ text = "Gemini 译文" },
+								},
+							},
+						},
+					},
+				}
+			end,
+		},
+		http = {
+			asyncPost = function(url, data, headers, callback)
+				table.insert(gemini_recorded.async_posts, {
+					url = url,
+					data = data,
+					headers = headers,
+				})
+				callback(200, "{\"ok\":true}", {})
+			end,
+		},
+	}
+
+	loaded_modules["keybindings_config"] = {
+		selected_text_translate = {
+			enabled = true,
+			prefix = { "Option" },
+			key = "R",
+			message = "Translate Selection",
+			target_language = "简体中文",
+			model_service = build_model_service({
+				provider = "gemini",
+				gemini = {
+					api_url = "https://generativelanguage.googleapis.com/v1beta/models",
+					model = "gemini-2.0-flash",
+					api_key_env = "GEMINI_API_KEY",
+				},
+			}),
+		},
+	}
+	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(gemini_recorded)
+	loaded_modules["utils_lib"] = {
+		trim = function(value)
+			return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		end,
+		copy_list = function(items)
+			local copied = {}
+
+			for _, item in ipairs(items or {}) do
+				table.insert(copied, item)
+			end
+
+			return copied
+		end,
+	}
+
+	translator = require("selected_text_translate")
+
+	assert_true(translator.start(), "translator should start successfully for Gemini mode")
+	assert_equal(translator.get_state().resolved_api_mode, "gemini", "Gemini mode should expose the resolved provider")
+	gemini_recorded.bound_handler()
+
+	assert_equal(
+		gemini_recorded.async_posts[1].url,
+		"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+		"Gemini mode should expand the models endpoint to the generateContent URL"
+	)
+	assert_equal(
+		gemini_recorded.async_posts[1].headers["x-goog-api-key"],
+		"gemini-key",
+		"Gemini mode should send the configured API key with x-goog-api-key"
+	)
+	assert_true(
+		gemini_recorded.async_posts[1].headers["Authorization"] == nil,
+		"Gemini mode should not send an OpenAI-style Authorization header"
+	)
+	assert_contains(
+		gemini_recorded.encoded_payload.systemInstruction.parts[1].text,
+		"简体中文",
+		"Gemini mode should keep the translation target in the system instruction"
+	)
+	assert_equal(
+		gemini_recorded.encoded_payload.contents[1].parts[1].text,
+		"gemini source",
+		"Gemini mode should send the selected text in contents.parts"
+	)
+	assert_equal(
+		gemini_recorded.block_alerts[1].informative_text,
+		"Gemini 译文",
+		"Gemini mode should parse and display the returned translation"
+	)
+	assert_true(translator.stop(), "translator stop should succeed after Gemini mode")
+	assert_equal(gemini_recorded.deleted_bindings, 1, "translator stop should delete its hotkey binding after Gemini mode")
+
+	reset_modules()
+
+	local anthropic_recorded = {
+		alerts = {},
+		block_alerts = {},
+		async_posts = {},
+		deleted_bindings = 0,
+		timers = {},
+		stopped_timers = 0,
+	}
+
+	rawset(os, "getenv", function(name)
+		if name == "ANTHROPIC_API_KEY" then
+			return "anthropic-key"
+		end
+
+		return original_getenv(name)
+	end)
+
+	hs = {
+		logger = {
+			new = function()
+				return {
+					i = function() end,
+					w = function() end,
+					e = function() end,
+				}
+			end,
+		},
+		alert = {
+			show = function(message)
+				table.insert(anthropic_recorded.alerts, message)
+			end,
+		},
+		dialog = {
+			blockAlert = function(message, informative_text)
+				table.insert(anthropic_recorded.block_alerts, {
+					message = message,
+					informative_text = informative_text,
+				})
+
+				return "关闭"
+			end,
+		},
+		timer = create_timer_stub(anthropic_recorded),
+		uielement = {
+			focusedElement = function()
+				return {
+					selectedText = function()
+						return "anthropic source"
+					end,
+				}
+			end,
+		},
+		json = {
+			encode = function(value)
+				anthropic_recorded.encoded_payload = value
+				return "encoded-payload"
+			end,
+			decode = function(_)
+				return {
+					content = {
+						{
+							type = "text",
+							text = "Anthropic 译文",
+						},
+					},
+				}
+			end,
+		},
+		http = {
+			asyncPost = function(url, data, headers, callback)
+				table.insert(anthropic_recorded.async_posts, {
+					url = url,
+					data = data,
+					headers = headers,
+				})
+				callback(200, "{\"ok\":true}", {})
+			end,
+		},
+	}
+
+	loaded_modules["keybindings_config"] = {
+		selected_text_translate = {
+			enabled = true,
+			prefix = { "Option" },
+			key = "R",
+			message = "Translate Selection",
+			target_language = "简体中文",
+			model_service = build_model_service({
+				provider = "anthropic",
+				anthropic = {
+					api_url = "https://api.anthropic.com/v1/messages",
+					model = "claude-3-5-haiku-latest",
+					api_key_env = "ANTHROPIC_API_KEY",
+				},
+			}),
+		},
+	}
+	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(anthropic_recorded)
+	loaded_modules["utils_lib"] = {
+		trim = function(value)
+			return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		end,
+		copy_list = function(items)
+			local copied = {}
+
+			for _, item in ipairs(items or {}) do
+				table.insert(copied, item)
+			end
+
+			return copied
+		end,
+	}
+
+	translator = require("selected_text_translate")
+
+	assert_true(translator.start(), "translator should start successfully for Anthropic mode")
+	assert_equal(translator.get_state().resolved_api_mode, "anthropic", "Anthropic mode should expose the resolved provider")
+	anthropic_recorded.bound_handler()
+
+	assert_equal(
+		anthropic_recorded.async_posts[1].url,
+		"https://api.anthropic.com/v1/messages",
+		"Anthropic mode should use the configured messages endpoint"
+	)
+	assert_equal(
+		anthropic_recorded.async_posts[1].headers["x-api-key"],
+		"anthropic-key",
+		"Anthropic mode should send the configured x-api-key header"
+	)
+	assert_equal(
+		anthropic_recorded.async_posts[1].headers["anthropic-version"],
+		"2023-06-01",
+		"Anthropic mode should send the required API version header"
+	)
+	assert_true(
+		anthropic_recorded.async_posts[1].headers["Authorization"] == nil,
+		"Anthropic mode should not send an OpenAI-style Authorization header"
+	)
+	assert_contains(
+		anthropic_recorded.encoded_payload.system,
+		"简体中文",
+		"Anthropic mode should keep the translation target in the system prompt"
+	)
+	assert_equal(
+		anthropic_recorded.encoded_payload.messages[1].content,
+		"anthropic source",
+		"Anthropic mode should send the selected text in the user message"
+	)
+	assert_equal(
+		anthropic_recorded.encoded_payload.max_tokens,
+		1024,
+		"Anthropic mode should provide a default max_tokens value"
+	)
+	assert_equal(
+		anthropic_recorded.block_alerts[1].informative_text,
+		"Anthropic 译文",
+		"Anthropic mode should parse and display the returned translation"
+	)
+	assert_true(translator.stop(), "translator stop should succeed after Anthropic mode")
+	assert_equal(
+		anthropic_recorded.deleted_bindings,
+		1,
+		"translator stop should delete its hotkey binding after Anthropic mode"
+	)
 
 	reset_modules()
 

@@ -69,6 +69,16 @@ function _M.run()
 		"OPENAI_API_KEY",
 		"selected_text_translate should expose the default OpenAI-compatible API key env name"
 	)
+	assert_equal(
+		selected_text_translate.model_service.gemini.api_key_env,
+		"GEMINI_API_KEY",
+		"selected_text_translate should expose the default Gemini API key env name"
+	)
+	assert_equal(
+		selected_text_translate.model_service.anthropic.api_key_env,
+		"ANTHROPIC_API_KEY",
+		"selected_text_translate should expose the default Anthropic API key env name"
+	)
 
 	reset_modules()
 end

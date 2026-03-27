@@ -198,6 +198,18 @@ _M.selected_text_translate = {
 			api_key_env = "OPENAI_API_KEY",
 			api_key = "",
 		},
+		gemini = {
+			api_url = "https://generativelanguage.googleapis.com/v1beta/models",
+			model = "gemini-2.0-flash",
+			api_key_env = "GEMINI_API_KEY",
+			api_key = "",
+		},
+		anthropic = {
+			api_url = "https://api.anthropic.com/v1/messages",
+			model = "claude-3-5-haiku-latest",
+			api_key_env = "ANTHROPIC_API_KEY",
+			api_key = "",
+		},
 	},
 }
 ```
@@ -212,14 +224,18 @@ The older `popup_background = "#RRGGBB"` / `"#RRGGBBAA"` and `popup_background_c
 
 In the menubar presets, `中文目标语言` intentionally excludes `简体中文` to avoid a no-op same-language translation. If you still need a special case, you can enter it manually via the custom option.
 
-`model_service.provider` supports `ollama` and `openai_compatible`. The currently selected provider decides which sub-config block supplies the active `api_url` and `model`.
+`model_service.provider` supports `ollama`, `openai_compatible`, `gemini`, and `anthropic`. The currently selected provider decides which sub-config block supplies the active `api_url`, `model`, and API credential fields.
 
 For local Ollama models, `model_service.ollama.enable_warmup = true` will silently send one lightweight warmup request a few seconds after startup, which helps reduce the first translation latency. `model_service.ollama.keep_alive = "30m"` attaches Ollama’s `keep_alive` option to both the warmup request and normal translation requests so the model stays loaded longer after use. `model_service.ollama.disable_thinking = true` also sends `think = false` by default for faster responses.
 
-For OpenAI-compatible services, you can leave `model_service.openai_compatible.api_key` empty and save the key from the menubar. That value will persist locally via `hs.settings` and continue working after reboot. If you prefer environment variables, a practical way for GUI-launched Hammerspoon is:
+For Gemini, the default `api_url` can stay at the base `/models` path. The module will automatically expand it to `/{model}:generateContent` for the active model. Anthropic uses `/v1/messages` directly.
+
+For providers that require an API key, you can leave `api_key` empty in the file config and save the key from the menubar instead. That value will persist locally via `hs.settings` and continue working after reboot. If you prefer environment variables, practical examples for GUI-launched Hammerspoon are:
 
 ```sh
 launchctl setenv OPENAI_API_KEY "your-api-key"
+launchctl setenv GEMINI_API_KEY "your-api-key"
+launchctl setenv ANTHROPIC_API_KEY "your-api-key"
 ```
 
 Then restart Hammerspoon so the app can read the variable.

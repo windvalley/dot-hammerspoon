@@ -347,7 +347,7 @@ _M.selected_text_translate = {
 	clipboard_max_wait_seconds = 0.4,
 	-- 模型服务配置
 	model_service = {
-		-- 可选: ollama / openai_compatible
+		-- 可选: ollama / openai_compatible / gemini / anthropic
 		provider = "ollama",
 		-- 请求超时秒数
 		request_timeout_seconds = 20,
@@ -366,6 +366,19 @@ _M.selected_text_translate = {
 			model = "gpt-4o-mini",
 			-- 优先从这个环境变量读取 API Key；也可以留空后在菜单栏里直接填写并持久化
 			api_key_env = "OPENAI_API_KEY",
+			api_key = "",
+		},
+		gemini = {
+			-- 支持写成基础 models 路径，模块会自动拼上 /{model}:generateContent
+			api_url = "https://generativelanguage.googleapis.com/v1beta/models",
+			model = "gemini-2.0-flash",
+			api_key_env = "GEMINI_API_KEY",
+			api_key = "",
+		},
+		anthropic = {
+			api_url = "https://api.anthropic.com/v1/messages",
+			model = "claude-3-5-haiku-latest",
+			api_key_env = "ANTHROPIC_API_KEY",
 			api_key = "",
 		},
 	},

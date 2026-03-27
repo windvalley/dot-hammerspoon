@@ -31,6 +31,16 @@ local default_model_service = {
 		model = "gpt-4o-mini",
 		api_key_env = "OPENAI_API_KEY",
 	},
+	gemini = {
+		api_url = "https://generativelanguage.googleapis.com/v1beta/models",
+		model = "gemini-2.0-flash",
+		api_key_env = "GEMINI_API_KEY",
+	},
+	anthropic = {
+		api_url = "https://api.anthropic.com/v1/messages",
+		model = "claude-3-5-haiku-latest",
+		api_key_env = "ANTHROPIC_API_KEY",
+	},
 }
 local default_target_language = "简体中文"
 local default_chinese_target_language = "英文"
@@ -132,10 +142,14 @@ local menu_options = {
 	provider_order = {
 		"ollama",
 		"openai_compatible",
+		"gemini",
+		"anthropic",
 	},
 	provider_labels = {
 		ollama = "Ollama",
 		openai_compatible = "OpenAI 兼容",
+		gemini = "Gemini",
+		anthropic = "Anthropic",
 	},
 	translation_direction_labels = {
 		auto = "自动双向",
@@ -418,7 +432,7 @@ function config_utils.sanitize_model_service_overrides(overrides)
 
 	local provider_name = string.lower(trim(tostring(overrides.provider or "")))
 
-	if provider_name == "ollama" or provider_name == "openai_compatible" then
+	if menu_options.provider_labels[provider_name] ~= nil then
 		sanitized.provider = provider_name
 	end
 
@@ -448,17 +462,19 @@ function config_utils.sanitize_model_service_overrides(overrides)
 		end
 	end
 
-	if type(overrides.openai_compatible) == "table" then
-		local openai_compatible = {}
+	for _, provider_key in ipairs({ "openai_compatible", "gemini", "anthropic" }) do
+		if type(overrides[provider_key]) == "table" then
+			local provider_settings = {}
 
-		for _, field in ipairs({ "api_url", "model", "api_key_env", "api_key" }) do
-			if type(overrides.openai_compatible[field]) == "string" then
-				openai_compatible[field] = tostring(overrides.openai_compatible[field])
+			for _, field in ipairs({ "api_url", "model", "api_key_env", "api_key" }) do
+				if type(overrides[provider_key][field]) == "string" then
+					provider_settings[field] = tostring(overrides[provider_key][field])
+				end
 			end
-		end
 
-		if table_is_empty(openai_compatible) ~= true then
-			sanitized.openai_compatible = openai_compatible
+			if table_is_empty(provider_settings) ~= true then
+				sanitized[provider_key] = provider_settings
+			end
 		end
 	end
 
@@ -976,7 +992,7 @@ local function provider()
 	local config = config_utils.model_service_config()
 	local provider_name = string.lower(trim(tostring(config.provider or default_model_service.provider)))
 
-	if provider_name == "ollama" or provider_name == "openai_compatible" then
+	if menu_options.provider_labels[provider_name] ~= nil then
 		return provider_name
 	end
 
@@ -997,7 +1013,7 @@ end
 local function api_url()
 	local provider_name = provider()
 	local config = config_utils.provider_config(provider_name)
-	local default_url = provider_name == "ollama" and default_model_service.ollama.api_url
+	local default_url = type(default_model_service[provider_name]) == "table" and default_model_service[provider_name].api_url
 		or default_model_service.openai_compatible.api_url
 	local url = trim(tostring(config.api_url or default_url))
 
@@ -1011,7 +1027,7 @@ end
 local function api_model()
 	local provider_name = provider()
 	local config = config_utils.provider_config(provider_name)
-	local default_value = provider_name == "ollama" and default_model_service.ollama.model
+	local default_value = type(default_model_service[provider_name]) == "table" and default_model_service[provider_name].model
 		or default_model_service.openai_compatible.model
 	local model = trim(tostring(config.model or default_value))
 
@@ -1027,7 +1043,7 @@ local function resolved_api_mode()
 		return "ollama_native"
 	end
 
-	return "openai_compatible"
+	return provider()
 end
 
 local function disable_thinking()
@@ -1046,25 +1062,56 @@ end
 
 local function resolved_request_url()
 	local url = api_url()
+	local provider_name = provider()
 
-	if resolved_api_mode() ~= "ollama_native" then
-		return url
-	end
-
-	if string.lower(url):find("/v1/chat/completions", 1, true) ~= nil then
+	if provider_name == "ollama" and string.lower(url):find("/v1/chat/completions", 1, true) ~= nil then
 		return (url:gsub("/v1/chat/completions$", "/api/chat"))
 	end
 
-	return url
+	if provider_name ~= "gemini" then
+		return url
+	end
+
+	local normalized = trim(url):gsub("/+$", "")
+
+	if normalized:find("{model}", 1, true) ~= nil then
+		return normalized:gsub("{model}", api_model())
+	end
+
+	if normalized:find(":generateContent", 1, true) ~= nil then
+		return normalized
+	end
+
+	if normalized:match("/models$") ~= nil then
+		return normalized .. "/" .. api_model() .. ":generateContent"
+	end
+
+	if normalized:match("/models/[^/]+$") ~= nil then
+		return normalized .. ":generateContent"
+	end
+
+	return normalized
 end
 
 local function api_key_env_name()
-	local config = config_utils.provider_config("openai_compatible")
-	return trim(tostring(config.api_key_env or default_model_service.openai_compatible.api_key_env))
+	local provider_name = provider()
+
+	if provider_name == "ollama" then
+		return ""
+	end
+
+	local config = config_utils.provider_config(provider_name)
+	local defaults = type(default_model_service[provider_name]) == "table" and default_model_service[provider_name] or {}
+
+	return trim(tostring(config.api_key_env or defaults.api_key_env or ""))
 end
 
-function config_utils.openai_compatible_api_key()
-	local config = config_utils.provider_config("openai_compatible")
+function config_utils.provider_api_key(provider_name)
+	if provider_name == "ollama" then
+		return ""
+	end
+
+	local config = config_utils.provider_config(provider_name)
 	local configured = trim(tostring(config.api_key or ""))
 
 	if configured ~= "" then
@@ -1081,11 +1128,7 @@ function config_utils.openai_compatible_api_key()
 end
 
 local function api_key()
-	if provider() ~= "openai_compatible" then
-		return ""
-	end
-
-	return config_utils.openai_compatible_api_key()
+	return config_utils.provider_api_key(provider())
 end
 
 local function model_keep_alive()
@@ -2128,6 +2171,60 @@ local function extract_translation(response)
 		return sanitize_selected_text(response.response)
 	end
 
+	if provider() == "gemini" then
+		local candidates = response.candidates
+
+		if type(candidates) ~= "table" or type(candidates[1]) ~= "table" then
+			return nil
+		end
+
+		local parts = candidates[1].content and candidates[1].content.parts
+
+		if type(parts) ~= "table" then
+			return nil
+		end
+
+		local texts = {}
+
+		for _, part in ipairs(parts) do
+			local text = type(part) == "table" and sanitize_selected_text(part.text) or sanitize_selected_text(part)
+
+			if text ~= nil then
+				table.insert(texts, text)
+			end
+		end
+
+		if #texts > 0 then
+			return table.concat(texts, "\n")
+		end
+
+		return nil
+	end
+
+	if provider() == "anthropic" then
+		local content = response.content
+
+		if type(content) ~= "table" then
+			return nil
+		end
+
+		local texts = {}
+
+		for _, block in ipairs(content) do
+			local text = type(block) == "table" and sanitize_selected_text(block.text) or sanitize_selected_text(block)
+
+			if text ~= nil then
+				table.insert(texts, text)
+			end
+		end
+
+		if #texts > 0 then
+			return table.concat(texts, "\n")
+		end
+
+		return nil
+	end
+
 	local choices = response.choices
 
 	if type(choices) ~= "table" or type(choices[1]) ~= "table" then
@@ -2172,6 +2269,30 @@ local function extract_translation(response)
 	return sanitize_selected_text(first_choice.text)
 end
 
+function config_utils.build_request_headers(provider_name, key)
+	local headers = {
+		["Content-Type"] = "application/json",
+	}
+
+	if provider_name == "openai_compatible" and key ~= "" then
+		headers["Authorization"] = "Bearer " .. key
+	end
+
+	if provider_name == "gemini" and key ~= "" then
+		headers["x-goog-api-key"] = key
+	end
+
+	if provider_name == "anthropic" then
+		headers["anthropic-version"] = "2023-06-01"
+
+		if key ~= "" then
+			headers["x-api-key"] = key
+		end
+	end
+
+	return headers
+end
+
 local function show_request_error(message)
 	finish_request()
 	hs.alert.show(message)
@@ -2200,6 +2321,7 @@ local function apply_ollama_request_options(payload)
 end
 
 local function build_translation_payload(text)
+	local provider_name = provider()
 	local payload = {
 		model = api_model(),
 		messages = {
@@ -2214,8 +2336,44 @@ local function build_translation_payload(text)
 		},
 	}
 
-	if resolved_api_mode() == "ollama_native" then
+	if provider_name == "ollama" then
 		return apply_ollama_request_options(payload)
+	end
+
+	if provider_name == "gemini" then
+		return {
+			systemInstruction = {
+				parts = {
+					{ text = system_prompt(text) },
+				},
+			},
+			contents = {
+				{
+					role = "user",
+					parts = {
+						{ text = text },
+					},
+				},
+			},
+			generationConfig = {
+				temperature = 0.2,
+			},
+		}
+	end
+
+	if provider_name == "anthropic" then
+		return {
+			model = api_model(),
+			system = system_prompt(text),
+			messages = {
+				{
+					role = "user",
+					content = text,
+				},
+			},
+			max_tokens = 1024,
+			temperature = 0.2,
+		}
 	end
 
 	payload.temperature = 0.2
@@ -2257,14 +2415,8 @@ local function warmup_model()
 		return
 	end
 
-	local headers = {
-		["Content-Type"] = "application/json",
-	}
 	local key = api_key()
-
-	if key ~= "" then
-		headers["Authorization"] = "Bearer " .. key
-	end
+	local headers = config_utils.build_request_headers(provider(), key)
 
 	pcall(function()
 		hs.http.asyncPost(resolved_request_url(), encoded_payload, headers, function()
@@ -2331,13 +2483,7 @@ local function request_translation(text, anchor_bounds)
 		end
 	end)
 
-	local headers = {
-		["Content-Type"] = "application/json",
-	}
-
-	if resolved_api_mode() ~= "ollama_native" or key ~= "" then
-		headers["Authorization"] = "Bearer " .. key
-	end
+	local headers = config_utils.build_request_headers(provider(), key)
 
 	local ok, request_error = pcall(function()
 		hs.http.asyncPost(resolved_request_url(), encoded_payload, headers, function(status, body, _)
@@ -2546,11 +2692,17 @@ local function provider_label(provider_name)
 end
 
 local function api_key_source_label()
-	local config = config_utils.provider_config("openai_compatible")
+	local provider_name = provider()
+
+	if provider_name == "ollama" then
+		return "不需要"
+	end
+
+	local config = config_utils.provider_config(provider_name)
 	local configured = trim(tostring(config.api_key or ""))
 
 	if configured ~= "" then
-		if config_utils.path_exists(runtime_overrides, { "model_service", "openai_compatible", "api_key" }) == true then
+		if config_utils.path_exists(runtime_overrides, { "model_service", provider_name, "api_key" }) == true then
 			return "菜单已保存"
 		end
 
@@ -2918,10 +3070,17 @@ local function prompt_model_configuration()
 end
 
 local function prompt_api_key_configuration()
+	local provider_name = provider()
+
+	if provider_name == "ollama" then
+		hs.alert.show("当前模型服务不需要 API Key")
+		return
+	end
+
 	local value = prompt_text(
-		"设置 OpenAI 兼容 API Key",
+		"设置 " .. provider_label(provider_name) .. " API Key",
 		"将保存到 hs.settings，重启 Hammerspoon 或电脑后仍可继续使用。\n留空表示清除菜单中保存的 API Key，并回退到配置文件或环境变量。",
-		tostring(config_utils.get_path_value(current_config(), { "model_service", "openai_compatible", "api_key" }) or "")
+		tostring(config_utils.get_path_value(current_config(), { "model_service", provider_name, "api_key" }) or "")
 	)
 
 	if value == nil then
@@ -2931,13 +3090,13 @@ local function prompt_api_key_configuration()
 	local key = trim(value)
 
 	if key == "" then
-		clear_runtime_override({ "model_service", "openai_compatible", "api_key" })
+		clear_runtime_override({ "model_service", provider_name, "api_key" })
 		refresh_menubar()
 		hs.alert.show("已清除菜单中保存的 API Key")
 		return
 	end
 
-	set_runtime_override({ "model_service", "openai_compatible", "api_key" }, key)
+	set_runtime_override({ "model_service", provider_name, "api_key" }, key)
 	refresh_menubar()
 	hs.alert.show("API Key 已保存")
 end
@@ -3250,14 +3409,16 @@ local function build_api_key_menu()
 	return {
 		{ title = "当前来源: " .. api_key_source_label(), disabled = true },
 		{
-			title = "设置 OpenAI 兼容 API Key...",
+			title = "设置当前提供方 API Key...",
+			disabled = provider() == "ollama",
 			fn = prompt_api_key_configuration,
 		},
 		{
 			title = "清除菜单中保存的 API Key",
-			disabled = config_utils.path_exists(runtime_overrides, { "model_service", "openai_compatible", "api_key" }) ~= true,
+			disabled = provider() == "ollama"
+				or config_utils.path_exists(runtime_overrides, { "model_service", provider(), "api_key" }) ~= true,
 			fn = function()
-				clear_runtime_override({ "model_service", "openai_compatible", "api_key" })
+				clear_runtime_override({ "model_service", provider(), "api_key" })
 				refresh_menubar()
 				hs.alert.show("已清除菜单中保存的 API Key")
 			end,
@@ -3270,7 +3431,7 @@ local function build_api_settings_menu()
 		{ title = "提供方: " .. provider_label(), disabled = true },
 		{ title = "模型: " .. api_model(), disabled = true },
 		{ title = "地址: " .. api_url(), disabled = true },
-		{ title = "OpenAI API Key: " .. api_key_source_label(), disabled = true },
+		{ title = "API Key: " .. api_key_source_label(), disabled = true },
 		{ title = "-" },
 		{
 			title = "提供方",
@@ -3303,7 +3464,7 @@ local function build_api_settings_menu()
 			menu = build_request_timeout_menu(),
 		},
 		{
-			title = "OpenAI API Key",
+			title = "API Key",
 			menu = build_api_key_menu(),
 		},
 	}
