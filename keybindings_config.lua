@@ -309,6 +309,8 @@ _M.clipboard = {
 	chooser_rows = 12,
 	-- chooser 宽度，单位是屏幕宽度的百分比
 	chooser_width = 40,
+	-- 选择历史条目后是否自动执行一次 Command+V
+	auto_paste = false,
 	-- NOTE: message 的值建议保持英文，避免快捷键面板错位
 	prefix = { "Option", "Shift" },
 	key = "C",

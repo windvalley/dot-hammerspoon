@@ -133,6 +133,7 @@ _M.clipboard = {
 	image_menu_thumbnail_size = 80,
 	chooser_rows = 12,
 	chooser_width = 40,
+	auto_paste = false,
 	prefix = { "Option", "Shift" },
 	key = "C",
 	message = "Clipboard Center",
@@ -154,6 +155,8 @@ When the menubar menu is open, the first nine recent history items can also be r
 `menu_history_size` controls how many recent history items are shown directly in the menubar menu. You can also change it at runtime from the menubar via `最近历史显示数量`, and the override will be persisted via `hs.settings`.
 
 The menubar menu can also update the Clipboard Center hotkey at runtime. The override is persisted via `hs.settings`, and you can restore the file-configured hotkey from the same menu.
+
+The menubar menu also provides an `自动粘贴` toggle. It is off by default; when enabled, selecting a clipboard history item will restore it and then immediately send <kbd>⌘</kbd> + <kbd>V</kbd> to the previously focused app. The runtime override is also persisted via `hs.settings`.
 
 `chooser_rows` controls how many rows are shown in the chooser, and `chooser_width` controls the chooser width as a percentage of the current screen width.
 

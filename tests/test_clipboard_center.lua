@@ -39,19 +39,22 @@ end
 function _M.run()
 	reset_modules()
 
-		local recorded = {
-			alerts = {},
-			hotkey_bindings = {},
-			prompt_values = { "control+shift", "x" },
-			settings_store = {
+	local recorded = {
+		alerts = {},
+		hotkey_bindings = {},
+		auto_paste_keystrokes = {},
+		do_after_delays = {},
+		frontmost_app_activations = 0,
+		prompt_values = { "control+shift", "x" },
+		settings_store = {
 			["clipboard_center.hotkey.modifiers"] = { "cmd" },
 			["clipboard_center.hotkey.key"] = "v",
 		},
-			watcher_start_count = 0,
-			watcher_new_count = 0,
-			deleted_binding_count = 0,
-			query_set_calls = 0,
-			chooser = nil,
+		watcher_start_count = 0,
+		watcher_new_count = 0,
+		deleted_binding_count = 0,
+		query_set_calls = 0,
+		chooser = nil,
 	}
 	local current_clipboard_text = "seed clipboard text"
 
@@ -81,9 +84,30 @@ function _M.run()
 			absoluteTime = function()
 				return 42
 			end,
+			doAfter = function(delay, fn)
+				table.insert(recorded.do_after_delays, delay)
+
+				if fn ~= nil then
+					fn()
+				end
+
+				return {
+					stop = function() end,
+				}
+			end,
 			doEvery = function()
 				return {
 					stop = function() end,
+				}
+			end,
+		},
+		application = {
+			frontmostApplication = function()
+				return {
+					activate = function()
+						recorded.frontmost_app_activations = recorded.frontmost_app_activations + 1
+						return true
+					end,
 				}
 			end,
 		},
@@ -107,7 +131,7 @@ function _M.run()
 			end,
 		},
 		chooser = {
-			new = function()
+			new = function(choice_callback)
 				local state = {
 					visible = false,
 					query = nil,
@@ -117,6 +141,7 @@ function _M.run()
 					hide_callback = nil,
 					query_changed_callback = nil,
 					right_click_callback = nil,
+					choice_callback = choice_callback,
 				}
 
 				local chooser = {}
@@ -188,6 +213,11 @@ function _M.run()
 				end
 				function chooser.selectedRowContents(_, row)
 					return state.choices[row or state.selected_row]
+				end
+				function chooser.selectChoice(_, choice)
+					if state.choice_callback ~= nil then
+						state.choice_callback(choice)
+					end
 				end
 
 				recorded.chooser = chooser
@@ -292,6 +322,15 @@ function _M.run()
 		host = {
 			interfaceStyle = function()
 				return "Light"
+			end,
+		},
+		eventtap = {
+			keyStroke = function(modifiers, key, delay)
+				table.insert(recorded.auto_paste_keystrokes, {
+					modifiers = modifiers,
+					key = key,
+					delay = delay,
+				})
 			end,
 		},
 		alert = {
@@ -450,14 +489,15 @@ function _M.run()
 		end,
 	}
 
-		local clipboard_center = require("clipboard_center")
+	local clipboard_center = require("clipboard_center")
 
-		assert_true(clipboard_center.start(), "clipboard_center.start() should succeed")
-		assert_equal(recorded.watcher_new_count, 1, "clipboard watcher should be created on first module start")
-		assert_equal(recorded.watcher_start_count, 0, "new clipboard watchers should not be started twice")
-		assert_equal(recorded.hotkey_bindings[1].key, "v", "persisted hotkey should be used during startup")
-		assert_contains(recorded.menubar_tooltip, "快捷键: cmd+v", "tooltip should include persisted hotkey")
-		assert_equal(recorded.settings_store["clipboard_center.history"][1].content, "seed clipboard text", "startup should sync current clipboard")
+	assert_true(clipboard_center.start(), "clipboard_center.start() should succeed")
+	assert_equal(recorded.watcher_new_count, 1, "clipboard watcher should be created on first module start")
+	assert_equal(recorded.watcher_start_count, 0, "new clipboard watchers should not be started twice")
+	assert_equal(recorded.hotkey_bindings[1].key, "v", "persisted hotkey should be used during startup")
+	assert_contains(recorded.menubar_tooltip, "快捷键: cmd+v", "tooltip should include persisted hotkey")
+	assert_contains(recorded.menubar_tooltip, "自动粘贴: 关闭", "tooltip should include default auto paste state")
+	assert_equal(recorded.settings_store["clipboard_center.history"][1].content, "seed clipboard text", "startup should sync current clipboard")
 
 	clipboard_center.show_chooser()
 	recorded.query_set_calls = 0
@@ -465,9 +505,18 @@ function _M.run()
 	assert_equal(recorded.query_set_calls, 1, "query changes should not recursively reapply the same search text")
 
 	local menu = recorded.menu_builder()
+	local auto_paste_item = find_menu_item(menu, "自动粘贴")
 	local set_hotkey_item = find_menu_item(menu, "设置快捷键")
 
+	assert_true(auto_paste_item ~= nil, "menubar menu should expose auto paste toggle")
+	assert_equal(auto_paste_item.checked, false, "auto paste should be disabled by default")
 	assert_true(set_hotkey_item ~= nil, "menubar menu should expose hotkey settings")
+	auto_paste_item.fn()
+	assert_equal(recorded.settings_store["clipboard_center.auto_paste"], true, "enabled auto paste should persist")
+	menu = recorded.menu_builder()
+	auto_paste_item = find_menu_item(menu, "自动粘贴")
+	assert_equal(auto_paste_item.checked, true, "enabled auto paste should be reflected in menu state")
+
 	set_hotkey_item.fn()
 
 	assert_equal(recorded.hotkey_bindings[#recorded.hotkey_bindings].key, "x", "updated hotkey should be rebound")
@@ -478,16 +527,23 @@ function _M.run()
 		"updated modifiers should persist"
 	)
 	assert_true(recorded.deleted_binding_count >= 1, "previous hotkey binding should be deleted before rebinding")
+	recorded.chooser:selectChoice(recorded.chooser:choices()[1])
+	assert_equal(#recorded.auto_paste_keystrokes, 1, "enabled auto paste should send a paste shortcut after selecting history")
+	assert_equal(recorded.auto_paste_keystrokes[1].key, "v", "auto paste should use the v key")
+	assert_equal(table.concat(recorded.auto_paste_keystrokes[1].modifiers, ","), "cmd", "auto paste should use Command+V")
+	assert_true(recorded.frontmost_app_activations >= 1, "auto paste should reactivate the previous app before pasting")
+	assert_true(#recorded.do_after_delays >= 1, "auto paste should schedule the paste after chooser selection")
+	assert_equal(recorded.settings_store["clipboard_center.history"][1].content, "seed clipboard text", "restoring history should keep the selected entry at the front")
 
-		clipboard_center.stop()
-		current_clipboard_text = "second clipboard text"
-		recorded.settings_store["clipboard_center.history"] = nil
-		assert_true(clipboard_center.start(), "clipboard_center.start() should support restart after stop")
-		assert_equal(recorded.watcher_new_count, 1, "clipboard watcher should be reused after stop/start")
-		assert_equal(recorded.watcher_start_count, 1, "stopped clipboard watcher should restart on the next start")
-		assert_equal(
-			recorded.settings_store["clipboard_center.history"][1].content,
-			"second clipboard text",
+	clipboard_center.stop()
+	current_clipboard_text = "second clipboard text"
+	recorded.settings_store["clipboard_center.history"] = nil
+	assert_true(clipboard_center.start(), "clipboard_center.start() should support restart after stop")
+	assert_equal(recorded.watcher_new_count, 1, "clipboard watcher should be reused after stop/start")
+	assert_equal(recorded.watcher_start_count, 1, "stopped clipboard watcher should restart on the next start")
+	assert_equal(
+		recorded.settings_store["clipboard_center.history"][1].content,
+		"second clipboard text",
 		"restart should resync current clipboard instead of reusing stale in-memory history"
 	)
 

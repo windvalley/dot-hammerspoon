@@ -39,12 +39,12 @@ _M.description = "剪贴板历史"
 -- [Chooser 面板] L900-1200
 --   hs.chooser 实现的搜索/选择界面
 --   支持行内图片缩略图
---   选中后自动粘贴到前台应用
+--   选中后可选自动粘贴到前台应用
 --
 -- [菜单栏] L1200-1700
 --   矢量图标绘制（剪贴板图标）
 --   右键菜单：最近记录（可配置条数）、清空历史、快捷键设置
---   支持运行时修改快捷键并持久化
+--   支持运行时修改快捷键和自动粘贴开关，并持久化
 --
 -- [公共 API 与生命周期] L1700-2010
 --   _M.start() / _M.stop() 模块生命周期
@@ -54,7 +54,7 @@ _M.description = "剪贴板历史"
 -- 关键设计决策：
 -- 1. 图片以文件路径形式存储在 history 中，实际文件缓存在 Library/Caches
 -- 2. chooser 和 preview 面板位置根据当前屏幕动态计算
--- 3. 支持运行时通过菜单栏修改快捷键，修改后持久化到 hs.settings
+-- 3. 支持运行时通过菜单栏修改快捷键与自动粘贴开关，修改后持久化到 hs.settings
 -------------------------------------------------------------------------------
 
 local clipboard = require("keybindings_config").clipboard or {}
@@ -78,10 +78,12 @@ local history_settings_key = "clipboard_center.history"
 local menu_history_size_settings_key = "clipboard_center.menu_history_size"
 local hotkey_modifiers_settings_key = "clipboard_center.hotkey.modifiers"
 local hotkey_key_settings_key = "clipboard_center.hotkey.key"
+local auto_paste_settings_key = "clipboard_center.auto_paste"
 local default_history_size = math.max(10, math.floor(tonumber(clipboard.history_size) or 80))
 local default_menu_history_size = math.max(1, math.floor(tonumber(clipboard.menu_history_size) or 12))
 local default_max_item_length = math.max(200, math.floor(tonumber(clipboard.max_item_length) or 30000))
 local default_capture_images = clipboard.capture_images ~= false
+local default_auto_paste = clipboard.auto_paste == true
 local chooser_inline_thumbnail_size = 28
 local default_menu_thumbnail_size = math.max(14, math.floor(tonumber(clipboard.image_menu_thumbnail_size) or 18))
 local preview_enabled_config = clipboard.preview_enabled
@@ -125,6 +127,7 @@ local menu_history_shortcut_limit = 9
 local chooser_row_height = 40
 local chooser_row_spacing = 2
 local chooser_window_chrome_height = 94
+local auto_paste_delay_seconds = 0.12
 local started = false
 local history_loaded = false
 local startup_synchronized = false
@@ -133,6 +136,7 @@ local state = {
 	show_menubar = clipboard.show_menubar ~= false,
 	history = {},
 	menu_history_size = default_menu_history_size,
+	auto_paste = default_auto_paste,
 	watcher = nil,
 	chooser = nil,
 	menubar = nil,
@@ -147,6 +151,7 @@ local state = {
 	suppressed_at = nil,
 	capture_suspended_until = nil,
 	menubar_icon = nil,
+	target_application = nil,
 }
 
 local function current_absolute_time()
@@ -636,6 +641,15 @@ local function persist_menu_history_size()
 	hs.settings.set(menu_history_size_settings_key, state.menu_history_size)
 end
 
+local function persist_auto_paste_state()
+	if state.auto_paste == default_auto_paste then
+		hs.settings.clear(auto_paste_settings_key)
+		return
+	end
+
+	hs.settings.set(auto_paste_settings_key, state.auto_paste == true)
+end
+
 local function persist_hotkey_state()
 	if same_list(state.hotkey_modifiers, default_hotkey_modifiers) and state.hotkey_key == default_hotkey_key then
 		hs.settings.clear(hotkey_modifiers_settings_key)
@@ -691,6 +705,34 @@ local function set_menu_history_size(value, options)
 
 	if options.show_alert ~= false then
 		hs.alert.show(string.format("菜单显示数量已更新为 %d", normalized))
+	end
+
+	return true
+end
+
+local function set_auto_paste(enabled, options)
+	options = options or {}
+
+	local normalized = enabled == true
+
+	if state.auto_paste == normalized then
+		persist_auto_paste_state()
+		return true
+	end
+
+	state.auto_paste = normalized
+	persist_auto_paste_state()
+
+	if refresh_menubar ~= nil then
+		refresh_menubar()
+	end
+
+	if options.show_alert ~= false then
+		if normalized == true then
+			hs.alert.show("已开启自动粘贴")
+		else
+			hs.alert.show("已关闭自动粘贴")
+		end
 	end
 
 	return true
@@ -768,11 +810,12 @@ local function tooltip_text(hotkey_label)
 	local text_count, image_count = history_counts()
 
 	return string.format(
-		"剪贴板中心\n历史条数: %d (文本 %d / 图片 %d)\n快捷键: %s",
+		"剪贴板中心\n历史条数: %d (文本 %d / 图片 %d)\n快捷键: %s\n自动粘贴: %s",
 		#state.history,
 		text_count,
 		image_count,
-		hotkey_label
+		hotkey_label,
+		state.auto_paste == true and "开启" or "关闭"
 	)
 end
 
@@ -1419,6 +1462,46 @@ local function set_clipboard_item(item)
 	return true
 end
 
+local function current_frontmost_application()
+	if type(hs.application) ~= "table" or type(hs.application.frontmostApplication) ~= "function" then
+		return nil
+	end
+
+	local ok, application = pcall(hs.application.frontmostApplication)
+
+	if ok ~= true then
+		return nil
+	end
+
+	return application
+end
+
+local function schedule_auto_paste()
+	if state.auto_paste ~= true then
+		return "disabled"
+	end
+
+	if type(hs.eventtap) ~= "table" or type(hs.eventtap.keyStroke) ~= "function" then
+		return "unsupported"
+	end
+
+	if type(hs.timer) ~= "table" or type(hs.timer.doAfter) ~= "function" then
+		return "unsupported"
+	end
+
+	local target_application = state.target_application or current_frontmost_application()
+
+	hs.timer.doAfter(auto_paste_delay_seconds, function()
+		if target_application ~= nil and type(target_application.activate) == "function" then
+			pcall(target_application.activate, target_application)
+		end
+
+		hs.eventtap.keyStroke({ "cmd" }, "v", 0)
+	end)
+
+	return "scheduled"
+end
+
 local function activate_choice(choice)
 	local item = choice_to_history_item(choice)
 
@@ -1431,11 +1514,24 @@ local function activate_choice(choice)
 	end
 
 	add_history_item(item, choice.source or "chooser select")
+	local auto_paste_status = schedule_auto_paste()
 
 	if item.kind == "image" then
-		hs.alert.show("已恢复图片到剪贴板")
+		if auto_paste_status == "scheduled" then
+			hs.alert.show("已恢复图片并自动粘贴")
+		elseif auto_paste_status == "unsupported" then
+			hs.alert.show("已恢复图片到剪贴板，当前环境不支持自动粘贴")
+		else
+			hs.alert.show("已恢复图片到剪贴板")
+		end
 	else
-		hs.alert.show("已恢复历史剪贴板内容")
+		if auto_paste_status == "scheduled" then
+			hs.alert.show("已恢复并自动粘贴")
+		elseif auto_paste_status == "unsupported" then
+			hs.alert.show("已恢复历史剪贴板内容，当前环境不支持自动粘贴")
+		else
+			hs.alert.show("已恢复历史剪贴板内容")
+		end
 	end
 end
 
@@ -1925,6 +2021,7 @@ show_chooser = function()
 		return
 	end
 
+	state.target_application = current_frontmost_application()
 	state.chooser_screen_frame = resolve_target_screen_frame()
 
 	state.chooser:choices(build_chooser_choices())
@@ -1974,6 +2071,8 @@ refresh_menubar = function()
 
 	state.menubar:setTooltip(tooltip_text(hotkey_label))
 	state.menubar:setMenu(function()
+		state.target_application = current_frontmost_application()
+
 		local menu = {
 			{ title = "剪贴板中心", disabled = true },
 			{
@@ -1985,6 +2084,13 @@ refresh_menubar = function()
 			{
 				title = "打开 Chooser",
 				fn = show_chooser,
+			},
+			{
+				title = "自动粘贴",
+				checked = state.auto_paste == true,
+				fn = function()
+					set_auto_paste(state.auto_paste ~= true)
+				end,
 			},
 			{
 				title = "设置快捷键",
@@ -2241,6 +2347,20 @@ do
 	end
 end
 
+do
+	local persisted_auto_paste = hs.settings.get(auto_paste_settings_key)
+
+	if persisted_auto_paste ~= nil then
+		if type(persisted_auto_paste) ~= "boolean" then
+			log.w("ignore invalid persisted auto paste state: " .. tostring(persisted_auto_paste))
+			hs.settings.clear(auto_paste_settings_key)
+		else
+			state.auto_paste = persisted_auto_paste
+			persist_auto_paste_state()
+		end
+	end
+end
+
 function _M.start()
 	if clipboard.enabled == false then
 		log.i("clipboard center disabled by config")
@@ -2299,6 +2419,7 @@ function _M.stop()
 	state.suppressed_signature = nil
 	state.suppressed_at = nil
 	state.capture_suspended_until = nil
+	state.target_application = nil
 	history_loaded = false
 	startup_synchronized = false
 	started = false
