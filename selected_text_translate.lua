@@ -74,6 +74,15 @@ local popup_anchor_gap = 12
 local popup_body_top = 56
 local popup_divider_y = 46
 local popup_chrome_height = 74
+local popup_geometry = {
+	corner_radius = 16,
+	arrow_height = 8,
+	arrow_outer_half_width = 15,
+	arrow_inner_half_width = 9,
+	arrow_overlap = 4,
+	arrow_shoulder_offset = 2,
+	border_arc_segments = 5,
+}
 local popup_copy_button_size = 28
 local popup_copy_button_inset = 14
 local menu_options = {
@@ -1818,10 +1827,11 @@ local function resolve_popup_origin(screen_frame, width, height, anchor_bounds)
 	max_y = math.max(min_y, max_y)
 
 	if anchor_bounds ~= nil then
+		local anchor_gap = popup_anchor_gap + popup_geometry.arrow_height
 		local anchored_x = anchor_bounds.x + ((anchor_bounds.w - width) / 2)
-		local anchored_y = anchor_bounds.y - height - popup_anchor_gap
+		local anchored_y = anchor_bounds.y - height - anchor_gap
 		local placement = "above"
-		local below_y = anchor_bounds.y + anchor_bounds.h + popup_anchor_gap
+		local below_y = anchor_bounds.y + anchor_bounds.h + anchor_gap
 
 		if anchored_y < min_y and below_y <= max_y then
 			anchored_y = below_y
@@ -1880,15 +1890,15 @@ local function resolve_popup_layout(result, anchor_bounds)
 
 	if anchor_bounds ~= nil then
 		local anchor_center_x = anchor_bounds.x + (anchor_bounds.w / 2)
-		local arrow_edge_inset = 16 + math.ceil(20 / 2) + 6
+		local arrow_edge_inset = popup_geometry.corner_radius + popup_geometry.arrow_outer_half_width + 6
 		local max_arrow_x = math.max(arrow_edge_inset, width - arrow_edge_inset)
 
 		arrow_tip_x = math.floor(clamp_number(anchor_center_x - popup_origin.x, arrow_edge_inset, max_arrow_x) + 0.5)
-		canvas_height = height + 8
+		canvas_height = height + popup_geometry.arrow_height
 
 		if popup_origin.placement == "below" then
-			surface_y = 8
-			canvas_y = popup_origin.y - 8
+			surface_y = popup_geometry.arrow_height
+			canvas_y = popup_origin.y - popup_geometry.arrow_height
 		end
 	end
 
@@ -1928,6 +1938,174 @@ local function resolve_popup_level()
 	end
 
 	return nil
+end
+
+function config_utils.build_popup_arrow_elements(layout, theme)
+	if layout.arrow_tip_x == nil then
+		return nil, nil
+	end
+
+	local tip_y = 0.5
+	local shoulder_y = layout.surface_y - popup_geometry.arrow_shoulder_offset + 0.5
+	local hidden_y = layout.surface_y + popup_geometry.arrow_overlap - 0.5
+
+	if layout.placement ~= "below" then
+		local surface_bottom = layout.surface_y + layout.surface_h
+		tip_y = layout.h - 0.5
+		shoulder_y = surface_bottom + popup_geometry.arrow_shoulder_offset - 0.5
+		hidden_y = surface_bottom - popup_geometry.arrow_overlap + 0.5
+	end
+
+	local coordinates = {
+		{ x = layout.arrow_tip_x - popup_geometry.arrow_outer_half_width, y = hidden_y },
+		{ x = layout.arrow_tip_x - popup_geometry.arrow_inner_half_width, y = shoulder_y },
+		{ x = layout.arrow_tip_x, y = tip_y },
+		{ x = layout.arrow_tip_x + popup_geometry.arrow_inner_half_width, y = shoulder_y },
+		{ x = layout.arrow_tip_x + popup_geometry.arrow_outer_half_width, y = hidden_y },
+	}
+
+	local shadow = {
+		id = "arrow_shadow",
+		type = "segments",
+		action = "fill",
+		closed = true,
+		fillColor = theme.background,
+		withShadow = true,
+		shadow = {
+			blurRadius = 20,
+			color = theme.shadow,
+			offset = {
+				h = 0,
+				w = 0,
+			},
+		},
+		coordinates = coordinates,
+	}
+	local fill = {
+		id = "arrow_fill",
+		type = "segments",
+		action = "fill",
+		closed = true,
+		fillColor = theme.background,
+		coordinates = coordinates,
+	}
+	return shadow, fill
+end
+
+function config_utils.append_arc_points(points, center_x, center_y, radius, start_angle, end_angle, segments)
+	local safe_segments = math.max(1, segments or popup_geometry.border_arc_segments)
+
+	for step = 1, safe_segments do
+		local progress = step / safe_segments
+		local angle = start_angle + ((end_angle - start_angle) * progress)
+		local radians = math.rad(angle)
+
+		table.insert(points, {
+			x = center_x + (math.cos(radians) * radius),
+			y = center_y + (math.sin(radians) * radius),
+		})
+	end
+end
+
+function config_utils.build_popup_border_coordinates(layout)
+	local left = 0.5
+	local top = layout.surface_y + 0.5
+	local right = layout.w - 0.5
+	local bottom = layout.surface_y + layout.surface_h - 0.5
+	local radius = math.max(0, popup_geometry.corner_radius - 0.5)
+	local points = {
+		{ x = left + radius, y = top },
+	}
+
+	if layout.arrow_tip_x ~= nil and layout.placement == "below" then
+		table.insert(points, {
+			x = layout.arrow_tip_x - popup_geometry.arrow_outer_half_width,
+			y = top,
+		})
+		table.insert(points, {
+			x = layout.arrow_tip_x - popup_geometry.arrow_inner_half_width,
+			y = top - popup_geometry.arrow_shoulder_offset,
+		})
+		table.insert(points, {
+			x = layout.arrow_tip_x,
+			y = top - popup_geometry.arrow_height,
+		})
+		table.insert(points, {
+			x = layout.arrow_tip_x + popup_geometry.arrow_inner_half_width,
+			y = top - popup_geometry.arrow_shoulder_offset,
+		})
+		table.insert(points, {
+			x = layout.arrow_tip_x + popup_geometry.arrow_outer_half_width,
+			y = top,
+		})
+	end
+
+	table.insert(points, { x = right - radius, y = top })
+	config_utils.append_arc_points(
+		points,
+		right - radius,
+		top + radius,
+		radius,
+		270,
+		360,
+		popup_geometry.border_arc_segments
+	)
+	table.insert(points, { x = right, y = bottom - radius })
+	config_utils.append_arc_points(
+		points,
+		right - radius,
+		bottom - radius,
+		radius,
+		0,
+		90,
+		popup_geometry.border_arc_segments
+	)
+
+	if layout.arrow_tip_x ~= nil and layout.placement ~= "below" then
+		table.insert(points, {
+			x = layout.arrow_tip_x + popup_geometry.arrow_outer_half_width,
+			y = bottom,
+		})
+		table.insert(points, {
+			x = layout.arrow_tip_x + popup_geometry.arrow_inner_half_width,
+			y = bottom + popup_geometry.arrow_shoulder_offset,
+		})
+		table.insert(points, {
+			x = layout.arrow_tip_x,
+			y = bottom + popup_geometry.arrow_height,
+		})
+		table.insert(points, {
+			x = layout.arrow_tip_x - popup_geometry.arrow_inner_half_width,
+			y = bottom + popup_geometry.arrow_shoulder_offset,
+		})
+		table.insert(points, {
+			x = layout.arrow_tip_x - popup_geometry.arrow_outer_half_width,
+			y = bottom,
+		})
+	end
+
+	table.insert(points, { x = left + radius, y = bottom })
+	config_utils.append_arc_points(
+		points,
+		left + radius,
+		bottom - radius,
+		radius,
+		90,
+		180,
+		popup_geometry.border_arc_segments
+	)
+	table.insert(points, { x = left, y = top + radius })
+	config_utils.append_arc_points(
+		points,
+		left + radius,
+		top + radius,
+		radius,
+		180,
+		270,
+		popup_geometry.border_arc_segments
+	)
+
+	return points
 end
 
 local function show_translation_popup(result, anchor_bounds)
@@ -1978,44 +2156,18 @@ local function show_translation_popup(result, anchor_bounds)
 	end
 
 	local theme = popup_theme_colors()
-	local arrow_fill = nil
-	local arrow_border = nil
-
-	if layout.arrow_tip_x ~= nil then
-		local half_width = 10
-		local base_y = layout.surface_y + 0.5
-		local tip_y = 0.5
-
-		if layout.placement ~= "below" then
-			base_y = layout.surface_y + layout.surface_h - 0.5
-			tip_y = layout.h - 0.5
-		end
-
-		local coordinates = {
-			{ x = layout.arrow_tip_x - half_width, y = base_y },
-			{ x = layout.arrow_tip_x, y = tip_y },
-			{ x = layout.arrow_tip_x + half_width, y = base_y },
-		}
-		arrow_fill = {
-			id = "arrow_fill",
-			type = "segments",
-			action = "fill",
-			closed = true,
-			fillColor = theme.background,
-			coordinates = coordinates,
-		}
-		arrow_border = {
-			id = "arrow_border",
-			type = "segments",
-			action = "stroke",
-			closed = false,
-			strokeColor = theme.border,
-			strokeWidth = 1,
-			strokeJoinStyle = "round",
-			strokeCapStyle = "round",
-			coordinates = coordinates,
-		}
-	end
+	local arrow_shadow, arrow_fill = config_utils.build_popup_arrow_elements(layout, theme)
+	local popup_border = {
+		id = "arrow_border",
+		type = "segments",
+		action = "stroke",
+		closed = true,
+		strokeColor = theme.border,
+		strokeWidth = 1,
+		strokeJoinStyle = "round",
+		strokeCapStyle = "round",
+		coordinates = config_utils.build_popup_border_coordinates(layout),
+	}
 
 	local copy_button_x = layout.w - popup_copy_button_size - popup_copy_button_inset
 	local copy_button_y = layout.surface_y + 10
@@ -2034,8 +2186,8 @@ local function show_translation_popup(result, anchor_bounds)
 
 	local elements = {}
 
-	if arrow_fill ~= nil then
-		table.insert(elements, arrow_fill)
+	if arrow_shadow ~= nil then
+		table.insert(elements, arrow_shadow)
 	end
 
 	table.insert(elements, {
@@ -2044,8 +2196,8 @@ local function show_translation_popup(result, anchor_bounds)
 		action = "fill",
 		fillColor = theme.background,
 		roundedRectRadii = {
-			xRadius = 16,
-			yRadius = 16,
+			xRadius = popup_geometry.corner_radius,
+			yRadius = popup_geometry.corner_radius,
 		},
 		withShadow = true,
 		shadow = {
@@ -2063,27 +2215,11 @@ local function show_translation_popup(result, anchor_bounds)
 			h = layout.surface_h,
 		},
 	})
-	table.insert(elements, {
-		id = "border",
-		type = "rectangle",
-		action = "stroke",
-		strokeColor = theme.border,
-		strokeWidth = 1,
-		roundedRectRadii = {
-			xRadius = 16,
-			yRadius = 16,
-		},
-		frame = {
-			x = 0.5,
-			y = layout.surface_y + 0.5,
-			w = layout.w - 1,
-			h = layout.surface_h - 1,
-		},
-	})
-
-	if arrow_border ~= nil then
-		table.insert(elements, arrow_border)
+	if arrow_fill ~= nil then
+		table.insert(elements, arrow_fill)
 	end
+
+	table.insert(elements, popup_border)
 
 	table.insert(elements, {
 		id = "title",
