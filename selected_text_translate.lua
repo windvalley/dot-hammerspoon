@@ -1379,6 +1379,15 @@ local function snapshot_clipboard()
 		return snapshot
 	end
 
+	if type(hs.pasteboard.readAllData) == "function" then
+		local ok, raw_data = pcall(hs.pasteboard.readAllData)
+
+		if ok == true and type(raw_data) == "table" then
+			snapshot.has_raw_data = true
+			snapshot.raw_data = raw_data
+		end
+	end
+
 	if type(hs.pasteboard.readImage) == "function" then
 		local ok, image = pcall(hs.pasteboard.readImage)
 
@@ -1404,6 +1413,14 @@ end
 local function restore_clipboard(snapshot)
 	if snapshot == nil or type(hs.pasteboard) ~= "table" then
 		return
+	end
+
+	if snapshot.has_raw_data == true and type(snapshot.raw_data) == "table" and type(hs.pasteboard.writeAllData) == "function" then
+		local ok, restored = pcall(hs.pasteboard.writeAllData, snapshot.raw_data)
+
+		if ok == true and restored == true then
+			return
+		end
 	end
 
 	if snapshot.kind == "image" and type(hs.pasteboard.writeObjects) == "function" then
