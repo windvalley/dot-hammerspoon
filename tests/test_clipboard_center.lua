@@ -293,8 +293,9 @@ function _M.run()
 		},
 		pasteboard = {
 				watcher = {
-					new = function()
+					new = function(callback)
 						recorded.watcher_new_count = recorded.watcher_new_count + 1
+						recorded.pasteboard_callback = callback
 						local running = true
 
 						return {
@@ -517,6 +518,11 @@ function _M.run()
 	assert_equal(recorded.settings_store["clipboard_center.history"][1].content, "seed clipboard text", "startup should sync current clipboard")
 
 	clipboard_center.show_chooser()
+	assert_equal(recorded.chooser:choices()[1].content, "seed clipboard text", "chooser should show synced startup history")
+	current_clipboard_text = "live clipboard text"
+	recorded.pasteboard_callback()
+	assert_equal(recorded.chooser:choices()[1].content, "live clipboard text", "visible chooser should refresh when clipboard history changes")
+	assert_equal(recorded.chooser:selectedRow(), 1, "visible chooser should keep the current selection after clipboard refresh")
 	recorded.query_set_calls = 0
 	recorded.chooser:query("seed")
 	assert_equal(recorded.query_set_calls, 1, "query changes should not recursively reapply the same search text")

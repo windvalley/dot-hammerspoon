@@ -741,10 +741,19 @@ end
 
 local function replace_history(next_history)
 	local previous_history = state.history
+	local selected_row = nil
+
+	if state.chooser ~= nil and type(state.chooser.selectedRow) == "function" then
+		selected_row = state.chooser:selectedRow() or 0
+	end
 
 	state.history = next_history or {}
 	persist_history()
 	cleanup_removed_image_files(previous_history, state.history)
+
+	if refresh_chooser_choices ~= nil and state.chooser ~= nil then
+		refresh_chooser_choices(true, selected_row)
+	end
 
 	if refresh_menubar ~= nil then
 		refresh_menubar()
