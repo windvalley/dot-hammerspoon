@@ -36,12 +36,20 @@ local function find_element(elements, id)
 end
 
 local function find_watcher(recorded, expected_event_type)
-	for _, watcher in ipairs(recorded.popup_watchers or {}) do
+	for index = #(recorded.popup_watchers or {}), 1, -1 do
+		local watcher = recorded.popup_watchers[index]
+
+		if watcher.stopped == true then
+			goto continue
+		end
+
 		for _, event_type in ipairs(watcher.event_types or {}) do
 			if event_type == expected_event_type then
 				return watcher
 			end
 		end
+
+		::continue::
 	end
 
 	return nil
@@ -347,6 +355,7 @@ local function create_eventtap_stub(recorded)
 				leftMouseDragged = 5,
 				rightMouseDragged = 6,
 				otherMouseDragged = 7,
+				keyDown = 8,
 			},
 		},
 		new = function(event_types, callback)
@@ -714,7 +723,7 @@ function _M.run()
 	)
 	assert_equal(direct_recorded.shown_canvases, 1, "translator should show one floating popup")
 	assert_equal(direct_recorded.canvas_levels[1], 17, "translator should use the modal panel window level for the popup")
-	assert_equal(direct_recorded.started_watchers, 2, "translator should start outside-click and hover watchers while the popup is visible")
+	assert_equal(direct_recorded.started_watchers, 3, "translator should start outside-click, hover, and escape watchers while the popup is visible")
 	assert_equal(direct_recorded.canvas_states[1].frame.x, 290, "translator should anchor the popup horizontally above the selection when bounds are available")
 	assert_equal(direct_recorded.canvas_states[1].frame.y, 148, "translator should leave room between the arrow tip and the selected text when bounds are available")
 	assert_equal(direct_recorded.canvas_states[1].frame.h, 140, "translator should extend the canvas to make room for the popup arrow")
@@ -771,7 +780,23 @@ function _M.run()
 
 	assert_equal(direct_recorded.hidden_canvases, 1, "outside clicks should hide the popup")
 	assert_equal(direct_recorded.deleted_canvases, 1, "outside clicks should delete the popup canvas")
-	assert_equal(direct_recorded.stopped_watchers, 2, "outside clicks should stop all popup watchers")
+	assert_equal(direct_recorded.stopped_watchers, 3, "outside clicks should stop all popup watchers")
+
+	direct_recorded.bound_handler()
+
+	assert_equal(direct_recorded.shown_canvases, 2, "translator should allow reopening the popup after it is closed")
+	assert_equal(direct_recorded.started_watchers, 6, "reopened popups should start a fresh set of popup watchers")
+	assert_true(
+		find_watcher(direct_recorded, 8).callback({
+			getKeyCode = function()
+				return 53
+			end,
+		}),
+		"pressing escape should be consumed when closing the popup"
+	)
+	assert_equal(direct_recorded.hidden_canvases, 2, "pressing escape should hide the popup")
+	assert_equal(direct_recorded.deleted_canvases, 2, "pressing escape should delete the popup canvas")
+	assert_equal(direct_recorded.stopped_watchers, 6, "pressing escape should stop all popup watchers")
 
 	local restored_menu = direct_recorded.menu_builder()
 	find_menu_item(restored_menu, "恢复默认").fn()
@@ -784,7 +809,7 @@ function _M.run()
 	)
 	assert_true(translator.stop(), "translator stop should succeed")
 	assert_equal(direct_recorded.deleted_bindings, 3, "translator stop should delete the active hotkey after menu rebinds")
-	assert_equal(direct_recorded.deleted_canvases, 1, "translator stop should not delete an already closed popup twice")
+	assert_equal(direct_recorded.deleted_canvases, 2, "translator stop should not delete an already closed popup twice")
 
 	reset_modules()
 
@@ -1823,14 +1848,14 @@ function _M.run()
 		"local Ollama native mode should not inject OpenAI-specific temperature defaults"
 	)
 	assert_equal(ollama_recorded.shown_canvases, 1, "local Ollama mode should show the floating popup")
-	assert_equal(ollama_recorded.started_watchers, 2, "local Ollama mode should start outside-click and hover watchers")
+	assert_equal(ollama_recorded.started_watchers, 3, "local Ollama mode should start outside-click, hover, and escape watchers")
 	assert_equal(ollama_recorded.canvas_states[1].frame.x, 540, "local Ollama mode should fall back to the mouse position when no selection bounds are available")
 	assert_equal(ollama_recorded.canvas_states[1].frame.y, 268, "local Ollama mode should keep the popup arrow away from the mouse anchor when no selection bounds are available")
 	assert_equal(find_element(ollama_recorded.canvas_states[1].elements, "body").text, "本地快速译文", "local Ollama mode should render the parsed translation in the popup")
 	assert_true(translator.stop(), "translator stop should succeed after local Ollama request")
 	assert_equal(ollama_recorded.hidden_canvases, 1, "translator stop should hide any active popup")
 	assert_equal(ollama_recorded.deleted_canvases, 1, "translator stop should clean up the active popup canvas")
-	assert_equal(ollama_recorded.stopped_watchers, 2, "translator stop should stop all popup watchers")
+	assert_equal(ollama_recorded.stopped_watchers, 3, "translator stop should stop all popup watchers")
 	assert_equal(ollama_recorded.deleted_bindings, 1, "translator stop should delete its hotkey binding in local Ollama mode")
 
 	reset_modules()

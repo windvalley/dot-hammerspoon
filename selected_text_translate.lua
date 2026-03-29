@@ -282,6 +282,7 @@ local state = {
 	popup_hide_timer = nil,
 	popup_click_watcher = nil,
 	popup_hover_watcher = nil,
+	popup_key_watcher = nil,
 	popup_hovered = false,
 	menubar = nil,
 	menubar_forced = false,
@@ -670,6 +671,8 @@ local function destroy_popup()
 	clear_popup_hide_timer()
 	clear_popup_click_watcher()
 	clear_popup_hover_watcher()
+	stop_timer(state.popup_key_watcher)
+	state.popup_key_watcher = nil
 	state.popup_frame = nil
 	state.popup_hovered = false
 
@@ -2330,6 +2333,49 @@ local function show_translation_popup(result, anchor_bounds)
 	state.popup_hovered = false
 	start_popup_click_watcher()
 	start_popup_hover_watcher()
+
+	if
+		type(hs.eventtap) == "table"
+		and type(hs.eventtap.new) == "function"
+		and type(hs.eventtap.event) == "table"
+		and type(hs.eventtap.event.types) == "table"
+		and hs.eventtap.event.types.keyDown ~= nil
+	then
+		local ok, watcher = pcall(hs.eventtap.new, { hs.eventtap.event.types.keyDown }, function(event)
+			if state.popup_canvas == nil or event == nil or type(event.getKeyCode) ~= "function" then
+				return false
+			end
+
+			local key_code = event:getKeyCode()
+			local key_name = nil
+
+			if type(hs.keycodes) == "table" and type(hs.keycodes.map) == "table" then
+				key_name = hs.keycodes.map[key_code]
+			end
+
+			if key_name ~= nil then
+				key_name = string.lower(tostring(key_name))
+			elseif tonumber(key_code) == 53 then
+				key_name = "escape"
+			end
+
+			if key_name ~= "escape" and key_name ~= "esc" then
+				return false
+			end
+
+			destroy_popup()
+			return true
+		end)
+
+		if ok == true and watcher ~= nil then
+			state.popup_key_watcher = watcher
+
+			if type(watcher.start) == "function" then
+				pcall(watcher.start, watcher)
+			end
+		end
+	end
+
 	refresh_popup_hover_state()
 	schedule_popup_auto_hide()
 
