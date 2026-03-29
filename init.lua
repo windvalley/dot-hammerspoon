@@ -179,7 +179,6 @@ hs.autoLaunch(true)
 hs.automaticallyCheckForUpdates(false)
 hs.consoleOnTop(false)
 hs.dockIcon(false)
-hs.menuIcon(true)
 hs.uploadCrashData(false)
 
 -- 每次按快捷键时显示快捷键alert消息持续的秒数, 0 为禁用.
