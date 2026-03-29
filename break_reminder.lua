@@ -2920,7 +2920,7 @@ refresh_menubar = function(force_refresh)
 	end
 
 	if menubar_item == nil then
-		menubar_item = hs.menubar.new()
+		menubar_item = hs.menubar.new(true, menubar_autosave_name)
 
 		if menubar_item == nil then
 			log.e("failed to create break reminder menubar item")

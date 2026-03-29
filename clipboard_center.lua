@@ -79,6 +79,7 @@ local menu_history_size_settings_key = "clipboard_center.menu_history_size"
 local hotkey_modifiers_settings_key = "clipboard_center.hotkey.modifiers"
 local hotkey_key_settings_key = "clipboard_center.hotkey.key"
 local auto_paste_settings_key = "clipboard_center.auto_paste"
+local menubar_autosave_name = "dot-hammerspoon.clipboard_center"
 local default_history_size = math.max(10, math.floor(tonumber(clipboard.history_size) or 80))
 local default_menu_history_size = math.max(1, math.floor(tonumber(clipboard.menu_history_size) or 12))
 local default_max_item_length = math.max(200, math.floor(tonumber(clipboard.max_item_length) or 30000))
@@ -2046,12 +2047,18 @@ refresh_menubar = function()
 	end
 
 	if state.menubar == nil then
-		state.menubar = hs.menubar.new()
+		state.menubar = hs.menubar.new(true, menubar_autosave_name)
 
 		if state.menubar == nil then
 			log.e("failed to create clipboard menubar item")
 			return
 		end
+	end
+
+	if type(state.menubar.autosaveName) == "function" then
+		pcall(function()
+			state.menubar:autosaveName(menubar_autosave_name)
+		end)
 	end
 
 	local display_modifiers = state.hotkey_modifiers

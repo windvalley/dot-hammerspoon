@@ -226,7 +226,10 @@ function _M.run()
 			end,
 		},
 		menubar = {
-			new = function()
+			new = function(in_menu_bar, autosave_name)
+				recorded.menubar_visible = in_menu_bar ~= false
+				recorded.menubar_constructor_autosave_name = autosave_name
+
 				return {
 					setIcon = function() end,
 					setTitle = function(_, title)
@@ -237,6 +240,9 @@ function _M.run()
 					end,
 					setMenu = function(_, builder)
 						recorded.menu_builder = builder
+					end,
+					autosaveName = function(_, name)
+						recorded.menubar_autosave_name = name
 					end,
 					delete = function()
 						recorded.menubar_deleted = true
@@ -495,6 +501,17 @@ function _M.run()
 	assert_equal(recorded.watcher_new_count, 1, "clipboard watcher should be created on first module start")
 	assert_equal(recorded.watcher_start_count, 0, "new clipboard watchers should not be started twice")
 	assert_equal(recorded.hotkey_bindings[1].key, "v", "persisted hotkey should be used during startup")
+	assert_true(recorded.menubar_visible == true, "clipboard menubar should be created in the visible menu bar")
+	assert_equal(
+		recorded.menubar_constructor_autosave_name,
+		"dot-hammerspoon.clipboard_center",
+		"clipboard menubar should pass a stable autosave name at creation time"
+	)
+	assert_equal(
+		recorded.menubar_autosave_name,
+		"dot-hammerspoon.clipboard_center",
+		"clipboard menubar should retain a stable autosave name"
+	)
 	assert_contains(recorded.menubar_tooltip, "快捷键: cmd+v", "tooltip should include persisted hotkey")
 	assert_contains(recorded.menubar_tooltip, "自动粘贴: 关闭", "tooltip should include default auto paste state")
 	assert_equal(recorded.settings_store["clipboard_center.history"][1].content, "seed clipboard text", "startup should sync current clipboard")
