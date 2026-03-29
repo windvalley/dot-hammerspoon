@@ -1288,11 +1288,11 @@ local function current_focused_ax_element()
 	return focused_element
 end
 
-local function current_selection_bounds()
+local function current_selected_text_range()
 	local focused_element = current_focused_ax_element()
 
 	if focused_element == nil then
-		return nil
+		return nil, nil
 	end
 
 	local text_range = normalize_text_range(focused_element.AXSelectedTextRange)
@@ -1300,6 +1300,12 @@ local function current_selection_bounds()
 	if text_range == nil and type(focused_element.AXSelectedTextRanges) == "table" then
 		text_range = normalize_text_range(focused_element.AXSelectedTextRanges[1])
 	end
+
+	return text_range, focused_element
+end
+
+local function current_selection_bounds()
+	local text_range, focused_element = current_selected_text_range()
 
 	if text_range == nil or type(focused_element.parameterizedAttributeValue) ~= "function" then
 		return nil
@@ -2856,6 +2862,7 @@ local function capture_selection_from_clipboard(callback)
 	local copy_shortcuts = {}
 	local seen_shortcuts = {}
 	local frontmost_bundle_id = nil
+	local has_accessible_selection = current_selected_text_range() ~= nil
 
 	if type(hs.application) == "table" and type(hs.application.frontmostApplication) == "function" then
 		local app_ok, frontmost_app = pcall(hs.application.frontmostApplication)
@@ -2873,6 +2880,7 @@ local function capture_selection_from_clipboard(callback)
 		frontmost_bundle_id ~= nil
 		and type(config.selection_auto_copy_by_bundle_id) == "table"
 		and config.selection_auto_copy_by_bundle_id[frontmost_bundle_id] == true
+		and has_accessible_selection == true
 	then
 		local clipboard_text = sanitize_selected_text(snapshot.text)
 
