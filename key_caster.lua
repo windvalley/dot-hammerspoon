@@ -41,6 +41,8 @@ local default_toggle_hotkey = {
 local default_sequence_window_seconds = 0.4
 local settings_key = "key_caster.runtime_overrides"
 local menubar_autosave_name = "dot-hammerspoon.key_caster"
+local menubar_icon_size = 18
+local menubar_canvas_size = 18
 local valid_anchors = {
 	top_left = true,
 	top_center = true,
@@ -125,6 +127,7 @@ local display_canvas = nil
 local hide_timer = nil
 local event_tap = nil
 local menubar_item = nil
+local menubar_icon = nil
 local hotkey_binding = nil
 local break_reminder_refresh_timer = nil
 local sequence_text = nil
@@ -532,6 +535,88 @@ local function destroy_menubar()
 	schedule_break_reminder_menubar_refresh()
 end
 
+local function build_menubar_icon()
+	if menubar_icon ~= nil then
+		return menubar_icon
+	end
+
+	if type(hs.canvas) ~= "table" or type(hs.canvas.new) ~= "function" then
+		return nil
+	end
+
+	local canvas = hs.canvas.new({
+		x = 0,
+		y = 0,
+		w = menubar_canvas_size,
+		h = menubar_canvas_size,
+	})
+
+	if canvas == nil then
+		return nil
+	end
+
+	local icon_color = { red = 0, green = 0, blue = 0, alpha = 1 }
+
+	canvas:appendElements({
+		type = "rectangle",
+		action = "stroke",
+		strokeColor = icon_color,
+		strokeWidth = 1.25,
+		roundedRectRadii = { xRadius = 2.8, yRadius = 2.8 },
+		frame = { x = 1.9, y = 4.1, w = 14.2, h = 9.7 },
+	}, {
+		type = "rectangle",
+		action = "fill",
+		fillColor = icon_color,
+		roundedRectRadii = { xRadius = 0.45, yRadius = 0.45 },
+		frame = { x = 4.1, y = 6.2, w = 1.9, h = 1.8 },
+	}, {
+		type = "rectangle",
+		action = "fill",
+		fillColor = icon_color,
+		roundedRectRadii = { xRadius = 0.45, yRadius = 0.45 },
+		frame = { x = 8.05, y = 6.2, w = 1.9, h = 1.8 },
+	}, {
+		type = "rectangle",
+		action = "fill",
+		fillColor = icon_color,
+		roundedRectRadii = { xRadius = 0.45, yRadius = 0.45 },
+		frame = { x = 12.0, y = 6.2, w = 1.9, h = 1.8 },
+	}, {
+		type = "rectangle",
+		action = "fill",
+		fillColor = icon_color,
+		roundedRectRadii = { xRadius = 0.45, yRadius = 0.45 },
+		frame = { x = 4.1, y = 9.25, w = 2.75, h = 1.8 },
+	}, {
+		type = "rectangle",
+		action = "fill",
+		fillColor = icon_color,
+		roundedRectRadii = { xRadius = 0.45, yRadius = 0.45 },
+		frame = { x = 7.65, y = 9.25, w = 5.95, h = 1.8 },
+	})
+
+	local icon = canvas:imageFromCanvas()
+
+	canvas:delete()
+
+	if icon == nil then
+		return nil
+	end
+
+	if type(icon.size) == "function" then
+		icon:size({ w = menubar_icon_size, h = menubar_icon_size }, true)
+	end
+
+	if type(icon.template) == "function" then
+		icon:template(true)
+	end
+
+	menubar_icon = icon
+
+	return menubar_icon
+end
+
 local function apply_menubar_content()
 	if menubar_item == nil then
 		return
@@ -544,10 +629,22 @@ local function apply_menubar_content()
 	end
 
 	menubar_item:setMenu(build_menu)
-	if type(menubar_item.setIcon) == "function" then
-		menubar_item:setIcon(nil)
+	local icon = build_menubar_icon()
+
+	if type(menubar_item.setIcon) == "function" and icon ~= nil then
+		menubar_item:setIcon(icon, true)
+		if type(menubar_item.setTitle) == "function" then
+			menubar_item:setTitle(nil)
+		end
+	else
+		if type(menubar_item.setIcon) == "function" then
+			menubar_item:setIcon(nil)
+		end
+
+		if type(menubar_item.setTitle) == "function" then
+			menubar_item:setTitle("⌨")
+		end
 	end
-	menubar_item:setTitle("KC")
 
 	menubar_item:setTooltip(tooltip_text())
 end

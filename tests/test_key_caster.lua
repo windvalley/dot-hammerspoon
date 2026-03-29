@@ -84,9 +84,19 @@ local function create_canvas_stub(recorded)
 				level = function(_, level)
 					recorded.levels[#recorded.levels + 1] = level
 				end,
-					show = function()
-						recorded.shown = recorded.shown + 1
-					end,
+				show = function()
+					recorded.shown = recorded.shown + 1
+				end,
+				imageFromCanvas = function()
+					return {
+						size = function(_, size)
+							recorded.menubar_icon_size = size
+						end,
+						template = function(_, enabled)
+							recorded.menubar_icon_template = enabled
+						end,
+					}
+				end,
 				delete = function()
 					if state.deleted ~= true then
 						state.deleted = true
@@ -429,13 +439,15 @@ function _M.run()
 
 	recorded.bound_handler()
 
-		assert_equal(recorded.eventtap_created, 1, "toggle hotkey should create one event tap when enabling key caster")
-		assert_equal(recorded.eventtap_started, 1, "toggle hotkey should start the event tap when enabling key caster")
-		assert_equal(recorded.menubar_created, 1, "always visible menubar should be reused after enabling key caster")
-		assert_equal(recorded.menubar_autosave_name, "dot-hammerspoon.key_caster", "menubar should apply a stable autosave name")
-		assert_equal(recorded.menubar_title, "KC", "menubar should use a stable ASCII title marker")
-		assert_contains(recorded.alerts[#recorded.alerts], "按键显示已开启", "enabling key caster should show a status alert")
-		assert_true(type(recorded.menu_builder) == "function", "menubar should expose a menu builder when visible")
+	assert_equal(recorded.eventtap_created, 1, "toggle hotkey should create one event tap when enabling key caster")
+	assert_equal(recorded.eventtap_started, 1, "toggle hotkey should start the event tap when enabling key caster")
+	assert_equal(recorded.menubar_created, 1, "always visible menubar should be reused after enabling key caster")
+	assert_equal(recorded.menubar_autosave_name, "dot-hammerspoon.key_caster", "menubar should apply a stable autosave name")
+	assert_true(recorded.menubar_icon ~= nil, "menubar should render a keyboard icon")
+	assert_equal(recorded.menubar_title, nil, "menubar should clear the legacy text marker when an icon is available")
+	assert_true(recorded.menubar_icon_template == true, "menubar icon should be rendered as a template image")
+	assert_contains(recorded.alerts[#recorded.alerts], "按键显示已开启", "enabling key caster should show a status alert")
+	assert_true(type(recorded.menu_builder) == "function", "menubar should expose a menu builder when visible")
 
 	local menu = recorded.menu_builder()
 	assert_true(find_menu_item(menu, "启用按键显示") ~= nil, "menubar should expose an enable toggle item")
