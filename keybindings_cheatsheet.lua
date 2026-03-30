@@ -7,6 +7,7 @@ local keybindings_cheatsheet = require("keybindings_config").keybindings_cheatsh
 local input_methods = require("keybindings_config").manual_input_methods
 local system = require("keybindings_config").system
 local clipboard = require("keybindings_config").clipboard or {}
+local snippets = require("keybindings_config").snippets or {}
 local selected_text_translate = require("keybindings_config").selected_text_translate or {}
 local key_caster = require("keybindings_config").key_caster or {}
 local websites = require("keybindings_config").websites
@@ -269,6 +270,18 @@ local function formatText()
 	end
 
 	local selectedTextTranslate = {}
+	local snippetCenter = {}
+	if snippets.enabled ~= false then
+		append_section_line(snippetCenter, snippets.prefix, snippets.key, snippets.message or "Snippet Center")
+
+		local quick_save = snippets.quick_save or {}
+		append_section_line(snippetCenter, quick_save.prefix, quick_save.key, quick_save.message or "Quick Save Snippet")
+	end
+
+	if #snippetCenter > 0 then
+		table.insert(snippetCenter, 1, { msg = "[Snippet Center]" })
+	end
+
 	if selected_text_translate.enabled ~= false then
 		append_section_line(
 			selectedTextTranslate,
@@ -384,6 +397,14 @@ local function formatText()
 	end
 
 	table.insert(hotkeys, { msg = "" })
+
+	if #snippetCenter > 0 then
+		for _, v in ipairs(snippetCenter) do
+			table.insert(hotkeys, { msg = v.msg })
+		end
+
+		table.insert(hotkeys, { msg = "" })
+	end
 
 	if #selectedTextTranslate > 0 then
 		for _, v in ipairs(selectedTextTranslate) do

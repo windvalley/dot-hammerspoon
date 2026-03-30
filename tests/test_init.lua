@@ -21,6 +21,7 @@ local module_names = {
 	"keep_awake",
 	"website_open",
 	"clipboard_center",
+	"snippet_center",
 	"selected_text_translate",
 	"manual_input_method",
 	"auto_input_method",

@@ -317,6 +317,39 @@ _M.clipboard = {
 	message = "Clipboard Center",
 }
 
+-- 文本片段管理
+_M.snippets = {
+	enabled = true,
+	-- 最多保存多少条 snippet
+	max_items = 200,
+	-- 单条 snippet 正文最大字节数，避免把超大文本写进 hs.settings
+	max_content_length = 20000,
+	-- 选择 chooser 行数
+	chooser_rows = 12,
+	-- chooser 宽度，单位是屏幕宽度的百分比
+	chooser_width = 40,
+	-- 选中 snippet 后是否自动粘贴到之前的前台应用
+	auto_paste = true,
+	-- 自动粘贴完成后是否恢复用户原来的剪贴板内容
+	restore_clipboard_after_paste = true,
+	-- 自动标题最大字符数，标题为空时取正文首行生成
+	auto_title_length = 36,
+	-- 内置编辑器尺寸
+	editor = {
+		width = 620,
+		height = 480,
+	},
+	-- NOTE: message 的值建议保持英文，避免快捷键面板错位
+	prefix = { "Option", "Shift" },
+	key = "S",
+	message = "Snippet Center",
+	quick_save = {
+		prefix = { "Option", "Shift", "Command" },
+		key = "S",
+		message = "Quick Save Snippet",
+	},
+}
+
 -- 翻译当前选中的文本
 _M.selected_text_translate = {
 	enabled = true,

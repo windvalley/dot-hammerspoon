@@ -184,6 +184,17 @@ function _M.run()
 			key = "C",
 			message = "Clipboard Center",
 		},
+		snippets = {
+			enabled = true,
+			prefix = { "Option", "Shift" },
+			key = "S",
+			message = "Snippet Center",
+			quick_save = {
+				prefix = { "Option", "Shift", "Command" },
+				key = "S",
+				message = "Quick Save Snippet",
+			},
+		},
 		selected_text_translate = {
 			enabled = true,
 			prefix = { "Option" },
@@ -274,6 +285,9 @@ function _M.run()
 	local rendered = table.concat(recorded.rendered_text, "\n")
 	assert_contains(rendered, "⌃ ⇧ X: Clipboard Center", "clipboard hotkey should use runtime override")
 	assert_contains(rendered, "⌃ ⌥ A: Toggle Prevent Sleep", "keep awake hotkey should use runtime override")
+	assert_contains(rendered, "[Snippet Center]", "snippet section should be rendered in cheatsheet")
+	assert_contains(rendered, "⌥ ⇧ S: Snippet Center", "snippet chooser hotkey should be rendered in cheatsheet")
+	assert_contains(rendered, "⌥ ⇧ ⌘ S: Quick Save Snippet", "snippet quick save hotkey should be rendered in cheatsheet")
 	assert_contains(rendered, "[Selected Text Translate]", "selected text translate section should be rendered in cheatsheet")
 	assert_contains(rendered, "⌥ R: Translate Selection", "selected text translate hotkey should be rendered in cheatsheet")
 	assert_contains(rendered, "[Key Caster]", "key caster section should be rendered in cheatsheet")
@@ -403,6 +417,17 @@ function _M.run()
 			prefix = { "Option", "Shift" },
 			key = "C",
 			message = "Clipboard Center",
+		},
+		snippets = {
+			enabled = true,
+			prefix = { "Option", "Shift" },
+			key = "S",
+			message = "Snippet Center",
+			quick_save = {
+				prefix = { "Option", "Shift", "Command" },
+				key = "S",
+				message = "Quick Save Snippet",
+			},
 		},
 		selected_text_translate = {
 			enabled = true,

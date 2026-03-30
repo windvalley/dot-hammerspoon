@@ -160,6 +160,48 @@ The menubar menu also provides an `自动粘贴` toggle. It is off by default; w
 
 `chooser_rows` controls how many rows are shown in the chooser, and `chooser_width` controls the chooser width as a percentage of the current screen width.
 
+### Snippet Center
+
+Use <kbd>⌥</kbd><kbd>⇧</kbd> + <kbd>S</kbd> to open a searchable chooser for stored text snippets. The first two chooser rows are built-in actions:
+
+- Create a blank snippet in the built-in multiline editor
+- Save the current clipboard text as a new snippet
+
+Selecting a snippet writes it to the pasteboard, reactivates the previously focused app, and sends <kbd>⌘</kbd> + <kbd>V</kbd>. By default, the original clipboard contents are restored after the paste completes.
+
+Use <kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd> + <kbd>S</kbd> to quick-save the current clipboard text without opening the chooser. Duplicate content is rejected.
+
+Snippets have an optional title. When the title is left empty, the chooser automatically uses the first non-empty content line as the display title.
+
+Right click a snippet row in the chooser to edit, rename, pin, copy, or delete it.
+
+You can customize it in `~/.hammerspoon/keybindings_config.lua`:
+
+```lua
+_M.snippets = {
+	enabled = true,
+	max_items = 200,
+	max_content_length = 20000,
+	chooser_rows = 12,
+	chooser_width = 40,
+	auto_paste = true,
+	restore_clipboard_after_paste = true,
+	auto_title_length = 36,
+	editor = {
+		width = 620,
+		height = 480,
+	},
+	prefix = { "Option", "Shift" },
+	key = "S",
+	message = "Snippet Center",
+	quick_save = {
+		prefix = { "Option", "Shift", "Command" },
+		key = "S",
+		message = "Quick Save Snippet",
+	},
+}
+```
+
 ### Selected Text Translate
 
 Select any text and press <kbd>⌥</kbd> + <kbd>R</kbd> to translate it through an OpenAI-compatible `chat/completions` API. By default, non-Chinese text is translated into Simplified Chinese, while text containing Chinese characters is translated into English. The translated text is shown in a popup, and the popup also lets you copy the result back to the clipboard.
