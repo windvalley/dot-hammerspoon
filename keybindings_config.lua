@@ -332,6 +332,10 @@ _M.snippets = {
 	auto_paste = true,
 	-- 自动粘贴完成后是否恢复用户原来的剪贴板内容
 	restore_clipboard_after_paste = true,
+	-- 是否显示轻量菜单栏入口，便于快速打开 chooser 和管理常用 snippet
+	show_menubar = true,
+	-- 菜单栏里直接显示多少条常用 snippet（按置顶、最近使用、使用次数排序）
+	menu_items = 8,
 	-- 自动标题最大字符数，标题为空时取正文首行生成
 	auto_title_length = 36,
 	-- 内置编辑器尺寸

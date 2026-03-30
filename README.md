@@ -175,6 +175,18 @@ Snippets have an optional title. When the title is left empty, the chooser autom
 
 Right click a snippet row in the chooser to edit, rename, pin, copy, or delete it.
 
+If you enable `show_menubar`, Snippet Center also adds a lightweight menubar entry for:
+
+- Opening the chooser
+- Creating an empty snippet
+- Saving the current clipboard text
+- Toggling `auto_paste`
+- Managing a small set of common snippets from submenus
+
+The menubar only shows a limited number of snippets, controlled by `menu_items`. Those entries follow the same ranking as the chooser: pinned items first, then recent and frequently used items. Runtime changes to `auto_paste` made from the menubar are persisted via `hs.settings`.
+
+The menubar also shows the current hotkeys for opening the chooser and quick-saving the clipboard, and lets you change or restore both shortcuts at runtime. Those hotkey overrides are also persisted via `hs.settings`.
+
 You can customize it in `~/.hammerspoon/keybindings_config.lua`:
 
 ```lua
@@ -186,6 +198,8 @@ _M.snippets = {
 	chooser_width = 40,
 	auto_paste = true,
 	restore_clipboard_after_paste = true,
+	show_menubar = false,
+	menu_items = 8,
 	auto_title_length = 36,
 	editor = {
 		width = 620,
@@ -201,6 +215,8 @@ _M.snippets = {
 	},
 }
 ```
+
+You can also toggle the menubar entry from the Hammerspoon console with `package.loaded.snippet_center.show_menubar()`, `package.loaded.snippet_center.hide_menubar()`, and `package.loaded.snippet_center.toggle_menubar_visibility()`.
 
 ### Selected Text Translate
 

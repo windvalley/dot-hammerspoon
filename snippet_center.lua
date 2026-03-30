@@ -11,10 +11,18 @@ local utf8len = utils_lib.utf8len
 local utf8sub = utils_lib.utf8sub
 local copy_list = utils_lib.copy_list
 local prompt_text = utils_lib.prompt_text
+local normalize_hotkey_modifiers = hotkey_helper.normalize_hotkey_modifiers
+local format_hotkey = hotkey_helper.format_hotkey
+local modifier_prompt_names = hotkey_helper.modifier_prompt_names
 
 local log = hs.logger.new("snippet")
 
 local items_settings_key = "snippet_center.items"
+local auto_paste_settings_key = "snippet_center.auto_paste"
+local open_hotkey_modifiers_settings_key = "snippet_center.hotkey.open.modifiers"
+local open_hotkey_key_settings_key = "snippet_center.hotkey.open.key"
+local quick_save_hotkey_modifiers_settings_key = "snippet_center.hotkey.quick_save.modifiers"
+local quick_save_hotkey_key_settings_key = "snippet_center.hotkey.quick_save.key"
 local default_max_items = math.max(10, math.floor(tonumber(snippets.max_items) or 200))
 local default_max_content_length = math.max(200, math.floor(tonumber(snippets.max_content_length) or 20000))
 local default_chooser_rows = math.max(6, math.floor(tonumber(snippets.chooser_rows) or 12))
@@ -24,26 +32,239 @@ local default_restore_clipboard_after_paste = snippets.restore_clipboard_after_p
 local default_auto_title_length = math.max(12, math.floor(tonumber(snippets.auto_title_length) or 36))
 local default_editor_width = math.max(420, math.floor(tonumber((snippets.editor or {}).width) or 620))
 local default_editor_height = math.max(300, math.floor(tonumber((snippets.editor or {}).height) or 480))
+local default_show_menubar = snippets.show_menubar == true
+local default_menu_items = math.max(1, math.floor(tonumber(snippets.menu_items) or 8))
 local auto_paste_delay_seconds = 0.12
 local clipboard_restore_delay_seconds = 0.35
 local history_suspend_seconds = 2
 local detail_preview_length = 72
 local title_preview_length = 40
 local editor_port_name = "snippetEditor"
+local menubar_title = "Snip"
+local default_open_hotkey_modifiers
+local default_open_hotkey_key
+local default_quick_save_hotkey_modifiers
+local default_quick_save_hotkey_key
+local open_hotkey_message = snippets.message or "Snippet Center"
+local quick_save_hotkey_message = (snippets.quick_save or {}).message or "Quick Save Snippet"
 
 local started = false
 local item_id_counter = 0
 
+local function same_list(left, right)
+	if #left ~= #right then
+		return false
+	end
+
+	for index, value in ipairs(left) do
+		if right[index] ~= value then
+			return false
+		end
+	end
+
+	return true
+end
+
+local function normalize_hotkey_key(raw_key)
+	if raw_key == nil then
+		return nil
+	end
+
+	local normalized = string.lower(trim(tostring(raw_key)))
+
+	if normalized == "" or normalized == "none" or normalized == "disabled" then
+		return nil
+	end
+
+	return normalized
+end
+
+local function format_hotkey_for_prompt(modifiers, key)
+	local modifier_names = {}
+
+	for _, modifier in ipairs(modifiers or {}) do
+		table.insert(modifier_names, modifier_prompt_names[modifier] or modifier)
+	end
+
+	return table.concat(modifier_names, "+"), key or ""
+end
+
 local state = {
 	items = {},
+	auto_paste = default_auto_paste,
+	show_menubar = default_show_menubar,
 	chooser = nil,
+	menubar = nil,
 	open_hotkey = nil,
+	open_hotkey_modifiers = {},
+	open_hotkey_key = nil,
 	quick_save_hotkey = nil,
+	quick_save_hotkey_modifiers = {},
+	quick_save_hotkey_key = nil,
 	target_application = nil,
 	editor = nil,
 	editor_controller = nil,
 	editor_context = nil,
 }
+
+local refresh_menubar
+
+do
+	local configured_open_modifiers, invalid_open_modifier = normalize_hotkey_modifiers(snippets.prefix or {})
+
+	if configured_open_modifiers == nil then
+		log.e("invalid snippet center hotkey modifier in config: " .. tostring(invalid_open_modifier))
+		configured_open_modifiers = {}
+	end
+
+	local quick_save_config = snippets.quick_save or {}
+	local configured_quick_save_modifiers, invalid_quick_save_modifier =
+		normalize_hotkey_modifiers(quick_save_config.prefix or {})
+
+	if configured_quick_save_modifiers == nil then
+		log.e("invalid snippet quick save hotkey modifier in config: " .. tostring(invalid_quick_save_modifier))
+		configured_quick_save_modifiers = {}
+	end
+
+	default_open_hotkey_modifiers = configured_open_modifiers
+	default_open_hotkey_key = normalize_hotkey_key(snippets.key)
+	default_quick_save_hotkey_modifiers = configured_quick_save_modifiers
+	default_quick_save_hotkey_key = normalize_hotkey_key(quick_save_config.key)
+
+	state.open_hotkey_modifiers = copy_list(default_open_hotkey_modifiers)
+	state.open_hotkey_key = default_open_hotkey_key
+	state.quick_save_hotkey_modifiers = copy_list(default_quick_save_hotkey_modifiers)
+	state.quick_save_hotkey_key = default_quick_save_hotkey_key
+end
+
+local function persist_auto_paste_state()
+	if type(hs) ~= "table" or type(hs.settings) ~= "table" then
+		return
+	end
+
+	if state.auto_paste == default_auto_paste then
+		if type(hs.settings.clear) == "function" then
+			hs.settings.clear(auto_paste_settings_key)
+		end
+		return
+	end
+
+	if type(hs.settings.set) == "function" then
+		hs.settings.set(auto_paste_settings_key, state.auto_paste == true)
+	end
+end
+
+local function load_persisted_auto_paste_state()
+	if type(hs) ~= "table" or type(hs.settings) ~= "table" or type(hs.settings.get) ~= "function" then
+		return
+	end
+
+	local persisted_auto_paste = hs.settings.get(auto_paste_settings_key)
+
+	if persisted_auto_paste == nil then
+		return
+	end
+
+	if type(persisted_auto_paste) ~= "boolean" then
+		log.w("ignore invalid persisted snippet auto_paste state: " .. tostring(persisted_auto_paste))
+
+		if type(hs.settings.clear) == "function" then
+			hs.settings.clear(auto_paste_settings_key)
+		end
+
+		return
+	end
+
+	state.auto_paste = persisted_auto_paste
+end
+
+load_persisted_auto_paste_state()
+
+local function load_persisted_hotkey_state(
+	modifiers_settings_key,
+	key_settings_key,
+	default_modifiers,
+	default_key,
+	modifiers_state_field,
+	key_state_field,
+	label
+)
+	if type(hs) ~= "table" or type(hs.settings) ~= "table" or type(hs.settings.get) ~= "function" then
+		return
+	end
+
+	local persisted_modifiers = hs.settings.get(modifiers_settings_key)
+	local persisted_key = hs.settings.get(key_settings_key)
+
+	if persisted_modifiers == nil and persisted_key == nil then
+		return
+	end
+
+	local normalized_modifiers, invalid_modifier = normalize_hotkey_modifiers(persisted_modifiers)
+	local normalized_key = normalize_hotkey_key(persisted_key)
+
+	if normalized_modifiers == nil then
+		log.w(string.format("ignore invalid persisted %s hotkey modifier: %s", label, tostring(invalid_modifier)))
+
+		if type(hs.settings.clear) == "function" then
+			hs.settings.clear(modifiers_settings_key)
+			hs.settings.clear(key_settings_key)
+		end
+
+		state[modifiers_state_field] = copy_list(default_modifiers)
+		state[key_state_field] = default_key
+		return
+	end
+
+	state[modifiers_state_field] = normalized_modifiers
+	state[key_state_field] = normalized_key
+end
+
+local function persist_hotkey_state(
+	modifiers_settings_key,
+	key_settings_key,
+	default_modifiers,
+	default_key,
+	modifiers,
+	key
+)
+	if type(hs) ~= "table" or type(hs.settings) ~= "table" then
+		return
+	end
+
+	if same_list(modifiers, default_modifiers) and key == default_key then
+		if type(hs.settings.clear) == "function" then
+			hs.settings.clear(modifiers_settings_key)
+			hs.settings.clear(key_settings_key)
+		end
+
+		return
+	end
+
+	if type(hs.settings.set) == "function" then
+		hs.settings.set(modifiers_settings_key, copy_list(modifiers))
+		hs.settings.set(key_settings_key, key or "")
+	end
+end
+
+load_persisted_hotkey_state(
+	open_hotkey_modifiers_settings_key,
+	open_hotkey_key_settings_key,
+	default_open_hotkey_modifiers,
+	default_open_hotkey_key,
+	"open_hotkey_modifiers",
+	"open_hotkey_key",
+	"snippet center"
+)
+load_persisted_hotkey_state(
+	quick_save_hotkey_modifiers_settings_key,
+	quick_save_hotkey_key_settings_key,
+	default_quick_save_hotkey_modifiers,
+	default_quick_save_hotkey_key,
+	"quick_save_hotkey_modifiers",
+	"quick_save_hotkey_key",
+	"snippet quick save"
+)
 
 local function current_timestamp()
 	return os.time()
@@ -612,6 +833,73 @@ local function write_text_to_clipboard(text)
 	return ok == true and result == true
 end
 
+local function auto_paste_status_text()
+	return state.auto_paste == true and "开启" or "关闭"
+end
+
+local function open_hotkey_label()
+	if state.open_hotkey_key == nil then
+		return "已禁用"
+	end
+
+	return format_hotkey(state.open_hotkey_modifiers, state.open_hotkey_key)
+end
+
+local function quick_save_hotkey_label()
+	if state.quick_save_hotkey_key == nil then
+		return "已禁用"
+	end
+
+	return format_hotkey(state.quick_save_hotkey_modifiers, state.quick_save_hotkey_key)
+end
+
+local function tooltip_text()
+	return string.format(
+		"Snippet Center · %d 条 · 自动粘贴%s · 打开%s · 快速保存%s",
+		#state.items,
+		auto_paste_status_text(),
+		open_hotkey_label(),
+		quick_save_hotkey_label()
+	)
+end
+
+local function set_show_menubar(show_menubar)
+	state.show_menubar = show_menubar == true
+
+	if refresh_menubar ~= nil then
+		refresh_menubar()
+	end
+end
+
+local function set_auto_paste(enabled, options)
+	options = options or {}
+
+	local normalized = enabled == true
+
+	if state.auto_paste == normalized then
+		persist_auto_paste_state()
+
+		if refresh_menubar ~= nil then
+			refresh_menubar()
+		end
+
+		return true
+	end
+
+	state.auto_paste = normalized
+	persist_auto_paste_state()
+
+	if refresh_menubar ~= nil then
+		refresh_menubar()
+	end
+
+	if options.show_alert ~= false then
+		hs.alert.show(normalized == true and "已开启 snippet 自动粘贴" or "已关闭 snippet 自动粘贴")
+	end
+
+	return true
+end
+
 local function refresh_chooser_choices(preserve_query, selected_row)
 	if state.chooser == nil then
 		return
@@ -699,6 +987,10 @@ local function create_item(title, content, options)
 	persist_items()
 	refresh_chooser_choices(true)
 
+	if refresh_menubar ~= nil then
+		refresh_menubar()
+	end
+
 	return true, item
 end
 
@@ -728,6 +1020,10 @@ local function update_item(item_id, fields)
 	persist_items()
 	refresh_chooser_choices(true)
 
+	if refresh_menubar ~= nil then
+		refresh_menubar()
+	end
+
 	return true, item
 end
 
@@ -742,6 +1038,10 @@ local function delete_item(item_id)
 	persist_items()
 	refresh_chooser_choices(true, index)
 
+	if refresh_menubar ~= nil then
+		refresh_menubar()
+	end
+
 	return true
 end
 
@@ -755,6 +1055,10 @@ local function mark_item_used(item_id)
 	item.last_used_at = current_timestamp()
 	item.use_count = math.max(0, math.floor(tonumber(item.use_count) or 0)) + 1
 	persist_items()
+
+	if refresh_menubar ~= nil then
+		refresh_menubar()
+	end
 end
 
 local function set_item_pinned(item_id, pinned)
@@ -769,7 +1073,54 @@ local function set_item_pinned(item_id, pinned)
 	persist_items()
 	refresh_chooser_choices(true)
 
+	if refresh_menubar ~= nil then
+		refresh_menubar()
+	end
+
 	return true
+end
+
+local function copy_item_to_clipboard(item)
+	if item == nil then
+		return false
+	end
+
+	if write_text_to_clipboard(item.content) == true then
+		hs.alert.show("已复制到剪贴板")
+		return true
+	end
+
+	hs.alert.show("写入剪贴板失败")
+	return false
+end
+
+local function toggle_item_pinned_with_alert(item_id)
+	local item = find_item_by_id(item_id)
+
+	if item == nil then
+		hs.alert.show("找不到对应的 snippet")
+		return false
+	end
+
+	local next_pinned = item.pinned ~= true
+
+	if set_item_pinned(item.id, next_pinned) ~= true then
+		hs.alert.show("更新置顶状态失败")
+		return false
+	end
+
+	hs.alert.show(next_pinned == true and "已置顶" or "已取消置顶")
+	return true
+end
+
+local function delete_item_with_alert(item_id)
+	if delete_item(item_id) == true then
+		hs.alert.show("已删除 snippet")
+		return true
+	end
+
+	hs.alert.show("删除 snippet 失败")
+	return false
 end
 
 local function popup_context_menu(menu, point)
@@ -798,6 +1149,25 @@ end
 
 local show_chooser
 local open_editor
+local activate_item
+local prompt_open_hotkey_configuration
+local prompt_quick_save_hotkey_configuration
+local restore_default_open_hotkey
+local restore_default_quick_save_hotkey
+
+local function menu_title_for_item(item)
+	local title = display_title(item)
+
+	if item.pinned == true then
+		return "置顶 · " .. title
+	end
+
+	return title
+end
+
+local function menu_tooltip_for_item(item)
+	return string.format("%s\n%s", snippet_preview(item), snippet_detail(item))
+end
 
 local function rename_item(item_id)
 	local item = find_item_by_id(item_id)
@@ -821,6 +1191,11 @@ local function rename_item(item_id)
 	item.updated_at = current_timestamp()
 	persist_items()
 	refresh_chooser_choices(true)
+
+	if refresh_menubar ~= nil then
+		refresh_menubar()
+	end
+
 	hs.alert.show("Snippet 标题已更新")
 end
 
@@ -851,6 +1226,216 @@ local function quick_save_current_clipboard(show_success_alert)
 	end
 
 	return true, item_or_message
+end
+
+local function build_item_management_menu(item)
+	return {
+		{ title = display_title(item), disabled = true },
+		{ title = snippet_detail(item), disabled = true },
+		{ title = snippet_preview(item), disabled = true },
+		{ title = "-" },
+		{
+			title = state.auto_paste == true and "插入 snippet" or "复制并准备粘贴",
+			fn = function()
+				activate_item(item.id)
+			end,
+		},
+		{
+			title = "复制到剪贴板",
+			fn = function()
+				copy_item_to_clipboard(find_item_by_id(item.id))
+			end,
+		},
+		{
+			title = "编辑...",
+			fn = function()
+				local current_item = find_item_by_id(item.id)
+
+				if current_item == nil then
+					hs.alert.show("找不到对应的 snippet")
+					return
+				end
+
+				open_editor({
+					mode = "edit",
+					item_id = current_item.id,
+					title = raw_title(current_item),
+					content = current_item.content,
+					reopen_after_close = false,
+				})
+			end,
+		},
+		{
+			title = "重命名...",
+			fn = function()
+				rename_item(item.id)
+			end,
+		},
+		{
+			title = item.pinned == true and "取消置顶" or "置顶",
+			fn = function()
+				toggle_item_pinned_with_alert(item.id)
+			end,
+		},
+		{ title = "-" },
+		{
+			title = "删除",
+			fn = function()
+				delete_item_with_alert(item.id)
+			end,
+		},
+	}
+end
+
+local function build_hotkey_menu()
+	return {
+		{ title = "快捷键信息", disabled = true },
+		{ title = "打开 Chooser: " .. open_hotkey_label(), disabled = true },
+		{ title = "快速保存: " .. quick_save_hotkey_label(), disabled = true },
+		{ title = "-" },
+		{
+			title = "设置打开快捷键",
+			fn = prompt_open_hotkey_configuration,
+		},
+		{
+			title = "恢复默认打开快捷键",
+			disabled = same_list(state.open_hotkey_modifiers, default_open_hotkey_modifiers)
+				and state.open_hotkey_key == default_open_hotkey_key,
+			fn = restore_default_open_hotkey,
+		},
+		{ title = "-" },
+		{
+			title = "设置快速保存快捷键",
+			fn = prompt_quick_save_hotkey_configuration,
+		},
+		{
+			title = "恢复默认快速保存快捷键",
+			disabled = same_list(state.quick_save_hotkey_modifiers, default_quick_save_hotkey_modifiers)
+				and state.quick_save_hotkey_key == default_quick_save_hotkey_key,
+			fn = restore_default_quick_save_hotkey,
+		},
+	}
+end
+
+local function append_menu_items(menu)
+	local items = sorted_items(nil)
+	local count = math.min(#items, default_menu_items)
+
+	table.insert(menu, {
+		title = string.format("常用片段 (%d/%d)", count, #items),
+		disabled = true,
+	})
+
+	if count == 0 then
+		table.insert(menu, { title = "暂无 snippet", disabled = true })
+		return
+	end
+
+	table.insert(menu, { title = "点击子菜单可插入、编辑或删除", disabled = true })
+
+	for index = 1, count do
+		local item = items[index]
+
+		table.insert(menu, {
+			title = menu_title_for_item(item),
+			tooltip = menu_tooltip_for_item(item),
+			menu = build_item_management_menu(item),
+		})
+	end
+end
+
+local function build_menubar_menu()
+	local menu = {
+		{ title = "Snippet Center", disabled = true },
+		{ title = string.format("总数: %d", #state.items), disabled = true },
+		{ title = "自动粘贴: " .. auto_paste_status_text(), disabled = true },
+		{ title = "打开快捷键: " .. open_hotkey_label(), disabled = true },
+		{ title = "快速保存快捷键: " .. quick_save_hotkey_label(), disabled = true },
+		{ title = "-" },
+		{
+			title = "打开 Chooser",
+			fn = function()
+				show_chooser({ preserve_target_application = true })
+			end,
+		},
+		{
+			title = "新建空白片段",
+			fn = function()
+				open_editor({
+					mode = "create",
+					reopen_after_close = false,
+				})
+			end,
+		},
+		{
+			title = "从当前剪贴板新建",
+			fn = function()
+				quick_save_current_clipboard(true)
+			end,
+		},
+		{
+			title = "自动粘贴",
+			checked = state.auto_paste == true,
+			fn = function()
+				set_auto_paste(state.auto_paste ~= true)
+			end,
+		},
+		{
+			title = "快捷键",
+			menu = build_hotkey_menu(),
+		},
+		{
+			title = "隐藏菜单栏图标",
+			fn = function()
+				set_show_menubar(false)
+			end,
+		},
+		{ title = "-" },
+	}
+
+	append_menu_items(menu)
+
+	return menu
+end
+
+refresh_menubar = function()
+	if state.show_menubar ~= true then
+		if state.menubar ~= nil and type(state.menubar.delete) == "function" then
+			pcall(state.menubar.delete, state.menubar)
+		end
+
+		state.menubar = nil
+		return
+	end
+
+	if type(hs.menubar) ~= "table" or type(hs.menubar.new) ~= "function" then
+		log.w("hs.menubar is unavailable")
+		return
+	end
+
+	if state.menubar == nil then
+		state.menubar = hs.menubar.new()
+
+		if state.menubar == nil then
+			log.e("failed to create snippet menubar item")
+			return
+		end
+	end
+
+	if type(state.menubar.setTitle) == "function" then
+		state.menubar:setTitle(menubar_title)
+	end
+
+	if type(state.menubar.setTooltip) == "function" then
+		state.menubar:setTooltip(tooltip_text())
+	end
+
+	if type(state.menubar.setMenu) == "function" then
+		state.menubar:setMenu(function()
+			state.target_application = current_frontmost_application()
+			return build_menubar_menu()
+		end)
+	end
 end
 
 local function js_string_literal(value)
@@ -1392,7 +1977,7 @@ open_editor = function(options)
 	return true
 end
 
-local function activate_item(item_id)
+activate_item = function(item_id)
 	local item = find_item_by_id(item_id)
 	local snapshot = nil
 
@@ -1412,7 +1997,7 @@ local function activate_item(item_id)
 
 	mark_item_used(item.id)
 
-	if default_auto_paste ~= true then
+	if state.auto_paste ~= true then
 		hs.alert.show("已复制 snippet 到剪贴板")
 		return
 	end
@@ -1527,30 +2112,20 @@ local function show_chooser_context_menu(row)
 		{
 			title = item.pinned == true and "取消置顶" or "置顶",
 			fn = function()
-				local next_pinned = item.pinned ~= true
-				set_item_pinned(item.id, next_pinned)
-				hs.alert.show(next_pinned == true and "已置顶" or "已取消置顶")
+				toggle_item_pinned_with_alert(item.id)
 			end,
 		},
 		{
 			title = "复制到剪贴板",
 			fn = function()
-				if write_text_to_clipboard(item.content) == true then
-					hs.alert.show("已复制到剪贴板")
-				else
-					hs.alert.show("写入剪贴板失败")
-				end
+				copy_item_to_clipboard(item)
 			end,
 		},
 		{ title = "-" },
 		{
 			title = "删除",
 			fn = function()
-				if delete_item(item.id) == true then
-					hs.alert.show("已删除 snippet")
-				else
-					hs.alert.show("删除 snippet 失败")
-				end
+				delete_item_with_alert(item.id)
 			end,
 		},
 	})
@@ -1606,18 +2181,18 @@ local function destroy_chooser()
 	state.chooser = nil
 end
 
-local function bind_hotkey(hotkey_config, fallback_message, fn)
-	local key = hotkey_config and hotkey_config.key or nil
-
+local function create_open_hotkey_binding(modifiers, key)
 	if key == nil then
 		return true, nil
 	end
 
 	local binding = hotkey_helper.bind(
-		copy_list(hotkey_config.prefix or {}),
+		copy_list(modifiers),
 		key,
-		hotkey_config.message or fallback_message,
-		fn,
+		open_hotkey_message,
+		function()
+			show_chooser()
+		end,
 		nil,
 		nil,
 		{ logger = log }
@@ -1628,6 +2203,246 @@ local function bind_hotkey(hotkey_config, fallback_message, fn)
 	end
 
 	return true, binding
+end
+
+local function create_quick_save_hotkey_binding(modifiers, key)
+	if key == nil then
+		return true, nil
+	end
+
+	local binding = hotkey_helper.bind(
+		copy_list(modifiers),
+		key,
+		quick_save_hotkey_message,
+		function()
+			quick_save_current_clipboard(true)
+		end,
+		nil,
+		nil,
+		{ logger = log }
+	)
+
+	if binding == nil then
+		return false, "bind failed"
+	end
+
+	return true, binding
+end
+
+local function apply_open_hotkey_binding(reason)
+	local ok, binding_or_error = create_open_hotkey_binding(state.open_hotkey_modifiers, state.open_hotkey_key)
+
+	if ok ~= true then
+		log.e(string.format("failed to bind snippet open hotkey (%s): %s", reason or "unknown", tostring(binding_or_error)))
+		return false
+	end
+
+	if state.open_hotkey ~= nil then
+		state.open_hotkey:delete()
+	end
+
+	state.open_hotkey = binding_or_error
+
+	if refresh_menubar ~= nil then
+		refresh_menubar()
+	end
+
+	return true
+end
+
+local function apply_quick_save_hotkey_binding(reason)
+	local ok, binding_or_error =
+		create_quick_save_hotkey_binding(state.quick_save_hotkey_modifiers, state.quick_save_hotkey_key)
+
+	if ok ~= true then
+		log.e(
+			string.format(
+				"failed to bind snippet quick save hotkey (%s): %s",
+				reason or "unknown",
+				tostring(binding_or_error)
+			)
+		)
+		return false
+	end
+
+	if state.quick_save_hotkey ~= nil then
+		state.quick_save_hotkey:delete()
+	end
+
+	state.quick_save_hotkey = binding_or_error
+
+	if refresh_menubar ~= nil then
+		refresh_menubar()
+	end
+
+	return true
+end
+
+local function set_open_hotkey(modifiers, key, reason)
+	if same_list(state.open_hotkey_modifiers, modifiers) and state.open_hotkey_key == key then
+		return true
+	end
+
+	local previous_modifiers = copy_list(state.open_hotkey_modifiers)
+	local previous_key = state.open_hotkey_key
+	local previous_binding = state.open_hotkey
+
+	state.open_hotkey_modifiers = copy_list(modifiers)
+	state.open_hotkey_key = key
+	state.open_hotkey = nil
+
+	if previous_binding ~= nil then
+		previous_binding:delete()
+	end
+
+	if apply_open_hotkey_binding(reason) ~= true then
+		state.open_hotkey_modifiers = previous_modifiers
+		state.open_hotkey_key = previous_key
+		state.open_hotkey = nil
+		apply_open_hotkey_binding("restore previous snippet open hotkey")
+		hs.alert.show("Snippet 打开快捷键设置失败")
+		return false
+	end
+
+	persist_hotkey_state(
+		open_hotkey_modifiers_settings_key,
+		open_hotkey_key_settings_key,
+		default_open_hotkey_modifiers,
+		default_open_hotkey_key,
+		state.open_hotkey_modifiers,
+		state.open_hotkey_key
+	)
+
+	if state.open_hotkey_key == nil then
+		hs.alert.show("已禁用 Snippet 打开快捷键")
+	else
+		hs.alert.show("Snippet 打开快捷键已更新: " .. open_hotkey_label())
+	end
+
+	return true
+end
+
+local function set_quick_save_hotkey(modifiers, key, reason)
+	if same_list(state.quick_save_hotkey_modifiers, modifiers) and state.quick_save_hotkey_key == key then
+		return true
+	end
+
+	local previous_modifiers = copy_list(state.quick_save_hotkey_modifiers)
+	local previous_key = state.quick_save_hotkey_key
+	local previous_binding = state.quick_save_hotkey
+
+	state.quick_save_hotkey_modifiers = copy_list(modifiers)
+	state.quick_save_hotkey_key = key
+	state.quick_save_hotkey = nil
+
+	if previous_binding ~= nil then
+		previous_binding:delete()
+	end
+
+	if apply_quick_save_hotkey_binding(reason) ~= true then
+		state.quick_save_hotkey_modifiers = previous_modifiers
+		state.quick_save_hotkey_key = previous_key
+		state.quick_save_hotkey = nil
+		apply_quick_save_hotkey_binding("restore previous snippet quick save hotkey")
+		hs.alert.show("Snippet 快速保存快捷键设置失败")
+		return false
+	end
+
+	persist_hotkey_state(
+		quick_save_hotkey_modifiers_settings_key,
+		quick_save_hotkey_key_settings_key,
+		default_quick_save_hotkey_modifiers,
+		default_quick_save_hotkey_key,
+		state.quick_save_hotkey_modifiers,
+		state.quick_save_hotkey_key
+	)
+
+	if state.quick_save_hotkey_key == nil then
+		hs.alert.show("已禁用 Snippet 快速保存快捷键")
+	else
+		hs.alert.show("Snippet 快速保存快捷键已更新: " .. quick_save_hotkey_label())
+	end
+
+	return true
+end
+
+prompt_open_hotkey_configuration = function()
+	local current_modifiers, current_key = format_hotkey_for_prompt(state.open_hotkey_modifiers, state.open_hotkey_key)
+	local modifier_text = prompt_text(
+		"设置 Snippet 打开快捷键",
+		"请输入修饰键, 多个值用 + 分隔。\n可用: ctrl option command shift fn\n留空表示无修饰键。",
+		current_modifiers
+	)
+
+	if modifier_text == nil then
+		return
+	end
+
+	local key_text = prompt_text(
+		"设置 Snippet 打开快捷键",
+		"请输入主键, 例如 s、space、return、f18。\n留空表示禁用快捷键。",
+		current_key
+	)
+
+	if key_text == nil then
+		return
+	end
+
+	local normalized_modifiers, invalid_modifier = normalize_hotkey_modifiers(modifier_text)
+	local normalized_key = normalize_hotkey_key(key_text)
+
+	if normalized_modifiers == nil then
+		hs.alert.show("无效修饰键: " .. tostring(invalid_modifier))
+		return
+	end
+
+	set_open_hotkey(normalized_modifiers, normalized_key, "menubar update snippet open hotkey")
+end
+
+prompt_quick_save_hotkey_configuration = function()
+	local current_modifiers, current_key =
+		format_hotkey_for_prompt(state.quick_save_hotkey_modifiers, state.quick_save_hotkey_key)
+	local modifier_text = prompt_text(
+		"设置 Snippet 快速保存快捷键",
+		"请输入修饰键, 多个值用 + 分隔。\n可用: ctrl option command shift fn\n留空表示无修饰键。",
+		current_modifiers
+	)
+
+	if modifier_text == nil then
+		return
+	end
+
+	local key_text = prompt_text(
+		"设置 Snippet 快速保存快捷键",
+		"请输入主键, 例如 s、space、return、f18。\n留空表示禁用快捷键。",
+		current_key
+	)
+
+	if key_text == nil then
+		return
+	end
+
+	local normalized_modifiers, invalid_modifier = normalize_hotkey_modifiers(modifier_text)
+	local normalized_key = normalize_hotkey_key(key_text)
+
+	if normalized_modifiers == nil then
+		hs.alert.show("无效修饰键: " .. tostring(invalid_modifier))
+		return
+	end
+
+	set_quick_save_hotkey(normalized_modifiers, normalized_key, "menubar update snippet quick save hotkey")
+end
+
+restore_default_open_hotkey = function()
+	set_open_hotkey(default_open_hotkey_modifiers, default_open_hotkey_key, "restore default snippet open hotkey")
+end
+
+restore_default_quick_save_hotkey = function()
+	set_quick_save_hotkey(
+		default_quick_save_hotkey_modifiers,
+		default_quick_save_hotkey_key,
+		"restore default snippet quick save hotkey"
+	)
 end
 
 local function delete_bindings()
@@ -1642,7 +2457,9 @@ local function delete_bindings()
 	end
 end
 
-show_chooser = function()
+show_chooser = function(options)
+	options = options or {}
+
 	if started ~= true then
 		if _M.start() ~= true then
 			return
@@ -1653,7 +2470,10 @@ show_chooser = function()
 		return
 	end
 
-	state.target_application = current_frontmost_application()
+	if options.preserve_target_application ~= true or state.target_application == nil then
+		state.target_application = current_frontmost_application()
+	end
+
 	state.chooser:choices(build_choices())
 	state.chooser:query(nil)
 
@@ -1690,23 +2510,16 @@ function _M.start()
 		return false
 	end
 
-	local open_ok, open_binding = bind_hotkey(snippets, "Snippet Center", function()
-		show_chooser()
-	end)
-
-	if open_ok ~= true then
+	if apply_open_hotkey_binding("startup") ~= true then
 		destroy_chooser()
 		started = false
 		return false
 	end
 
-	local quick_save_ok, quick_save_binding = bind_hotkey(snippets.quick_save or {}, "Quick Save Snippet", function()
-		quick_save_current_clipboard(true)
-	end)
-
-	if quick_save_ok ~= true then
-		if open_binding ~= nil then
-			open_binding:delete()
+	if apply_quick_save_hotkey_binding("startup") ~= true then
+		if state.open_hotkey ~= nil then
+			state.open_hotkey:delete()
+			state.open_hotkey = nil
 		end
 
 		destroy_chooser()
@@ -1714,8 +2527,7 @@ function _M.start()
 		return false
 	end
 
-	state.open_hotkey = open_binding
-	state.quick_save_hotkey = quick_save_binding
+	refresh_menubar()
 
 	return true
 end
@@ -1724,6 +2536,12 @@ function _M.stop()
 	delete_bindings()
 	destroy_chooser()
 	close_editor()
+
+	if state.menubar ~= nil and type(state.menubar.delete) == "function" then
+		pcall(state.menubar.delete, state.menubar)
+	end
+
+	state.menubar = nil
 	state.items = {}
 	state.target_application = nil
 	started = false
@@ -1741,12 +2559,47 @@ end
 _M.quick_save_clipboard = function()
 	return quick_save_current_clipboard(true)
 end
+_M.show_menubar = function()
+	if started ~= true then
+		_M.start()
+	end
+
+	set_show_menubar(true)
+end
+_M.hide_menubar = function()
+	if started ~= true then
+		_M.start()
+	end
+
+	set_show_menubar(false)
+end
+_M.toggle_menubar_visibility = function()
+	if started ~= true then
+		_M.start()
+	end
+
+	set_show_menubar(state.show_menubar ~= true)
+end
+_M.refresh_menubar = function()
+	if started ~= true then
+		_M.start()
+	end
+
+	if refresh_menubar ~= nil then
+		refresh_menubar()
+	end
+end
 _M.get_state = function()
 	return {
 		started = started,
 		item_count = #state.items,
 		items = clone_items(state.items),
+		auto_paste = state.auto_paste == true,
+		show_menubar = state.show_menubar == true,
+		open_hotkey_label = open_hotkey_label(),
+		quick_save_hotkey_label = quick_save_hotkey_label(),
 		chooser_exists = state.chooser ~= nil,
+		menubar_exists = state.menubar ~= nil,
 		editor_exists = state.editor ~= nil,
 	}
 end

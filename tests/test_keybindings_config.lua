@@ -24,6 +24,7 @@ function _M.run()
 	local break_reminder = config.break_reminder or {}
 	local key_caster = config.key_caster or {}
 	local selected_text_translate = config.selected_text_translate or {}
+	local snippets = config.snippets or {}
 
 	assert_equal(break_reminder.mode, "soft", "default break reminder mode should remain soft")
 	assert_equal(break_reminder.overlay_opacity, 0.32, "soft mode default opacity should stay translucent")
@@ -78,6 +79,11 @@ function _M.run()
 		selected_text_translate.model_service.anthropic.api_key_env,
 		"ANTHROPIC_API_KEY",
 		"selected_text_translate should expose the default Anthropic API key env name"
+	)
+	assert_true(type(snippets.show_menubar) == "boolean", "snippets show_menubar should be a boolean flag")
+	assert_true(
+		type(snippets.menu_items) == "number" and snippets.menu_items >= 1,
+		"snippets menu_items should stay configurable with a sensible lower bound"
 	)
 
 	reset_modules()

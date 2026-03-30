@@ -60,11 +60,20 @@ function _M.run()
 		do_after_delays = {},
 		suspend_capture_calls = {},
 		frontmost_app_activations = 0,
-		prompt_values = { "Renamed Title" },
+		prompt_values = {
+			"ctrl+option",
+			"K",
+			"command+shift",
+			"J",
+			"Renamed Title",
+		},
 		chooser = nil,
 		last_popup_menu = nil,
 		editor_message_handler = nil,
 		editor_html = nil,
+		menubar_created = 0,
+		menubar_deleted = 0,
+		menubar_menu_builder = nil,
 	}
 	local current_clipboard_text = "First snippet\nLine two"
 
@@ -255,13 +264,32 @@ function _M.run()
 			end,
 		},
 		menubar = {
-			new = function()
+			new = function(in_menu_bar)
+				if in_menu_bar == false then
+					return {
+						setMenu = function(_, menu)
+							recorded.last_popup_menu = menu
+						end,
+						popupMenu = function() end,
+						delete = function() end,
+					}
+				end
+
+				recorded.menubar_created = recorded.menubar_created + 1
+
 				return {
 					setMenu = function(_, menu)
-						recorded.last_popup_menu = menu
+						recorded.menubar_menu_builder = menu
 					end,
-					popupMenu = function() end,
-					delete = function() end,
+					setTitle = function(_, title)
+						recorded.menubar_title = title
+					end,
+					setTooltip = function(_, tooltip)
+						recorded.menubar_tooltip = tooltip
+					end,
+					delete = function()
+						recorded.menubar_deleted = recorded.menubar_deleted + 1
+					end,
 				}
 			end,
 		},
@@ -286,7 +314,7 @@ function _M.run()
 					}
 				end,
 			},
-			newBrowser = function(_, _, _)
+			new = function(_, _, _)
 				local state = {
 					window_callback = nil,
 					deleted = false,
@@ -368,6 +396,8 @@ function _M.run()
 			chooser_width = 40,
 			auto_paste = true,
 			restore_clipboard_after_paste = true,
+			show_menubar = true,
+			menu_items = 4,
 			auto_title_length = 36,
 			editor = {
 				width = 600,
@@ -398,6 +428,88 @@ function _M.run()
 					recorded.deleted_binding_count = recorded.deleted_binding_count + 1
 				end,
 			}
+		end,
+		modifier_prompt_names = {
+			ctrl = "ctrl",
+			alt = "option",
+			cmd = "command",
+			shift = "shift",
+			fn = "fn",
+		},
+		format_hotkey = function(modifiers, key)
+			local symbols = {
+				ctrl = "⌃",
+				alt = "⌥",
+				cmd = "⌘",
+				shift = "⇧",
+				fn = "fn",
+			}
+			local parts = {}
+
+			for _, modifier in ipairs(modifiers or {}) do
+				table.insert(parts, symbols[modifier] or tostring(modifier))
+			end
+
+			table.insert(parts, string.upper(tostring(key or "")))
+			return table.concat(parts, " ")
+		end,
+		normalize_hotkey_modifiers = function(raw_modifiers)
+			local values = {}
+			local normalized = {}
+			local seen = {}
+			local aliases = {
+				ctrl = "ctrl",
+				control = "ctrl",
+				option = "alt",
+				alt = "alt",
+				opt = "alt",
+				command = "cmd",
+				cmd = "cmd",
+				shift = "shift",
+				fn = "fn",
+			}
+			local order = {
+				ctrl = 1,
+				alt = 2,
+				cmd = 3,
+				shift = 4,
+				fn = 5,
+			}
+
+			if raw_modifiers == nil then
+				return {}
+			end
+
+			if type(raw_modifiers) == "table" then
+				values = raw_modifiers
+			else
+				for token in string.gmatch(tostring(raw_modifiers), "[^,%+%s]+") do
+					table.insert(values, token)
+				end
+			end
+
+			for _, raw_value in ipairs(values) do
+				local token = tostring(raw_value):lower()
+
+				if token ~= "" then
+					local modifier = aliases[token]
+
+					if modifier == nil then
+						return nil, raw_value
+					end
+
+					if seen[modifier] ~= true then
+						seen[modifier] = true
+						table.insert(normalized, modifier)
+					end
+				end
+			end
+
+			table.sort(normalized, function(left, right)
+				return order[left] < order[right]
+			end)
+
+			return normalized
 		end,
 	}
 
@@ -435,13 +547,57 @@ function _M.run()
 
 	assert_true(snippet_center.start(), "snippet_center.start() should succeed")
 	assert_equal(#recorded.hotkey_bindings, 2, "module should bind chooser and quick save hotkeys")
-	assert_equal(recorded.hotkey_bindings[1].key, "S", "chooser hotkey should come from config")
-	assert_equal(recorded.hotkey_bindings[2].key, "S", "quick save hotkey should come from config")
+	assert_equal(recorded.hotkey_bindings[1].key, "s", "chooser hotkey should come from config")
+	assert_equal(recorded.hotkey_bindings[2].key, "s", "quick save hotkey should come from config")
+	assert_equal(recorded.menubar_created, 1, "snippet center should create a menubar item when configured")
+	assert_equal(recorded.menubar_title, "Snip", "snippet center menubar should expose a stable title")
+	assert_true(snippet_center.get_state().menubar_exists == true, "menubar should exist after startup when enabled")
 
 	local quick_save_ok = snippet_center.quick_save_clipboard()
 	assert_true(quick_save_ok == true, "quick save should persist current clipboard text as a snippet")
 	assert_equal(snippet_center.get_state().item_count, 1, "quick save should create one snippet")
 	assert_equal(recorded.settings_store["snippet_center.items"][1].content, "First snippet\nLine two", "saved snippet should persist its content")
+
+	local menubar_menu = recorded.menubar_menu_builder()
+	local open_chooser_item = find_menu_item(menubar_menu, "打开 Chooser")
+	assert_true(open_chooser_item ~= nil, "menubar should expose the chooser action")
+	assert_true(find_menu_item(menubar_menu, "打开快捷键: ⌥ ⇧ S") ~= nil, "menubar should display the chooser hotkey")
+	assert_true(find_menu_item(menubar_menu, "快速保存快捷键: ⌥ ⌘ ⇧ S") ~= nil, "menubar should display the quick save hotkey")
+	local auto_paste_item = find_menu_item(menubar_menu, "自动粘贴")
+	assert_true(auto_paste_item ~= nil, "menubar should expose the auto paste toggle")
+	assert_true(auto_paste_item.checked == true, "auto paste should default to enabled in the menubar")
+	local hotkey_menu_item = find_menu_item(menubar_menu, "快捷键")
+	assert_true(hotkey_menu_item ~= nil, "menubar should expose hotkey settings")
+	assert_true(type(hotkey_menu_item.menu) == "table", "hotkey settings should use a submenu")
+	assert_true(find_menu_item(hotkey_menu_item.menu, "设置打开快捷键") ~= nil, "hotkey submenu should expose open-hotkey configuration")
+	assert_true(find_menu_item(hotkey_menu_item.menu, "设置快速保存快捷键") ~= nil, "hotkey submenu should expose quick-save-hotkey configuration")
+	local snippet_menu_item = find_menu_item(menubar_menu, "First snippet")
+	assert_true(snippet_menu_item ~= nil, "menubar should expose recently saved snippets")
+	assert_true(type(snippet_menu_item.menu) == "table", "snippet menubar entry should open a management submenu")
+	assert_true(find_menu_item(snippet_menu_item.menu, "编辑...") ~= nil, "snippet submenu should expose edit action")
+	find_menu_item(hotkey_menu_item.menu, "设置打开快捷键").fn()
+	assert_equal(snippet_center.get_state().open_hotkey_label, "⌃ ⌥ K", "menubar should allow changing the chooser hotkey")
+	assert_equal(recorded.settings_store["snippet_center.hotkey.open.key"], "k", "open hotkey override should be persisted")
+	assert_equal(recorded.settings_store["snippet_center.hotkey.open.modifiers"][1], "ctrl", "open hotkey modifiers should be persisted")
+	assert_equal(recorded.settings_store["snippet_center.hotkey.open.modifiers"][2], "alt", "open hotkey modifier order should be normalized")
+	find_menu_item(hotkey_menu_item.menu, "设置快速保存快捷键").fn()
+	assert_equal(snippet_center.get_state().quick_save_hotkey_label, "⌘ ⇧ J", "menubar should allow changing the quick save hotkey")
+	assert_equal(recorded.settings_store["snippet_center.hotkey.quick_save.key"], "j", "quick save hotkey override should be persisted")
+	assert_equal(recorded.settings_store["snippet_center.hotkey.quick_save.modifiers"][1], "cmd", "quick save modifiers should be persisted")
+	assert_equal(recorded.settings_store["snippet_center.hotkey.quick_save.modifiers"][2], "shift", "quick save modifier order should be normalized")
+	assert_equal(#recorded.hotkey_bindings, 4, "changing both snippet hotkeys should rebind both actions")
+	menubar_menu = recorded.menubar_menu_builder()
+	assert_true(find_menu_item(menubar_menu, "打开快捷键: ⌃ ⌥ K") ~= nil, "menubar should refresh the chooser hotkey label after reconfiguration")
+	assert_true(find_menu_item(menubar_menu, "快速保存快捷键: ⌘ ⇧ J") ~= nil, "menubar should refresh the quick save hotkey label after reconfiguration")
+	auto_paste_item.fn()
+	assert_true(snippet_center.get_state().auto_paste == false, "menubar toggle should update runtime auto paste state")
+	assert_equal(recorded.settings_store["snippet_center.auto_paste"], false, "menubar toggle should persist auto paste override")
+	menubar_menu = recorded.menubar_menu_builder()
+	auto_paste_item = find_menu_item(menubar_menu, "自动粘贴")
+	assert_true(auto_paste_item.checked ~= true, "menubar should reflect updated auto paste state")
+	auto_paste_item.fn()
+	assert_true(snippet_center.get_state().auto_paste == true, "second menubar toggle should restore auto paste")
+	assert_equal(recorded.settings_store["snippet_center.auto_paste"], nil, "restoring default auto paste should clear the override")
 
 	local duplicate_ok = snippet_center.quick_save_clipboard()
 	assert_true(duplicate_ok == false, "duplicate quick save should be rejected")
@@ -515,9 +671,16 @@ function _M.run()
 	assert_true(#recorded.suspend_capture_calls >= 2, "automatic insertion should suspend clipboard history for write and restore")
 	assert_true(snippet_center.get_state().items[1].use_count >= 1, "selected snippet should update usage count")
 
+	snippet_center.hide_menubar()
+	assert_true(snippet_center.get_state().menubar_exists ~= true, "hide_menubar should remove the menubar item")
+	snippet_center.show_menubar()
+	assert_true(snippet_center.get_state().menubar_exists == true, "show_menubar should recreate the menubar item")
+	assert_true(recorded.menubar_created >= 2, "show_menubar should create a fresh menubar item after hiding")
+
 	assert_true(snippet_center.stop(), "snippet_center.stop() should succeed")
-	assert_equal(recorded.deleted_binding_count, 2, "stop should delete both hotkey bindings")
+	assert_equal(recorded.deleted_binding_count, 4, "reconfiguring and stopping should delete replaced and active hotkey bindings")
 	assert_true(recorded.chooser_deleted == true, "stop should delete the chooser")
+	assert_true(recorded.menubar_deleted >= 2, "stop should delete the menubar item")
 
 	reset_modules()
 	hs = nil
