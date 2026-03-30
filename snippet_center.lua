@@ -1061,6 +1061,84 @@ local function schedule_reopen_chooser(context)
 	end)
 end
 
+local function focus_editor_window(editor)
+	if editor == nil then
+		return
+	end
+
+	if type(editor.bringToFront) == "function" then
+		pcall(editor.bringToFront, editor, false)
+	end
+
+	if type(editor.hswindow) ~= "function" then
+		return
+	end
+
+	local ok, editor_window = pcall(editor.hswindow, editor)
+
+	if ok ~= true or type(editor_window) ~= "table" then
+		return
+	end
+
+	if type(editor_window.focus) == "function" then
+		pcall(editor_window.focus, editor_window)
+	end
+end
+
+local function focus_editor_textarea(editor)
+	if editor == nil or type(editor.evaluateJavaScript) ~= "function" then
+		return
+	end
+
+	editor:evaluateJavaScript([[
+		(function() {
+			var content = document.getElementById("content");
+			if (!content) {
+				return false;
+			}
+			content.focus();
+			if (typeof content.setSelectionRange === "function") {
+				var end = content.value.length;
+				content.setSelectionRange(end, end);
+			}
+			return document.activeElement && document.activeElement.id;
+		})()
+	]])
+end
+
+local function click_editor_content(editor)
+	if editor == nil then
+		return
+	end
+
+	if type(hs.mouse) ~= "table" or type(hs.mouse.absolutePosition) ~= "function" then
+		return
+	end
+
+	if type(hs.eventtap) ~= "table" or type(hs.eventtap.leftClick) ~= "function" then
+		return
+	end
+
+	if type(editor.frame) ~= "function" then
+		return
+	end
+
+	local ok, frame = pcall(editor.frame, editor)
+
+	if ok ~= true or type(frame) ~= "table" then
+		return
+	end
+
+	local original_mouse_position = hs.mouse.absolutePosition()
+	local click_point = {
+		x = frame.x + math.floor(frame.w / 2),
+		y = frame.y + math.min(math.floor(frame.h / 2), 170),
+	}
+
+	pcall(hs.eventtap.leftClick, click_point, 120000)
+	hs.mouse.absolutePosition(original_mouse_position)
+end
+
 local function close_editor(options)
 	options = options or {}
 
@@ -1150,6 +1228,12 @@ open_editor = function(options)
 		return false
 	end
 
+	if state.chooser ~= nil and type(state.chooser.isVisible) == "function" and state.chooser:isVisible() == true then
+		if type(state.chooser.hide) == "function" then
+			pcall(state.chooser.hide, state.chooser)
+		end
+	end
+
 	close_editor()
 
 	local screen_frame = resolve_target_screen_frame()
@@ -1179,11 +1263,7 @@ open_editor = function(options)
 
 	local editor = nil
 
-	if type(hs.webview.newBrowser) == "function" then
-		editor = hs.webview.newBrowser(frame, {
-			developerExtrasEnabled = false,
-		}, controller)
-	elseif type(hs.webview.new) == "function" then
+	if type(hs.webview.new) == "function" then
 		editor = hs.webview.new(frame, {
 			developerExtrasEnabled = false,
 		}, controller)
@@ -1214,6 +1294,14 @@ open_editor = function(options)
 		editor:allowTextEntry(true)
 	end
 
+	if type(editor.allowNewWindows) == "function" then
+		editor:allowNewWindows(false)
+	end
+
+	if type(editor.allowGestures) == "function" then
+		editor:allowGestures(true)
+	end
+
 	if type(editor.closeOnEscape) == "function" then
 		editor:closeOnEscape(true)
 	end
@@ -1222,19 +1310,49 @@ open_editor = function(options)
 		editor:deleteOnClose(true)
 	end
 
+	if type(editor.shadow) == "function" then
+		editor:shadow(true)
+	end
+
+	if type(editor.transparent) == "function" then
+		editor:transparent(false)
+	end
+
+	if type(editor.windowStyle) == "function" then
+		editor:windowStyle(31)
+	end
+
+	if type(editor.behaviorAsLabels) == "function" then
+		editor:behaviorAsLabels({
+			"ignoresCycle",
+			"moveToActiveSpace",
+		})
+	end
+
 	if type(editor.windowCallback) == "function" then
 		editor:windowCallback(function(action)
-			if action ~= "closing" then
+			if action == "closing" then
+				local context = state.editor_context
+
+				state.editor = nil
+				state.editor_controller = nil
+				state.editor_context = nil
+
+				schedule_reopen_chooser(context)
 				return
 			end
 
-			local context = state.editor_context
+			if action == "focusChange" then
+				focus_editor_textarea(editor)
+			end
+		end)
+	end
 
-			state.editor = nil
-			state.editor_controller = nil
-			state.editor_context = nil
-
-			schedule_reopen_chooser(context)
+	if type(editor.navigationCallback) == "function" then
+		editor:navigationCallback(function(_, action)
+			if action == "didFinishNavigation" then
+				focus_editor_textarea(editor)
+			end
 		end)
 	end
 
@@ -1250,8 +1368,25 @@ open_editor = function(options)
 		editor:show()
 	end
 
-	if type(editor.bringToFront) == "function" then
-		pcall(editor.bringToFront, editor, true)
+	if type(hs.timer) == "table" and type(hs.timer.doAfter) == "function" then
+		for _, delay in ipairs({ 0, 0.08, 0.18 }) do
+			hs.timer.doAfter(delay, function()
+				if state.editor == editor then
+					focus_editor_window(editor)
+					focus_editor_textarea(editor)
+				end
+			end)
+		end
+
+		hs.timer.doAfter(0.14, function()
+			if state.editor == editor then
+				click_editor_content(editor)
+				focus_editor_textarea(editor)
+			end
+		end)
+	else
+		focus_editor_window(editor)
+		focus_editor_textarea(editor)
 	end
 
 	return true
@@ -1597,6 +1732,12 @@ function _M.stop()
 end
 
 _M.show_chooser = show_chooser
+_M.new_empty_snippet = function()
+	return open_editor({
+		mode = "create",
+		reopen_after_close = false,
+	})
+end
 _M.quick_save_clipboard = function()
 	return quick_save_current_clipboard(true)
 end

@@ -130,6 +130,10 @@ function _M.run()
 					delay = delay,
 				})
 			end,
+			leftClick = function(point, delay)
+				recorded.editor_click_point = point
+				recorded.editor_click_delay = delay
+			end,
 		},
 		application = {
 			frontmostApplication = function()
@@ -216,6 +220,7 @@ function _M.run()
 				end
 				function chooser.hide(_)
 					state.visible = false
+					recorded.chooser_hide_count = (recorded.chooser_hide_count or 0) + 1
 				end
 				function chooser.delete(_)
 					recorded.chooser_deleted = true
@@ -261,8 +266,12 @@ function _M.run()
 			end,
 		},
 		mouse = {
-			absolutePosition = function()
-				return { x = 0, y = 0 }
+			absolutePosition = function(position)
+				if position ~= nil then
+					recorded.mouse_position = position
+				end
+
+				return recorded.mouse_position or { x = 0, y = 0 }
 			end,
 		},
 		webview = {
@@ -282,24 +291,54 @@ function _M.run()
 					window_callback = nil,
 					deleted = false,
 				}
+				local window = {
+					focus = function()
+						recorded.editor_focus_count = (recorded.editor_focus_count or 0) + 1
+					end,
+				}
 
 				return {
 					windowTitle = function(_, value)
 						recorded.editor_title = value
 					end,
 					allowTextEntry = function() end,
+					allowNewWindows = function() end,
+					allowGestures = function() end,
 					closeOnEscape = function() end,
 					deleteOnClose = function() end,
+					shadow = function() end,
+					transparent = function() end,
+					windowStyle = function(_, value)
+						recorded.editor_window_style = value
+					end,
+					behaviorAsLabels = function(_, labels)
+						recorded.editor_behaviors = labels
+					end,
 					windowCallback = function(_, callback)
 						state.window_callback = callback
 					end,
+					navigationCallback = function(_, callback)
+						recorded.editor_navigation_callback = callback
+					end,
 					html = function(_, html)
 						recorded.editor_html = html
+						if recorded.editor_navigation_callback ~= nil then
+							recorded.editor_navigation_callback(nil, "didFinishNavigation")
+						end
 					end,
 					show = function()
 						recorded.editor_show_count = (recorded.editor_show_count or 0) + 1
 					end,
 					bringToFront = function() end,
+					hswindow = function()
+						return window
+					end,
+					evaluateJavaScript = function(_, script)
+						recorded.editor_last_script = script
+					end,
+					frame = function()
+						return { x = 100, y = 120, w = 600, h = 420 }
+					end,
 					delete = function()
 						if state.deleted ~= true then
 							state.deleted = true
@@ -427,6 +466,11 @@ function _M.run()
 	edit_item.fn()
 	assert_true(snippet_center.get_state().editor_exists == true, "edit action should open the snippet editor")
 	assert_contains(recorded.editor_html, "Renamed Title", "editor html should receive the current snippet title")
+	assert_true((recorded.chooser_hide_count or 0) >= 1, "opening editor should hide chooser first")
+	assert_true((recorded.editor_focus_count or 0) >= 1, "opening editor should focus the snippet window")
+	assert_equal(recorded.editor_window_style, 31, "editor should use the configured stable webview window style")
+	assert_true(type(recorded.editor_click_point) == "table", "opening editor should click inside the editor to claim focus")
+	assert_contains(recorded.editor_last_script, "document.getElementById(\"content\")", "opening editor should refocus the textarea via JavaScript")
 	recorded.editor_message_handler({
 		body = {
 			action = "save",
