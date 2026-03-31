@@ -23,3 +23,5 @@ Recent history follows scoped Conventional Commits, for example `feat(core): ...
 
 ## Security & Configuration Tips
 Some modules require macOS Accessibility permissions for window control or input monitoring, so document those prerequisites when relevant. Do not commit personal paths, private URLs, account-specific settings, or machine-specific bundle IDs unless they are intentionally configurable through `keybindings_config.lua`.
+
+## Update your AGENTS.md so you don't make that mistake again.

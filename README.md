@@ -1,5 +1,7 @@
 # dot-hammerspoon
 
+[English](README.md) | [简体中文](README.zh.md)
+
 ![Language](https://img.shields.io/badge/language-Lua-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
 [![Version](https://img.shields.io/github/v/release/windvalley/dot-hammerspoon?include_prereleases)](https://github.com/windvalley/dot-hammerspoon/releases)
