@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.11.0] - 2026-03-31
+
+### Added
+- Comprehensive Snippet Management module featuring a preview panel, JSON-based persistent storage, and menubar integration with autosave.
+- AI-powered Selected Text Translation system with a configurable floating popup, supporting bidirectional translation and model warmup/keep-alive.
+- Support for Gemini and Anthropic translation providers with structured model service configurations grouped by provider.
+- Advanced translation UI enhancements including pointer arrow positioning and escape-key dismissal.
+- Support for OpenAI Codex and Antigravity integrations, including automatic input method switching and dedicated launch hotkeys (Option+X/Option+N).
+- Optional auto-paste feature for the clipboard manager.
+- Dynamic canvas-based icons for both Snippets and Keycaster modules.
+- Menubar persistence support with named autosave states.
+
+### Changed
+- Refined Snippet module display logic, item labels, and editor focus management.
+- Unified translation popup geometry, including consistent border styling and arrow placement.
+- Restructured model settings to utilize provider-based grouping for better configuration management.
+- Improved application launch sequence with enhanced hiding and verification logic.
+
+### Fixed
+- Restored menu icon persistence issues occurring after application reloads.
+- Fixed clipboard history synchronization to ensure the UI refreshes immediately after updates.
+- Resolved translation bugs related to stale auto-copy selections and truncated clipboard payloads.
+- Corrected application ordering to maintain consistent keybinding assignments.
+
+
 ## [0.10.0] - 2026-03-26
 
 ### Added
