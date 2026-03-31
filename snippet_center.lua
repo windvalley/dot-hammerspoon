@@ -48,6 +48,7 @@ local history_suspend_seconds = 2
 local detail_preview_length = 72
 local title_preview_length = 40
 local menu_title_preview_length = 24
+local menubar_icon_size = 18
 local chooser_window_chrome_height = 94
 local chooser_row_height = 42
 local default_preview_gap = 24
@@ -120,6 +121,7 @@ local state = {
 	preview_canvas = nil,
 	preview_timer = nil,
 	preview_signature = nil,
+	menubar_icon = nil,
 	storage_path = default_storage_path,
 	target_application = nil,
 	editor = nil,
@@ -1074,6 +1076,90 @@ local function quick_save_hotkey_label()
 	return format_hotkey(state.quick_save_hotkey_modifiers, state.quick_save_hotkey_key)
 end
 
+local function build_menubar_icon()
+	if state.menubar_icon ~= nil then
+		return state.menubar_icon
+	end
+
+	if type(hs.canvas) ~= "table" or type(hs.canvas.new) ~= "function" then
+		return nil
+	end
+
+	local canvas = hs.canvas.new({ x = 0, y = 0, w = 18, h = 18 })
+
+	if canvas == nil then
+		return nil
+	end
+
+	local icon_color = { red = 0, green = 0, blue = 0, alpha = 1 }
+
+	if type(canvas.appendElements) == "function" then
+		canvas:appendElements({
+			type = "segments",
+			action = "stroke",
+			strokeColor = icon_color,
+			strokeWidth = 1.55,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			closed = false,
+			coordinates = {
+				{ x = 5.6, y = 4.8 },
+				{ x = 4.2, y = 4.8 },
+				{ x = 4.2, y = 13.2 },
+				{ x = 5.6, y = 13.2 },
+			},
+		}, {
+			type = "segments",
+			action = "stroke",
+			strokeColor = icon_color,
+			strokeWidth = 1.55,
+			strokeCapStyle = "round",
+			strokeJoinStyle = "round",
+			closed = false,
+			coordinates = {
+				{ x = 12.4, y = 4.8 },
+				{ x = 13.8, y = 4.8 },
+				{ x = 13.8, y = 13.2 },
+				{ x = 12.4, y = 13.2 },
+			},
+		}, {
+			type = "rectangle",
+			action = "fill",
+			fillColor = icon_color,
+			roundedRectRadii = { xRadius = 0.6, yRadius = 0.6 },
+			frame = { x = 6.5, y = 7.0, w = 4.2, h = 1.4 },
+		}, {
+			type = "rectangle",
+			action = "fill",
+			fillColor = icon_color,
+			roundedRectRadii = { xRadius = 0.6, yRadius = 0.6 },
+			frame = { x = 6.5, y = 10.2, w = 5.4, h = 1.4 },
+		})
+	end
+
+	local icon = type(canvas.imageFromCanvas) == "function" and canvas:imageFromCanvas() or nil
+
+	if type(canvas.delete) == "function" then
+		canvas:delete()
+	end
+
+	if icon == nil then
+		return nil
+	end
+
+	if type(icon.size) == "function" then
+		icon:size({ w = menubar_icon_size, h = menubar_icon_size }, true)
+	end
+
+	if type(icon.template) == "function" then
+		icon:template(true)
+	end
+
+	state.menubar_icon = icon
+
+	return state.menubar_icon
+end
+
 local function tooltip_text()
 	return string.format(
 		"Snippet Center · %d 条 · 自动粘贴%s · 打开%s · 快速保存%s",
@@ -1968,8 +2054,21 @@ refresh_menubar = function()
 		pcall(state.menubar.autosaveName, state.menubar, menubar_autosave_name)
 	end
 
-	if type(state.menubar.setTitle) == "function" then
-		state.menubar:setTitle(menubar_title)
+	local menubar_icon = build_menubar_icon()
+
+	if menubar_icon ~= nil and type(state.menubar.setIcon) == "function" then
+		state.menubar:setIcon(menubar_icon, true)
+		if type(state.menubar.setTitle) == "function" then
+			state.menubar:setTitle(nil)
+		end
+	else
+		if type(state.menubar.setIcon) == "function" then
+			state.menubar:setIcon(nil)
+		end
+
+		if type(state.menubar.setTitle) == "function" then
+			state.menubar:setTitle(menubar_title)
+		end
 	end
 
 	if type(state.menubar.setTooltip) == "function" then

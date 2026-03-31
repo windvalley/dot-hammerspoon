@@ -90,6 +90,9 @@ function _M.run()
 		menubar_menu_builder = nil,
 		menubar_constructor_autosave_name = nil,
 		menubar_autosave_name = nil,
+		menubar_icon = nil,
+		menubar_icon_is_template = nil,
+		menubar_icon_size = nil,
 		preview_deleted = false,
 		ensured_directories = {},
 		renamed_paths = {},
@@ -406,6 +409,10 @@ function _M.run()
 					setMenu = function(_, menu)
 						recorded.menubar_menu_builder = menu
 					end,
+					setIcon = function(_, icon, is_template)
+						recorded.menubar_icon = icon
+						recorded.menubar_icon_is_template = is_template
+					end,
 					setTitle = function(_, title)
 						recorded.menubar_title = title
 					end,
@@ -426,12 +433,32 @@ function _M.run()
 				modalPanel = 1,
 			},
 			new = function(frame)
+				local is_icon_canvas = frame ~= nil and frame.w == 18 and frame.h == 18
 				local state = {
 					frame = frame,
 					showing = false,
 				}
 
 				return {
+					appendElements = function(_, ...)
+						if is_icon_canvas == true then
+							recorded.menubar_icon_elements = { ... }
+						end
+					end,
+					imageFromCanvas = function()
+						if is_icon_canvas ~= true then
+							return nil
+						end
+
+						return {
+							size = function(_, value)
+								recorded.menubar_icon_size = value
+							end,
+							template = function(_, value)
+								recorded.menubar_icon_template = value
+							end,
+						}
+					end,
 					level = function(_, value)
 						recorded.preview_level = value
 					end,
@@ -463,7 +490,11 @@ function _M.run()
 						return state.showing
 					end,
 					delete = function()
-						recorded.preview_deleted = true
+						if is_icon_canvas == true then
+							recorded.menubar_icon_canvas_deleted = true
+						else
+							recorded.preview_deleted = true
+						end
 					end,
 				}
 			end,
@@ -753,7 +784,12 @@ function _M.run()
 	assert_equal(recorded.hotkey_bindings[1].key, "s", "chooser hotkey should come from config")
 	assert_equal(recorded.hotkey_bindings[2].key, "s", "quick save hotkey should come from config")
 	assert_equal(recorded.menubar_created, 1, "snippet center should create a menubar item when configured")
-	assert_equal(recorded.menubar_title, "Snip", "snippet center menubar should expose a stable title")
+	assert_true(recorded.menubar_icon ~= nil, "snippet center menubar should prefer an icon")
+	assert_equal(recorded.menubar_icon_is_template, true, "snippet center menubar should mark the icon as template content")
+	assert_equal(recorded.menubar_icon_template, true, "snippet center menubar icon should be configured as a template image")
+	assert_equal(recorded.menubar_icon_size.w, 18, "snippet center menubar icon should use the expected width")
+	assert_equal(recorded.menubar_icon_size.h, 18, "snippet center menubar icon should use the expected height")
+	assert_equal(recorded.menubar_title, nil, "snippet center menubar should clear the fallback title when the icon is available")
 	assert_equal(recorded.menubar_constructor_autosave_name, "dot-hammerspoon.snippet_center", "snippet center should pass a stable autosave name at creation time")
 	assert_equal(recorded.menubar_autosave_name, "dot-hammerspoon.snippet_center", "snippet center should retain a stable autosave name")
 	assert_true(snippet_center.get_state().menubar_exists == true, "menubar should exist after startup when enabled")
