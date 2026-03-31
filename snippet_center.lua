@@ -54,6 +54,7 @@ local default_preview_gap = 24
 local default_preview_margin = 28
 local editor_port_name = "snippetEditor"
 local menubar_title = "Snip"
+local menubar_autosave_name = "dot-hammerspoon.snippet_center"
 local default_storage_path = expand_home_path(trim(tostring(snippets.storage_path or "~/.hammerspoon/data/snippets.json")))
 local default_open_hotkey_modifiers
 local default_open_hotkey_key
@@ -1955,12 +1956,16 @@ refresh_menubar = function()
 	end
 
 	if state.menubar == nil then
-		state.menubar = hs.menubar.new()
+		state.menubar = hs.menubar.new(true, menubar_autosave_name)
 
 		if state.menubar == nil then
 			log.e("failed to create snippet menubar item")
 			return
 		end
+	end
+
+	if type(state.menubar.autosaveName) == "function" then
+		pcall(state.menubar.autosaveName, state.menubar, menubar_autosave_name)
 	end
 
 	if type(state.menubar.setTitle) == "function" then

@@ -88,6 +88,8 @@ function _M.run()
 		menubar_created = 0,
 		menubar_deleted = 0,
 		menubar_menu_builder = nil,
+		menubar_constructor_autosave_name = nil,
+		menubar_autosave_name = nil,
 		preview_deleted = false,
 		ensured_directories = {},
 		renamed_paths = {},
@@ -386,7 +388,7 @@ function _M.run()
 			end,
 		},
 		menubar = {
-			new = function(in_menu_bar)
+			new = function(in_menu_bar, autosave_name)
 				if in_menu_bar == false then
 					return {
 						setMenu = function(_, menu)
@@ -398,6 +400,7 @@ function _M.run()
 				end
 
 				recorded.menubar_created = recorded.menubar_created + 1
+				recorded.menubar_constructor_autosave_name = autosave_name
 
 				return {
 					setMenu = function(_, menu)
@@ -408,6 +411,9 @@ function _M.run()
 					end,
 					setTooltip = function(_, tooltip)
 						recorded.menubar_tooltip = tooltip
+					end,
+					autosaveName = function(_, name)
+						recorded.menubar_autosave_name = name
 					end,
 					delete = function()
 						recorded.menubar_deleted = recorded.menubar_deleted + 1
@@ -748,6 +754,8 @@ function _M.run()
 	assert_equal(recorded.hotkey_bindings[2].key, "s", "quick save hotkey should come from config")
 	assert_equal(recorded.menubar_created, 1, "snippet center should create a menubar item when configured")
 	assert_equal(recorded.menubar_title, "Snip", "snippet center menubar should expose a stable title")
+	assert_equal(recorded.menubar_constructor_autosave_name, "dot-hammerspoon.snippet_center", "snippet center should pass a stable autosave name at creation time")
+	assert_equal(recorded.menubar_autosave_name, "dot-hammerspoon.snippet_center", "snippet center should retain a stable autosave name")
 	assert_true(snippet_center.get_state().menubar_exists == true, "menubar should exist after startup when enabled")
 	assert_equal(snippet_center.get_state().storage_path, configured_storage_path, "snippet center should expand the configured storage path")
 
