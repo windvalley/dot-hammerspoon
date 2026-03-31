@@ -177,6 +177,8 @@ Right click a snippet row in the chooser to edit, rename, pin, copy, or delete i
 
 When the chooser is open, Snippet Center also shows a preview panel for the currently selected row. For stored snippets, the preview includes the full body so you can inspect multi-line content before inserting it. You can tune it with `preview_enabled`, `preview_width`, `preview_height`, `preview_poll_interval`, and `preview_body_max_chars`.
 
+Snippets are stored in a JSON file instead of `hs.settings`. You can customize the file location with `storage_path`, which makes migration across Macs straightforward. Writes use a temp file followed by an atomic rename so normal saves do not leave half-written data behind.
+
 If you enable `show_menubar`, Snippet Center also adds a lightweight menubar entry for:
 
 - Opening the chooser
@@ -194,6 +196,7 @@ You can customize it in `~/.hammerspoon/keybindings_config.lua`:
 ```lua
 _M.snippets = {
 	enabled = true,
+	storage_path = "~/.hammerspoon/data/snippets.json",
 	max_items = 200,
 	max_content_length = 20000,
 	chooser_rows = 12,
@@ -205,7 +208,7 @@ _M.snippets = {
 	preview_height = 320,
 	preview_poll_interval = 0.08,
 	preview_body_max_chars = 6000,
-	show_menubar = false,
+	show_menubar = true,
 	menu_items = 8,
 	auto_title_length = 36,
 	editor = {

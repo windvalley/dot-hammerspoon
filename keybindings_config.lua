@@ -320,9 +320,12 @@ _M.clipboard = {
 -- 文本片段管理
 _M.snippets = {
 	enabled = true,
+	-- snippet 主存储文件路径，支持自定义，写入时使用原子替换;
+	-- 建议填写 icloud 同步路径，方便更换电脑时数据也不丢失
+	storage_path = "~/Documents/Hammerspoon/data/snippets.json",
 	-- 最多保存多少条 snippet
 	max_items = 200,
-	-- 单条 snippet 正文最大字节数，避免把超大文本写进 hs.settings
+	-- 单条 snippet 正文最大字节数，避免把超大文本写进存储文件并影响使用体验
 	max_content_length = 20000,
 	-- 选择 chooser 行数
 	chooser_rows = 12,

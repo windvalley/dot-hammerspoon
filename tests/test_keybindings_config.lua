@@ -81,6 +81,7 @@ function _M.run()
 		"selected_text_translate should expose the default Anthropic API key env name"
 	)
 	assert_true(type(snippets.show_menubar) == "boolean", "snippets show_menubar should be a boolean flag")
+	assert_true(type(snippets.storage_path) == "string" and snippets.storage_path ~= "", "snippets storage_path should be configurable")
 	assert_true(
 		type(snippets.menu_items) == "number" and snippets.menu_items >= 1,
 		"snippets menu_items should stay configurable with a sensible lower bound"

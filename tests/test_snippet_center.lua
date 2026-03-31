@@ -60,6 +60,10 @@ end
 function _M.run()
 	reset_modules()
 
+	local original_remove = os.remove
+	local original_rename = os.rename
+	local original_io_open = io.open
+
 	local recorded = {
 		alerts = {},
 		hotkey_bindings = {},
@@ -85,8 +89,73 @@ function _M.run()
 		menubar_deleted = 0,
 		menubar_menu_builder = nil,
 		preview_deleted = false,
+		ensured_directories = {},
+		renamed_paths = {},
+		removed_paths = {},
 	}
 	local current_clipboard_text = "First snippet\nLine two"
+	local fake_files = {}
+	local home_path = "/Users/tester"
+	local configured_storage_path = home_path .. "/.hammerspoon/data/snippets-test.json"
+
+	rawset(os, "remove", function(path)
+		table.insert(recorded.removed_paths, path)
+		fake_files[path] = nil
+		return true
+	end)
+
+	rawset(os, "rename", function(from_path, to_path)
+		table.insert(recorded.renamed_paths, {
+			from = from_path,
+			to = to_path,
+		})
+
+		if fake_files[from_path] == nil then
+			return nil, "missing source"
+		end
+
+		fake_files[to_path] = fake_files[from_path]
+		fake_files[from_path] = nil
+		return true
+	end)
+
+	rawset(io, "open", function(path, mode)
+		if mode == "r" then
+			if fake_files[path] == nil then
+				return nil, "missing file"
+			end
+
+			return {
+				read = function(_, pattern)
+					if pattern == "*a" then
+						return fake_files[path]
+					end
+
+					return nil
+				end,
+				close = function()
+					return true
+				end,
+			}
+		end
+
+		if mode == "w" then
+			local buffer = {}
+
+			return {
+				write = function(_, content)
+					table.insert(buffer, tostring(content or ""))
+					return true
+				end,
+				close = function()
+					fake_files[path] = table.concat(buffer)
+					return true
+				end,
+			}
+		end
+
+		return nil, "unsupported mode"
+	end)
 
 	hs = {
 		logger = {
@@ -107,6 +176,30 @@ function _M.run()
 			end,
 			clear = function(key)
 				recorded.settings_store[key] = nil
+			end,
+		},
+		json = {
+			encode = function(payload)
+				local items = {}
+
+				for _, item in ipairs((payload or {}).items or {}) do
+					table.insert(items, string.format(
+						'{"id":"%s","title":"%s","content":"%s","pinned":%s,"created_at":%d,"updated_at":%d,"last_used_at":%d,"use_count":%d}',
+						tostring(item.id or ""):gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n"),
+						tostring(item.title or ""):gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n"),
+						tostring(item.content or ""):gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n"),
+						item.pinned == true and "true" or "false",
+						tonumber(item.created_at) or 0,
+						tonumber(item.updated_at) or 0,
+						tonumber(item.last_used_at) or 0,
+						tonumber(item.use_count) or 0
+					))
+				end
+
+				return string.format('{"version":%d,"items":[%s]}', tonumber(payload.version) or 1, table.concat(items, ","))
+			end,
+			decode = function()
+				error("decode should not be called in this test")
 			end,
 		},
 		timer = {
@@ -466,6 +559,7 @@ function _M.run()
 	loaded_modules["keybindings_config"] = {
 		snippets = {
 			enabled = true,
+			storage_path = "~/.hammerspoon/data/snippets-test.json",
 			max_items = 20,
 			max_content_length = 20000,
 			chooser_rows = 8,
@@ -613,6 +707,28 @@ function _M.run()
 
 			return copied
 		end,
+		file_exists = function(path)
+			return fake_files[path] ~= nil
+		end,
+		ensure_directory = function(path)
+			table.insert(recorded.ensured_directories, path)
+			return true
+		end,
+		expand_home_path = function(path)
+			if path == "~/.hammerspoon/data/snippets-test.json" then
+				return configured_storage_path
+			end
+
+			if path == "~/.hammerspoon/data" then
+				return home_path .. "/.hammerspoon/data"
+			end
+
+			if tostring(path):sub(1, 2) == "~/" then
+				return home_path .. tostring(path):sub(2)
+			end
+
+			return path
+		end,
 		prompt_text = function()
 			return table.remove(recorded.prompt_values, 1)
 		end,
@@ -633,11 +749,15 @@ function _M.run()
 	assert_equal(recorded.menubar_created, 1, "snippet center should create a menubar item when configured")
 	assert_equal(recorded.menubar_title, "Snip", "snippet center menubar should expose a stable title")
 	assert_true(snippet_center.get_state().menubar_exists == true, "menubar should exist after startup when enabled")
+	assert_equal(snippet_center.get_state().storage_path, configured_storage_path, "snippet center should expand the configured storage path")
 
 	local quick_save_ok = snippet_center.quick_save_clipboard()
 	assert_true(quick_save_ok == true, "quick save should persist current clipboard text as a snippet")
 	assert_equal(snippet_center.get_state().item_count, 1, "quick save should create one snippet")
-	assert_equal(recorded.settings_store["snippet_center.items"][1].content, "First snippet\nLine two", "saved snippet should persist its content")
+	assert_contains(fake_files[configured_storage_path], "First snippet\\nLine two", "saved snippet should persist its content in the storage file")
+	assert_equal(recorded.ensured_directories[1], home_path .. "/.hammerspoon/data", "saving snippets should ensure the parent directory exists")
+	assert_equal(recorded.renamed_paths[1].from, configured_storage_path .. ".tmp", "snippet persistence should write through a temp file")
+	assert_equal(recorded.renamed_paths[1].to, configured_storage_path, "snippet persistence should atomically rename the temp file")
 
 	local menubar_menu = recorded.menubar_menu_builder()
 	local open_chooser_item = find_menu_item(menubar_menu, "打开 Chooser")
@@ -773,6 +893,9 @@ function _M.run()
 	assert_true(recorded.preview_deleted == true, "stop should delete the preview canvas")
 
 	reset_modules()
+	rawset(os, "remove", original_remove)
+	rawset(os, "rename", original_rename)
+	rawset(io, "open", original_io_open)
 	hs = nil
 end
 

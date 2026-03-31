@@ -11,18 +11,21 @@ local utf8len = utils_lib.utf8len
 local utf8sub = utils_lib.utf8sub
 local copy_list = utils_lib.copy_list
 local prompt_text = utils_lib.prompt_text
+local file_exists = utils_lib.file_exists
+local ensure_directory = utils_lib.ensure_directory
+local expand_home_path = utils_lib.expand_home_path
 local normalize_hotkey_modifiers = hotkey_helper.normalize_hotkey_modifiers
 local format_hotkey = hotkey_helper.format_hotkey
 local modifier_prompt_names = hotkey_helper.modifier_prompt_names
 
 local log = hs.logger.new("snippet")
 
-local items_settings_key = "snippet_center.items"
 local auto_paste_settings_key = "snippet_center.auto_paste"
 local open_hotkey_modifiers_settings_key = "snippet_center.hotkey.open.modifiers"
 local open_hotkey_key_settings_key = "snippet_center.hotkey.open.key"
 local quick_save_hotkey_modifiers_settings_key = "snippet_center.hotkey.quick_save.modifiers"
 local quick_save_hotkey_key_settings_key = "snippet_center.hotkey.quick_save.key"
+local storage_file_version = 1
 local default_max_items = math.max(10, math.floor(tonumber(snippets.max_items) or 200))
 local default_max_content_length = math.max(200, math.floor(tonumber(snippets.max_content_length) or 20000))
 local default_chooser_rows = math.max(6, math.floor(tonumber(snippets.chooser_rows) or 12))
@@ -50,6 +53,7 @@ local default_preview_gap = 24
 local default_preview_margin = 28
 local editor_port_name = "snippetEditor"
 local menubar_title = "Snip"
+local default_storage_path = expand_home_path(trim(tostring(snippets.storage_path or "~/.hammerspoon/data/snippets.json")))
 local default_open_hotkey_modifiers
 local default_open_hotkey_key
 local default_quick_save_hotkey_modifiers
@@ -114,6 +118,7 @@ local state = {
 	preview_canvas = nil,
 	preview_timer = nil,
 	preview_signature = nil,
+	storage_path = default_storage_path,
 	target_application = nil,
 	editor = nil,
 	editor_controller = nil,
@@ -480,6 +485,62 @@ local function clone_items(items)
 	return cloned
 end
 
+local function normalize_storage_path(path)
+	local normalized = trim(tostring(path or ""))
+
+	if normalized == "" then
+		normalized = "~/.hammerspoon/data/snippets.json"
+	end
+
+	return expand_home_path(normalized)
+end
+
+local function storage_directory(path)
+	return string.match(tostring(path or ""), "^(.*)/[^/]+/?$")
+end
+
+local function temp_storage_path(path)
+	return tostring(path or "") .. ".tmp"
+end
+
+local function read_text_file(path)
+	local file, open_error = io.open(path, "r")
+
+	if file == nil then
+		return nil, open_error
+	end
+
+	local content = file:read("*a")
+	local closed, close_error = file:close()
+
+	if closed ~= true and close_error ~= nil then
+		return nil, close_error
+	end
+
+	return content
+end
+
+local function write_text_file(path, content)
+	local file, open_error = io.open(path, "w")
+
+	if file == nil then
+		return false, open_error
+	end
+
+	local wrote, write_error = file:write(content)
+	local closed, close_error = file:close()
+
+	if wrote == nil then
+		return false, write_error
+	end
+
+	if closed ~= true and close_error ~= nil then
+		return false, close_error
+	end
+
+	return true
+end
+
 local function sanitize_item(raw_item)
 	if type(raw_item) ~= "table" then
 		return nil
@@ -519,23 +580,86 @@ local function sanitize_item(raw_item)
 end
 
 local function persist_items()
-	if type(hs.settings) ~= "table" or type(hs.settings.set) ~= "function" then
-		return
+	if type(hs.json) ~= "table" or type(hs.json.encode) ~= "function" then
+		return false, "当前环境不支持 JSON 编码"
 	end
 
-	hs.settings.set(items_settings_key, clone_items(state.items))
+	local target_path = normalize_storage_path(state.storage_path)
+	local parent_directory = storage_directory(target_path)
+
+	if parent_directory ~= nil and parent_directory ~= "" and ensure_directory(parent_directory) ~= true then
+		return false, "存储目录创建失败"
+	end
+
+	local encoded_ok, encoded_payload = pcall(hs.json.encode, {
+		version = storage_file_version,
+		items = clone_items(state.items),
+	})
+
+	if encoded_ok ~= true or type(encoded_payload) ~= "string" or encoded_payload == "" then
+		return false, "snippet 数据编码失败"
+	end
+
+	local temp_path = temp_storage_path(target_path)
+
+	pcall(os.remove, temp_path)
+
+	local wrote_ok, write_error = write_text_file(temp_path, encoded_payload)
+
+	if wrote_ok ~= true then
+		pcall(os.remove, temp_path)
+		return false, string.format("写入临时文件失败: %s", tostring(write_error))
+	end
+
+	local renamed, rename_error = os.rename(temp_path, target_path)
+
+	if renamed ~= true then
+		pcall(os.remove, temp_path)
+		return false, string.format("原子替换失败: %s", tostring(rename_error))
+	end
+
+	state.storage_path = target_path
+
+	return true
 end
 
 local function load_items()
-	if type(hs.settings) ~= "table" or type(hs.settings.get) ~= "function" then
+	local target_path = normalize_storage_path(state.storage_path)
+
+	state.storage_path = target_path
+
+	if file_exists(target_path) ~= true then
 		return {}
 	end
 
-	local stored_items = hs.settings.get(items_settings_key)
+	local body, read_error = read_text_file(target_path)
+
+	if type(body) ~= "string" then
+		return nil, string.format("读取 snippet 存储文件失败: %s", tostring(read_error))
+	end
+
+	if trim(body) == "" then
+		return nil, "snippet 存储文件为空，请删除该文件后重试"
+	end
+
+	if type(hs.json) ~= "table" or type(hs.json.decode) ~= "function" then
+		return nil, "当前环境不支持 JSON 解码"
+	end
+
+	local decoded_ok, payload = pcall(hs.json.decode, body)
+
+	if decoded_ok ~= true or type(payload) ~= "table" then
+		return nil, "snippet 存储文件解析失败"
+	end
+
+	if type(payload.items) ~= "table" then
+		return nil, "snippet 存储文件格式无效"
+	end
+
 	local items = {}
 	local seen_ids = {}
 
-	for _, raw_item in ipairs(stored_items or {}) do
+	for _, raw_item in ipairs(payload.items) do
 		local item = sanitize_item(raw_item)
 
 		if item ~= nil and seen_ids[item.id] ~= true then
@@ -1330,7 +1454,14 @@ local function create_item(title, content, options)
 	}
 
 	table.insert(state.items, item)
-	persist_items()
+	local persisted_ok, persist_error = persist_items()
+
+	if persisted_ok ~= true then
+		table.remove(state.items, #state.items)
+		log.e("failed to persist created snippet: " .. tostring(persist_error))
+		return false, "保存 snippet 失败"
+	end
+
 	refresh_chooser_choices(true)
 
 	if refresh_menubar ~= nil then
@@ -1358,12 +1489,20 @@ local function update_item(item_id, fields)
 		return false, string.format("正文不能超过 %d 字节", default_max_content_length)
 	end
 
+	local previous_item = serialize_item(state.items[index])
 	item.title = next_title
 	item.content = next_content
 	item.updated_at = current_timestamp()
 
 	state.items[index] = item
-	persist_items()
+	local persisted_ok, persist_error = persist_items()
+
+	if persisted_ok ~= true then
+		state.items[index] = previous_item
+		log.e("failed to persist updated snippet: " .. tostring(persist_error))
+		return false, "保存 snippet 失败"
+	end
+
 	refresh_chooser_choices(true)
 
 	if refresh_menubar ~= nil then
@@ -1380,8 +1519,18 @@ local function delete_item(item_id)
 		return false
 	end
 
+	local removed_item = state.items[index]
+
 	table.remove(state.items, index)
-	persist_items()
+
+	local persisted_ok, persist_error = persist_items()
+
+	if persisted_ok ~= true then
+		table.insert(state.items, index, removed_item)
+		log.e("failed to persist deleted snippet: " .. tostring(persist_error))
+		return false
+	end
+
 	refresh_chooser_choices(true, index)
 
 	if refresh_menubar ~= nil then
@@ -1398,9 +1547,18 @@ local function mark_item_used(item_id)
 		return
 	end
 
+	local previous_last_used_at = item.last_used_at
+	local previous_use_count = item.use_count
 	item.last_used_at = current_timestamp()
 	item.use_count = math.max(0, math.floor(tonumber(item.use_count) or 0)) + 1
-	persist_items()
+	local persisted_ok, persist_error = persist_items()
+
+	if persisted_ok ~= true then
+		item.last_used_at = previous_last_used_at
+		item.use_count = previous_use_count
+		log.e("failed to persist snippet usage stats: " .. tostring(persist_error))
+		return
+	end
 
 	if refresh_menubar ~= nil then
 		refresh_menubar()
@@ -1414,9 +1572,18 @@ local function set_item_pinned(item_id, pinned)
 		return false
 	end
 
+	local previous_item = serialize_item(item)
 	item.pinned = pinned == true
 	item.updated_at = current_timestamp()
-	persist_items()
+	local persisted_ok, persist_error = persist_items()
+
+	if persisted_ok ~= true then
+		item.pinned = previous_item.pinned
+		item.updated_at = previous_item.updated_at
+		log.e("failed to persist snippet pin state: " .. tostring(persist_error))
+		return false
+	end
+
 	refresh_chooser_choices(true)
 
 	if refresh_menubar ~= nil then
@@ -1533,13 +1700,14 @@ local function rename_item(item_id)
 		return
 	end
 
-	item.title = trim(next_title)
-	item.updated_at = current_timestamp()
-	persist_items()
-	refresh_chooser_choices(true)
+	local updated_ok = update_item(item_id, {
+		title = trim(next_title),
+		content = item.content,
+	})
 
-	if refresh_menubar ~= nil then
-		refresh_menubar()
+	if updated_ok ~= true then
+		hs.alert.show("保存 snippet 失败")
+		return
 	end
 
 	hs.alert.show("Snippet 标题已更新")
@@ -2856,7 +3024,15 @@ function _M.start()
 	end
 
 	started = true
-	state.items = load_items()
+	local loaded_items, load_error = load_items()
+
+	if loaded_items == nil then
+		log.e("failed to load snippet storage: " .. tostring(load_error))
+		started = false
+		return false
+	end
+
+	state.items = loaded_items
 
 	if snippets.enabled == false then
 		return true
@@ -2951,6 +3127,7 @@ _M.get_state = function()
 		started = started,
 		item_count = #state.items,
 		items = clone_items(state.items),
+		storage_path = state.storage_path,
 		auto_paste = state.auto_paste == true,
 		show_menubar = state.show_menubar == true,
 		open_hotkey_label = open_hotkey_label(),
