@@ -47,6 +47,7 @@ local clipboard_restore_delay_seconds = 0.35
 local history_suspend_seconds = 2
 local detail_preview_length = 72
 local title_preview_length = 40
+local menu_title_preview_length = 24
 local chooser_window_chrome_height = 94
 local chooser_row_height = 42
 local default_preview_gap = 24
@@ -1669,13 +1670,42 @@ local restore_default_open_hotkey
 local restore_default_quick_save_hotkey
 
 local function menu_title_for_item(item)
-	local title = display_title(item)
+	local title = raw_title(item)
+
+	if title ~= "" then
+		title = truncate_text(title, menu_title_preview_length)
+	else
+		title = truncate_text(first_nonempty_line(item.content), menu_title_preview_length)
+	end
+
+	if title == "" then
+		title = "未命名片段"
+	end
 
 	if item.pinned == true then
 		return "置顶 · " .. title
 	end
 
 	return title
+end
+
+local function menu_detail_for_item(item)
+	local detail = {
+		string.format("%d行", line_count(item.content)),
+		string.format("%d字", safe_utf8len(item.content)),
+	}
+
+	if item.pinned == true then
+		table.insert(detail, 1, "置顶")
+	end
+
+	if tonumber(item.last_used_at) and tonumber(item.last_used_at) > 0 then
+		table.insert(detail, os.date("%m-%d %H:%M", item.last_used_at))
+	elseif tonumber(item.updated_at) and tonumber(item.updated_at) > 0 then
+		table.insert(detail, os.date("%m-%d %H:%M", item.updated_at))
+	end
+
+	return table.concat(detail, " · ")
 end
 
 local function menu_tooltip_for_item(item)
@@ -1744,9 +1774,8 @@ end
 
 local function build_item_management_menu(item)
 	return {
-		{ title = display_title(item), disabled = true },
-		{ title = snippet_detail(item), disabled = true },
-		{ title = snippet_preview(item), disabled = true },
+		{ title = menu_title_for_item(item), disabled = true },
+		{ title = menu_detail_for_item(item), disabled = true },
 		{ title = "-" },
 		{
 			title = state.auto_paste == true and "插入 snippet" or "复制并准备粘贴",
@@ -1804,17 +1833,17 @@ end
 local function build_hotkey_menu()
 	return {
 		{ title = "快捷键信息", disabled = true },
-		{ title = "打开 Chooser: " .. open_hotkey_label(), disabled = true },
-		{ title = "快速保存: " .. quick_save_hotkey_label(), disabled = true },
+		{ title = "打开: " .. open_hotkey_label(), disabled = true },
+		{ title = "保存: " .. quick_save_hotkey_label(), disabled = true },
 		{ title = "-" },
 		{
 			title = "设置打开快捷键",
 			fn = prompt_open_hotkey_configuration,
 		},
 		{
-			title = "恢复默认打开快捷键",
+			title = "恢复默认打开",
 			disabled = same_list(state.open_hotkey_modifiers, default_open_hotkey_modifiers)
-				and state.open_hotkey_key == default_open_hotkey_key,
+					and state.open_hotkey_key == default_open_hotkey_key,
 			fn = restore_default_open_hotkey,
 		},
 		{ title = "-" },
@@ -1823,9 +1852,9 @@ local function build_hotkey_menu()
 			fn = prompt_quick_save_hotkey_configuration,
 		},
 		{
-			title = "恢复默认快速保存快捷键",
+			title = "恢复默认保存",
 			disabled = same_list(state.quick_save_hotkey_modifiers, default_quick_save_hotkey_modifiers)
-				and state.quick_save_hotkey_key == default_quick_save_hotkey_key,
+					and state.quick_save_hotkey_key == default_quick_save_hotkey_key,
 			fn = restore_default_quick_save_hotkey,
 		},
 	}
@@ -1845,8 +1874,6 @@ local function append_menu_items(menu)
 		return
 	end
 
-	table.insert(menu, { title = "点击子菜单可插入、编辑或删除", disabled = true })
-
 	for index = 1, count do
 		local item = items[index]
 
@@ -1863,8 +1890,8 @@ local function build_menubar_menu()
 		{ title = "Snippet Center", disabled = true },
 		{ title = string.format("总数: %d", #state.items), disabled = true },
 		{ title = "自动粘贴: " .. auto_paste_status_text(), disabled = true },
-		{ title = "打开快捷键: " .. open_hotkey_label(), disabled = true },
-		{ title = "快速保存快捷键: " .. quick_save_hotkey_label(), disabled = true },
+		{ title = "打开: " .. open_hotkey_label(), disabled = true },
+		{ title = "保存: " .. quick_save_hotkey_label(), disabled = true },
 		{ title = "-" },
 		{
 			title = "打开 Chooser",
@@ -1899,7 +1926,7 @@ local function build_menubar_menu()
 			menu = build_hotkey_menu(),
 		},
 		{
-			title = "隐藏菜单栏图标",
+			title = "隐藏图标",
 			fn = function()
 				set_show_menubar(false)
 			end,
