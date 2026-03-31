@@ -32,6 +32,11 @@ local default_restore_clipboard_after_paste = snippets.restore_clipboard_after_p
 local default_auto_title_length = math.max(12, math.floor(tonumber(snippets.auto_title_length) or 36))
 local default_editor_width = math.max(420, math.floor(tonumber((snippets.editor or {}).width) or 620))
 local default_editor_height = math.max(300, math.floor(tonumber((snippets.editor or {}).height) or 480))
+local default_preview_enabled = snippets.preview_enabled ~= false
+local default_preview_width = math.max(280, math.floor(tonumber(snippets.preview_width) or 420))
+local default_preview_height = math.max(220, math.floor(tonumber(snippets.preview_height) or 320))
+local default_preview_poll_interval = math.max(0.05, tonumber(snippets.preview_poll_interval) or 0.08)
+local preview_body_max_chars = math.max(1000, math.floor(tonumber(snippets.preview_body_max_chars) or 6000))
 local default_show_menubar = snippets.show_menubar == true
 local default_menu_items = math.max(1, math.floor(tonumber(snippets.menu_items) or 8))
 local auto_paste_delay_seconds = 0.12
@@ -39,6 +44,10 @@ local clipboard_restore_delay_seconds = 0.35
 local history_suspend_seconds = 2
 local detail_preview_length = 72
 local title_preview_length = 40
+local chooser_window_chrome_height = 94
+local chooser_row_height = 42
+local default_preview_gap = 24
+local default_preview_margin = 28
 local editor_port_name = "snippetEditor"
 local menubar_title = "Snip"
 local default_open_hotkey_modifiers
@@ -94,6 +103,7 @@ local state = {
 	auto_paste = default_auto_paste,
 	show_menubar = default_show_menubar,
 	chooser = nil,
+	chooser_screen_frame = nil,
 	menubar = nil,
 	open_hotkey = nil,
 	open_hotkey_modifiers = {},
@@ -101,6 +111,9 @@ local state = {
 	quick_save_hotkey = nil,
 	quick_save_hotkey_modifiers = {},
 	quick_save_hotkey_key = nil,
+	preview_canvas = nil,
+	preview_timer = nil,
+	preview_signature = nil,
 	target_application = nil,
 	editor = nil,
 	editor_controller = nil,
@@ -353,6 +366,16 @@ local function compact_preview(text, max_chars)
 	end
 
 	return truncate_text(preview, max_chars)
+end
+
+local function truncate_preview_body(text)
+	local normalized = tostring(text or "")
+
+	if safe_utf8len(normalized) <= preview_body_max_chars then
+		return normalized
+	end
+
+	return truncate_text(normalized, preview_body_max_chars) .. "\n\n..."
 end
 
 local function first_nonempty_line(text)
@@ -652,6 +675,9 @@ local function choice_for_item(item)
 		subText = string.format("%s · %s", snippet_preview(item), snippet_detail(item)),
 		source = "snippet",
 		snippet_id = item.id,
+		preview_title = display_title(item),
+		preview_detail = snippet_detail(item),
+		preview_body = item.content,
 	}
 end
 
@@ -674,11 +700,15 @@ local function build_action_choices(query)
 			id = "new_empty",
 			text = "新建空白片段",
 			subText = "打开内置编辑器，标题可选，正文支持多行输入",
+			preview_detail = "快捷操作",
+			preview_body = "创建一个新的多行 snippet。标题可留空，列表会自动使用正文第一行作为显示标题。",
 		},
 		{
 			id = "new_from_clipboard",
 			text = "从当前剪贴板新建",
 			subText = "直接保存当前剪贴板文本为 snippet，标题将自动生成",
+			preview_detail = "快捷操作",
+			preview_body = "直接把当前剪贴板里的文本保存为 snippet。若内容重复，会拒绝保存。",
 		},
 	}
 
@@ -689,6 +719,9 @@ local function build_action_choices(query)
 				subText = action.subText,
 				source = "action",
 				action = action.id,
+				preview_title = action.text,
+				preview_detail = action.preview_detail,
+				preview_body = action.preview_body,
 			})
 		end
 	end
@@ -741,6 +774,68 @@ local function resolve_target_screen_frame()
 	end
 
 	return target_screen:frame()
+end
+
+local function chooser_window_height()
+	return chooser_window_chrome_height + (chooser_row_height * default_chooser_rows)
+end
+
+local function chooser_layout(screen_frame)
+	if screen_frame == nil then
+		return nil
+	end
+
+	local chooser_width = math.floor(screen_frame.w * default_chooser_width / 100)
+	local chooser_height = chooser_window_height()
+	local chooser_x = screen_frame.x + math.floor((screen_frame.w - chooser_width) / 2)
+	local chooser_y = screen_frame.y + math.floor((screen_frame.h - chooser_height) / 2)
+	local preview_width = math.min(default_preview_width, math.floor(screen_frame.w * 0.34))
+	local preview_height = math.min(default_preview_height, math.floor(screen_frame.h * 0.56))
+	local preview_x = screen_frame.x + screen_frame.w - preview_width - default_preview_margin
+	local preview_y = screen_frame.y + math.floor((screen_frame.h - preview_height) / 2)
+
+	if default_preview_enabled == true then
+		local total_width = chooser_width + default_preview_gap + preview_width + (default_preview_margin * 2)
+
+		if total_width <= screen_frame.w then
+			chooser_x = screen_frame.x + math.floor((screen_frame.w - (chooser_width + default_preview_gap + preview_width)) / 2)
+			preview_x = chooser_x + chooser_width + default_preview_gap
+		end
+	end
+
+	return {
+		chooser_point = hs.geometry.point(chooser_x, chooser_y),
+		preview_frame = {
+			x = preview_x,
+			y = preview_y,
+			w = preview_width,
+			h = preview_height,
+		},
+	}
+end
+
+local function preview_colors()
+	if type(hs.host) == "table" and type(hs.host.interfaceStyle) == "function" and hs.host.interfaceStyle() == "Dark" then
+		return {
+			background = { red = 0.13, green = 0.14, blue = 0.17, alpha = 0.97 },
+			border = { white = 1, alpha = 0.12 },
+			title = { white = 1, alpha = 0.96 },
+			detail = { white = 1, alpha = 0.56 },
+			body = { white = 1, alpha = 0.9 },
+			body_background = { white = 1, alpha = 0.04 },
+			shadow = { alpha = 0.28, white = 0 },
+		}
+	end
+
+	return {
+		background = { white = 1, alpha = 0.98 },
+		border = { white = 0, alpha = 0.1 },
+		title = { white = 0.08, alpha = 1 },
+		detail = { white = 0.22, alpha = 0.74 },
+		body = { white = 0.08, alpha = 0.96 },
+		body_background = { white = 0, alpha = 0.04 },
+		shadow = { alpha = 0.18, white = 0 },
+	}
 end
 
 local function snapshot_clipboard()
@@ -900,6 +995,255 @@ local function set_auto_paste(enabled, options)
 	return true
 end
 
+local function ensure_preview_canvas(frame)
+	if type(hs.canvas) ~= "table" or type(hs.canvas.new) ~= "function" then
+		return nil
+	end
+
+	if state.preview_canvas == nil then
+		state.preview_canvas = hs.canvas.new(frame)
+
+		if state.preview_canvas == nil then
+			return nil
+		end
+
+		pcall(function()
+			state.preview_canvas:level(hs.canvas.windowLevels.modalPanel)
+		end)
+		pcall(function()
+			state.preview_canvas:clickActivating(false)
+		end)
+	end
+
+	if type(state.preview_canvas.frame) == "function" then
+		state.preview_canvas:frame(frame)
+	end
+
+	return state.preview_canvas
+end
+
+local function hide_preview()
+	state.preview_signature = nil
+
+	if state.preview_canvas ~= nil and type(state.preview_canvas.hide) == "function" then
+		pcall(state.preview_canvas.hide, state.preview_canvas, 0.1)
+	end
+end
+
+local function build_choice_preview(choice)
+	if type(choice) ~= "table" then
+		return nil
+	end
+
+	local title = trim(tostring(choice.preview_title or choice.text or ""))
+	local detail = trim(tostring(choice.preview_detail or choice.subText or ""))
+	local body = tostring(choice.preview_body or "")
+
+	if body == "" then
+		if choice.source == "snippet" then
+			local item = find_item_by_id(choice.snippet_id)
+
+			if item ~= nil then
+				body = tostring(item.content or "")
+			end
+		else
+			body = detail
+		end
+	end
+
+	if trim(title) == "" and trim(detail) == "" and trim(body) == "" then
+		return nil
+	end
+
+	if trim(title) == "" then
+		title = "Snippet Preview"
+	end
+
+	return {
+		signature = table.concat({
+			tostring(choice.source or ""),
+			tostring(choice.action or choice.snippet_id or ""),
+			tostring(body),
+		}, ":"),
+		title = title,
+		detail = detail,
+		body = truncate_preview_body(body ~= "" and body or "(空白)"),
+	}
+end
+
+local function build_text_preview_elements(frame, preview)
+	local colors = preview_colors()
+	local outer_radius = 16
+	local inner_radius = 12
+	local horizontal_padding = 18
+	local top_padding = 16
+	local title_height = 24
+	local detail_height = preview.detail ~= "" and 18 or 0
+	local body_top = top_padding + title_height + detail_height + 12
+	local body_frame = {
+		x = horizontal_padding,
+		y = body_top,
+		w = frame.w - (horizontal_padding * 2),
+		h = frame.h - body_top - horizontal_padding,
+	}
+
+	return {
+		{
+			type = "rectangle",
+			action = "fill",
+			fillColor = colors.background,
+			roundedRectRadii = { xRadius = outer_radius, yRadius = outer_radius },
+			withShadow = true,
+			shadow = {
+				blurRadius = 18,
+				color = colors.shadow,
+				offset = { h = 0, w = 0 },
+			},
+			frame = { x = 0, y = 0, w = frame.w, h = frame.h },
+		},
+		{
+			type = "rectangle",
+			action = "stroke",
+			strokeColor = colors.border,
+			strokeWidth = 1,
+			roundedRectRadii = { xRadius = outer_radius, yRadius = outer_radius },
+			frame = { x = 0.5, y = 0.5, w = frame.w - 1, h = frame.h - 1 },
+		},
+		{
+			type = "text",
+			text = preview.title,
+			textSize = 17,
+			textColor = colors.title,
+			frame = {
+				x = horizontal_padding,
+				y = top_padding,
+				w = frame.w - (horizontal_padding * 2),
+				h = title_height,
+			},
+		},
+		{
+			type = "text",
+			text = preview.detail,
+			textSize = 12,
+			textColor = colors.detail,
+			frame = {
+				x = horizontal_padding,
+				y = top_padding + title_height,
+				w = frame.w - (horizontal_padding * 2),
+				h = detail_height,
+			},
+		},
+		{
+			type = "rectangle",
+			action = "fill",
+			fillColor = colors.body_background,
+			roundedRectRadii = { xRadius = inner_radius, yRadius = inner_radius },
+			frame = body_frame,
+		},
+		{
+			type = "rectangle",
+			action = "stroke",
+			strokeColor = colors.border,
+			strokeWidth = 1,
+			roundedRectRadii = { xRadius = inner_radius, yRadius = inner_radius },
+			frame = body_frame,
+		},
+		{
+			type = "text",
+			text = preview.body,
+			textSize = 13,
+			textColor = colors.body,
+			frame = {
+				x = body_frame.x + 12,
+				y = body_frame.y + 10,
+				w = body_frame.w - 24,
+				h = body_frame.h - 20,
+			},
+		},
+	}
+end
+
+local function update_preview()
+	if default_preview_enabled ~= true or state.chooser == nil then
+		return
+	end
+
+	local choice = state.chooser:selectedRowContents()
+
+	if type(choice) ~= "table" then
+		hide_preview()
+		return
+	end
+
+	local preview = build_choice_preview(choice)
+
+	if preview == nil then
+		hide_preview()
+		return
+	end
+
+	local screen_frame = state.chooser_screen_frame or resolve_target_screen_frame()
+	local layout = chooser_layout(screen_frame)
+
+	if layout == nil or layout.preview_frame == nil then
+		hide_preview()
+		return
+	end
+
+	local canvas = ensure_preview_canvas(layout.preview_frame)
+
+	if canvas == nil then
+		return
+	end
+
+	local canvas_showing = type(canvas.isShowing) == "function" and canvas:isShowing() == true or false
+
+	if state.preview_signature ~= preview.signature or canvas_showing ~= true then
+		if type(canvas.replaceElements) == "function" then
+			canvas:replaceElements(table.unpack(build_text_preview_elements(layout.preview_frame, preview)))
+		end
+
+		if type(canvas.show) == "function" then
+			canvas:show(0.08)
+		end
+	end
+
+	state.preview_signature = preview.signature
+end
+
+local function stop_preview_timer()
+	if state.preview_timer ~= nil and type(state.preview_timer.stop) == "function" then
+		pcall(state.preview_timer.stop, state.preview_timer)
+	end
+
+	state.preview_timer = nil
+end
+
+local function start_preview_timer()
+	if default_preview_enabled ~= true then
+		return
+	end
+
+	stop_preview_timer()
+
+	if type(hs.timer) == "table" and type(hs.timer.doEvery) == "function" then
+		state.preview_timer = hs.timer.doEvery(default_preview_poll_interval, update_preview)
+	end
+
+	update_preview()
+end
+
+local function destroy_preview_canvas()
+	stop_preview_timer()
+	hide_preview()
+
+	if state.preview_canvas ~= nil and type(state.preview_canvas.delete) == "function" then
+		pcall(state.preview_canvas.delete, state.preview_canvas)
+	end
+
+	state.preview_canvas = nil
+end
+
 local function refresh_chooser_choices(preserve_query, selected_row)
 	if state.chooser == nil then
 		return
@@ -943,6 +1287,8 @@ local function refresh_chooser_choices(preserve_query, selected_row)
 	pcall(function()
 		state.chooser:selectedRow(target_row)
 	end)
+
+	update_preview()
 end
 
 local function create_item(title, content, options)
@@ -1817,6 +2163,9 @@ open_editor = function(options)
 		if type(state.chooser.hide) == "function" then
 			pcall(state.chooser.hide, state.chooser)
 		end
+
+		stop_preview_timer()
+		hide_preview()
 	end
 
 	close_editor()
@@ -2153,10 +2502,19 @@ local function setup_chooser()
 				state.chooser:selectedRow(1)
 			end)
 		end
+
+		start_preview_timer()
 	end)
+	if type(state.chooser.hideCallback) == "function" then
+		state.chooser:hideCallback(function()
+			stop_preview_timer()
+			hide_preview()
+		end)
+	end
 	state.chooser:queryChangedCallback(function()
 		local selected_row = state.chooser:selectedRow() or 0
 		refresh_chooser_choices(true, selected_row)
+		update_preview()
 	end)
 	state.chooser:rightClickCallback(function(row)
 		show_chooser_context_menu(row)
@@ -2167,6 +2525,7 @@ end
 
 local function destroy_chooser()
 	if state.chooser == nil then
+		destroy_preview_canvas()
 		return
 	end
 
@@ -2174,11 +2533,16 @@ local function destroy_chooser()
 		pcall(state.chooser.hide, state.chooser)
 	end
 
+	stop_preview_timer()
+	hide_preview()
+
 	if type(state.chooser.delete) == "function" then
 		pcall(state.chooser.delete, state.chooser)
 	end
 
 	state.chooser = nil
+	state.chooser_screen_frame = nil
+	destroy_preview_canvas()
 end
 
 local function create_open_hotkey_binding(modifiers, key)
@@ -2474,20 +2838,13 @@ show_chooser = function(options)
 		state.target_application = current_frontmost_application()
 	end
 
+	state.chooser_screen_frame = resolve_target_screen_frame()
 	state.chooser:choices(build_choices())
 	state.chooser:query(nil)
+	local layout = chooser_layout(state.chooser_screen_frame)
 
-	local screen_frame = resolve_target_screen_frame()
-
-	if screen_frame ~= nil and type(hs.geometry) == "table" and type(hs.geometry.point) == "function" then
-		local chooser_width = math.floor(screen_frame.w * default_chooser_width / 100)
-		local chooser_height = 94 + (42 * default_chooser_rows)
-		local point = hs.geometry.point(
-			screen_frame.x + math.floor((screen_frame.w - chooser_width) / 2),
-			screen_frame.y + math.floor((screen_frame.h - chooser_height) / 2)
-		)
-
-		state.chooser:show(point)
+	if layout ~= nil and layout.chooser_point ~= nil then
+		state.chooser:show(layout.chooser_point)
 	else
 		state.chooser:show()
 	end
@@ -2599,6 +2956,7 @@ _M.get_state = function()
 		open_hotkey_label = open_hotkey_label(),
 		quick_save_hotkey_label = quick_save_hotkey_label(),
 		chooser_exists = state.chooser ~= nil,
+		preview_exists = state.preview_canvas ~= nil,
 		menubar_exists = state.menubar ~= nil,
 		editor_exists = state.editor ~= nil,
 	}

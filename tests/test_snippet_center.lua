@@ -39,6 +39,16 @@ local function first_choice_by_source(choices, source)
 	return nil
 end
 
+local function preview_contains_text(elements, expected)
+	for _, element in ipairs(elements or {}) do
+		if tostring(element.text or ""):find(expected, 1, true) ~= nil then
+			return true
+		end
+	end
+
+	return false
+end
+
 local function reset_modules()
 	loaded_modules["snippet_center"] = nil
 	loaded_modules["keybindings_config"] = nil
@@ -74,6 +84,7 @@ function _M.run()
 		menubar_created = 0,
 		menubar_deleted = 0,
 		menubar_menu_builder = nil,
+		preview_deleted = false,
 	}
 	local current_clipboard_text = "First snippet\nLine two"
 
@@ -108,6 +119,16 @@ function _M.run()
 
 				return {
 					stop = function() end,
+				}
+			end,
+			doEvery = function(interval, fn)
+				recorded.preview_timer_interval = interval
+				recorded.preview_timer_callback = fn
+
+				return {
+					stop = function()
+						recorded.preview_timer_stopped = true
+					end,
 				}
 			end,
 		},
@@ -181,6 +202,7 @@ function _M.run()
 					choices = {},
 					selected_row = 0,
 					show_callback = nil,
+					hide_callback = nil,
 					query_changed_callback = nil,
 					right_click_callback = nil,
 					choice_callback = choice_callback,
@@ -194,6 +216,9 @@ function _M.run()
 				function chooser.placeholderText(_) end
 				function chooser.showCallback(_, fn)
 					state.show_callback = fn
+				end
+				function chooser.hideCallback(_, fn)
+					state.hide_callback = fn
 				end
 				function chooser.queryChangedCallback(_, fn)
 					state.query_changed_callback = fn
@@ -230,6 +255,10 @@ function _M.run()
 				function chooser.hide(_)
 					state.visible = false
 					recorded.chooser_hide_count = (recorded.chooser_hide_count or 0) + 1
+
+					if state.hide_callback ~= nil then
+						state.hide_callback()
+					end
 				end
 				function chooser.delete(_)
 					recorded.chooser_deleted = true
@@ -289,6 +318,53 @@ function _M.run()
 					end,
 					delete = function()
 						recorded.menubar_deleted = recorded.menubar_deleted + 1
+					end,
+				}
+			end,
+		},
+		canvas = {
+			windowLevels = {
+				modalPanel = 1,
+			},
+			new = function(frame)
+				local state = {
+					frame = frame,
+					showing = false,
+				}
+
+				return {
+					level = function(_, value)
+						recorded.preview_level = value
+					end,
+					clickActivating = function(_, value)
+						recorded.preview_click_activating = value
+					end,
+					frame = function(_, value)
+						if value ~= nil then
+							state.frame = value
+							recorded.preview_frame = value
+						end
+
+						return state.frame
+					end,
+					replaceElements = function(_, ...)
+						recorded.preview_last_elements = { ... }
+					end,
+					show = function(_, duration)
+						state.showing = true
+						recorded.preview_show_duration = duration
+						recorded.preview_show_count = (recorded.preview_show_count or 0) + 1
+					end,
+					hide = function(_, duration)
+						state.showing = false
+						recorded.preview_hide_duration = duration
+						recorded.preview_hide_count = (recorded.preview_hide_count or 0) + 1
+					end,
+					isShowing = function()
+						return state.showing
+					end,
+					delete = function()
+						recorded.preview_deleted = true
 					end,
 				}
 			end,
@@ -398,6 +474,11 @@ function _M.run()
 			restore_clipboard_after_paste = true,
 			show_menubar = true,
 			menu_items = 4,
+			preview_enabled = true,
+			preview_width = 420,
+			preview_height = 320,
+			preview_poll_interval = 0.08,
+			preview_body_max_chars = 6000,
 			auto_title_length = 36,
 			editor = {
 				width = 600,
@@ -609,6 +690,13 @@ function _M.run()
 	assert_equal(choices[2].source, "action", "second chooser row should be the clipboard create action")
 	assert_equal(choices[3].source, "snippet", "saved snippet should appear after action rows")
 	assert_equal(choices[3].text, "First snippet", "snippet with empty title should use first content line as display title")
+	assert_true(snippet_center.get_state().preview_exists == true, "showing chooser should create the preview canvas when enabled")
+	assert_equal(recorded.preview_timer_interval, 0.08, "snippet preview should honor the configured poll interval")
+	assert_true(preview_contains_text(recorded.preview_last_elements, "新建空白片段"), "preview should render the currently selected chooser action")
+	recorded.chooser:selectedRow(3)
+	recorded.preview_timer_callback()
+	assert_true(preview_contains_text(recorded.preview_last_elements, "First snippet\nLine two"), "preview should render the selected snippet body")
+	assert_true(preview_contains_text(recorded.preview_last_elements, "2 行"), "preview should render snippet metadata")
 
 	recorded.chooser:rightClick(3)
 	local rename_item = find_menu_item(recorded.last_popup_menu, "重命名...")
@@ -623,6 +711,7 @@ function _M.run()
 	assert_true(snippet_center.get_state().editor_exists == true, "edit action should open the snippet editor")
 	assert_contains(recorded.editor_html, "Renamed Title", "editor html should receive the current snippet title")
 	assert_true((recorded.chooser_hide_count or 0) >= 1, "opening editor should hide chooser first")
+	assert_true((recorded.preview_hide_count or 0) >= 1, "hiding chooser for editor should also hide the preview panel")
 	assert_true((recorded.editor_focus_count or 0) >= 1, "opening editor should focus the snippet window")
 	assert_equal(recorded.editor_window_style, 31, "editor should use the configured stable webview window style")
 	assert_true(type(recorded.editor_click_point) == "table", "opening editor should click inside the editor to claim focus")
@@ -681,6 +770,7 @@ function _M.run()
 	assert_equal(recorded.deleted_binding_count, 4, "reconfiguring and stopping should delete replaced and active hotkey bindings")
 	assert_true(recorded.chooser_deleted == true, "stop should delete the chooser")
 	assert_true(recorded.menubar_deleted >= 2, "stop should delete the menubar item")
+	assert_true(recorded.preview_deleted == true, "stop should delete the preview canvas")
 
 	reset_modules()
 	hs = nil

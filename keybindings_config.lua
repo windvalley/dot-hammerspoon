@@ -332,6 +332,15 @@ _M.snippets = {
 	auto_paste = true,
 	-- 自动粘贴完成后是否恢复用户原来的剪贴板内容
 	restore_clipboard_after_paste = true,
+	-- chooser 打开时是否显示当前选中项的预览面板
+	preview_enabled = true,
+	-- 预览面板宽高
+	preview_width = 420,
+	preview_height = 320,
+	-- 预览刷新轮询间隔，越小越跟手
+	preview_poll_interval = 0.08,
+	-- 预览中最多显示多少字符，避免超长文本导致卡顿
+	preview_body_max_chars = 6000,
 	-- 是否显示轻量菜单栏入口，便于快速打开 chooser 和管理常用 snippet
 	show_menubar = true,
 	-- 菜单栏里直接显示多少条常用 snippet（按置顶、最近使用、使用次数排序）

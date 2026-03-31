@@ -175,6 +175,8 @@ Snippets have an optional title. When the title is left empty, the chooser autom
 
 Right click a snippet row in the chooser to edit, rename, pin, copy, or delete it.
 
+When the chooser is open, Snippet Center also shows a preview panel for the currently selected row. For stored snippets, the preview includes the full body so you can inspect multi-line content before inserting it. You can tune it with `preview_enabled`, `preview_width`, `preview_height`, `preview_poll_interval`, and `preview_body_max_chars`.
+
 If you enable `show_menubar`, Snippet Center also adds a lightweight menubar entry for:
 
 - Opening the chooser
@@ -198,6 +200,11 @@ _M.snippets = {
 	chooser_width = 40,
 	auto_paste = true,
 	restore_clipboard_after_paste = true,
+	preview_enabled = true,
+	preview_width = 420,
+	preview_height = 320,
+	preview_poll_interval = 0.08,
+	preview_body_max_chars = 6000,
 	show_menubar = false,
 	menu_items = 8,
 	auto_title_length = 36,

@@ -85,6 +85,15 @@ function _M.run()
 		type(snippets.menu_items) == "number" and snippets.menu_items >= 1,
 		"snippets menu_items should stay configurable with a sensible lower bound"
 	)
+	assert_true(type(snippets.preview_enabled) == "boolean", "snippets preview_enabled should be a boolean flag")
+	assert_true(
+		type(snippets.preview_width) == "number" and snippets.preview_width >= 280,
+		"snippets preview_width should stay configurable with a sensible lower bound"
+	)
+	assert_true(
+		type(snippets.preview_height) == "number" and snippets.preview_height >= 220,
+		"snippets preview_height should stay configurable with a sensible lower bound"
+	)
 
 	reset_modules()
 end
