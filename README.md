@@ -113,6 +113,8 @@ When `history_count` is greater than `1`, the module will randomly choose one im
 
 ### Clipboard Center
 
+![clipboard-center](docs/screenshots/clipboard-center.png)
+
 Use the menubar item or <kbd>⌥</kbd><kbd>⇧</kbd> + <kbd>C</kbd> to open a searchable chooser for:
 
 - Clipboard history
@@ -232,6 +234,8 @@ You can also toggle the menubar entry from the Hammerspoon console with `package
 
 ### Selected Text Translate
 
+![selected-text-translate](docs/screenshots/selected-text-translate.png)
+
 Select any text and press <kbd>⌥</kbd> + <kbd>R</kbd> to translate it through an OpenAI-compatible `chat/completions` API. By default, non-Chinese text is translated into Simplified Chinese, while text containing Chinese characters is translated into English. The translated text is shown in a popup, and the popup also lets you copy the result back to the clipboard.
 
 The module first tries to read the current accessibility selection directly. If that fails, it can either read the current clipboard directly for apps that auto-copy selections, or simulate a copy shortcut and then restore the previous clipboard contents. The default fallback shortcut is <kbd>⌘</kbd> + <kbd>C</kbd>. When Clipboard Center is enabled, the temporary copy/restore sequence is also suppressed from clipboard history.
@@ -322,6 +326,8 @@ Then restart Hammerspoon so the app can read the variable.
 
 ### Key Caster
 
+![key-caster](docs/screenshots/key-caster.png)
+
 Key Caster is designed for screen recording or live demos. When enabled, it listens for keyboard events and shows the latest key combination as an overlay on the active screen.
 
 It now supports lightweight runtime control: by default, `⌃⌘K` toggles it for the current Hammerspoon session, and the menubar entry can follow `auto`, `true`, or `false` visibility modes.
@@ -395,6 +401,8 @@ _M.key_caster = {
 - <kbd>⌥</kbd> + <kbd>W</kbd>: WeChat
 
 ### Break Reminder
+
+![break-reminder](docs/screenshots/break-reminder.png)
 
 The configuration will enforce scheduled breaks on all screens based on your configured work and rest durations.
 

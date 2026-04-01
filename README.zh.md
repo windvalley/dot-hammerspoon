@@ -113,6 +113,8 @@ _M.bing_daily_wallpaper = {
 
 ### Clipboard Center
 
+![clipboard-center](docs/screenshots/clipboard-center.png)
+
 使用菜单栏项或 <kbd>⌥</kbd><kbd>⇧</kbd> + <kbd>C</kbd> 打开一个可搜索的选择器，用来查看：
 
 - 剪贴板历史
@@ -232,6 +234,8 @@ _M.snippets = {
 
 ### 选中文本翻译
 
+![selected-text-translate](docs/screenshots/selected-text-translate.png)
+
 选中任意文本后按 <kbd>⌥</kbd> + <kbd>R</kbd>，即可通过兼容 OpenAI 的 `chat/completions` API 进行翻译。默认情况下，非中文文本会被翻译为简体中文；包含中文字符的文本会被翻译成英文。翻译结果会显示在弹窗中，弹窗里也可以把结果复制回剪贴板。
 
 模块会优先直接读取当前辅助功能选区。如果失败，它可以读取那些会自动复制选区的应用当前剪贴板，或者模拟一次复制快捷键，然后再恢复之前的剪贴板内容。默认回退快捷键是 <kbd>⌘</kbd> + <kbd>C</kbd>。当 Clipboard Center 启用时，这段临时的复制/恢复流程也会被从剪贴板历史里抑制掉。
@@ -322,6 +326,8 @@ launchctl setenv ANTHROPIC_API_KEY "your-api-key"
 
 ### Key Caster（按键显示）
 
+![key-caster](docs/screenshots/key-caster.png)
+
 Key Caster 适合录屏或现场演示。启用后，它会监听键盘事件，并在当前屏幕上用浮层显示最近一次按键组合。
 
 它支持轻量的运行时控制：默认用 `⌃⌘K` 在当前 Hammerspoon 会话里切换开关，菜单栏入口则支持 `auto`、`true` 和 `false` 三种可见性模式。
@@ -395,6 +401,8 @@ _M.key_caster = {
 - <kbd>⌥</kbd> + <kbd>W</kbd>: WeChat
 
 ### 休息提醒
+
+![break-reminder](docs/screenshots/break-reminder.png)
 
 这个配置会根据你设定的工作时长和休息时长，在所有屏幕上强制执行定时休息。
 
