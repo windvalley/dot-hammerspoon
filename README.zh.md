@@ -113,7 +113,7 @@ _M.bing_daily_wallpaper = {
 
 ### Clipboard Center
 
-![clipboard-center](docs/screenshots/clipboard-center.png)
+![clipboard-center](docs/screenshots/clipboard-center.gif)
 
 使用菜单栏项或 <kbd>⌥</kbd><kbd>⇧</kbd> + <kbd>C</kbd> 打开一个可搜索的选择器，用来查看：
 

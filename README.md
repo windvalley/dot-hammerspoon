@@ -113,7 +113,7 @@ When `history_count` is greater than `1`, the module will randomly choose one im
 
 ### Clipboard Center
 
-![clipboard-center](docs/screenshots/clipboard-center.png)
+![clipboard-center](docs/screenshots/clipboard-center.gif)
 
 Use the menubar item or <kbd>⌥</kbd><kbd>⇧</kbd> + <kbd>C</kbd> to open a searchable chooser for:
 
