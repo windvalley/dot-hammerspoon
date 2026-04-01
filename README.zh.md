@@ -166,6 +166,8 @@ _M.clipboard = {
 
 ### Snippet Center（文本片段）
 
+![snippet-center](docs/screenshots/snippet-center.gif)
+
 使用 <kbd>⌥</kbd><kbd>⇧</kbd> + <kbd>S</kbd> 打开一个可搜索的选择器，管理保存过的文本片段。前两行是内置动作：
 
 - 在内置多行编辑器中新建一个空白片段

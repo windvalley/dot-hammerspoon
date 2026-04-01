@@ -166,6 +166,8 @@ The menubar menu also provides an `自动粘贴` toggle. It is off by default; w
 
 ### Snippet Center
 
+![snippet-center](docs/screenshots/snippet-center.gif)
+
 Use <kbd>⌥</kbd><kbd>⇧</kbd> + <kbd>S</kbd> to open a searchable chooser for stored text snippets. The first two chooser rows are built-in actions:
 
 - Create a blank snippet in the built-in multiline editor
