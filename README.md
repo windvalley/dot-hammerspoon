@@ -1,12 +1,12 @@
 # dot-hammerspoon
 
-[English](README.md) | [简体中文](README.zh.md)
-
 ![Language](https://img.shields.io/badge/language-Lua-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
 [![Version](https://img.shields.io/github/v/release/windvalley/dot-hammerspoon?include_prereleases)](https://github.com/windvalley/dot-hammerspoon/releases)
 [![LICENSE](https://img.shields.io/github/license/windvalley/dot-hammerspoon)](LICENSE)
 ![Page Views](https://views.whatilearened.today/views/github/windvalley/dot-hammerspoon.svg)
+
+[English](README.md) | [简体中文](README.zh.md)
 
 `dot-hammerspoon` is my personal configuration for [Hammerspoon](http://www.hammerspoon.org/), and you can modify to suit your needs and preferences.
 
