@@ -236,7 +236,7 @@ _M.snippets = {
 
 ### 选中文本翻译
 
-![selected-text-translate](docs/screenshots/selected-text-translate.png)
+![selected-text-translate](docs/screenshots/selected-text-translate.gif)
 
 选中任意文本后按 <kbd>⌥</kbd> + <kbd>R</kbd>，即可通过兼容 OpenAI 的 `chat/completions` API 进行翻译。默认情况下，非中文文本会被翻译为简体中文；包含中文字符的文本会被翻译成英文。翻译结果会显示在弹窗中，弹窗里也可以把结果复制回剪贴板。
 

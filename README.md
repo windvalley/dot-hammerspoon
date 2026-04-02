@@ -236,7 +236,7 @@ You can also toggle the menubar entry from the Hammerspoon console with `package
 
 ### Selected Text Translate
 
-![selected-text-translate](docs/screenshots/selected-text-translate.png)
+![selected-text-translate](docs/screenshots/selected-text-translate.gif)
 
 Select any text and press <kbd>⌥</kbd> + <kbd>R</kbd> to translate it through an OpenAI-compatible `chat/completions` API. By default, non-Chinese text is translated into Simplified Chinese, while text containing Chinese characters is translated into English. The translated text is shown in a popup, and the popup also lets you copy the result back to the clipboard.
 
