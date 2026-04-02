@@ -328,7 +328,7 @@ Then restart Hammerspoon so the app can read the variable.
 
 ### Key Caster
 
-![key-caster](docs/screenshots/key-caster.png)
+![key-caster](docs/screenshots/key-caster.gif)
 
 Key Caster is designed for screen recording or live demos. When enabled, it listens for keyboard events and shows the latest key combination as an overlay on the active screen.
 

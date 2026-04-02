@@ -328,7 +328,7 @@ launchctl setenv ANTHROPIC_API_KEY "your-api-key"
 
 ### Key Caster（按键显示）
 
-![key-caster](docs/screenshots/key-caster.png)
+![key-caster](docs/screenshots/key-caster.gif)
 
 Key Caster 适合录屏或现场演示。启用后，它会监听键盘事件，并在当前屏幕上用浮层显示最近一次按键组合。
 
