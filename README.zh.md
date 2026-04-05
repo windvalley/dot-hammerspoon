@@ -238,7 +238,7 @@ _M.snippets = {
 
 ![selected-text-translate](docs/screenshots/selected-text-translate.gif)
 
-选中任意文本后按 <kbd>⌥</kbd> + <kbd>R</kbd>，即可通过兼容 OpenAI 的 `chat/completions` API 进行翻译。默认情况下，非中文文本会被翻译为简体中文；包含中文字符的文本会被翻译成英文。翻译结果会显示在弹窗中，弹窗里也可以把结果复制回剪贴板。
+选中任意文本后按 <kbd>⌥</kbd> + <kbd>R</kbd>，即可通过兼容 OpenAI 的 `chat/completions` API 进行翻译。默认情况下，非中文文本会被翻译为简体中文；包含中文字符的文本会被翻译成英文。翻译结果会显示在弹窗中，弹窗里也可以把结果复制回剪贴板；当译文过长时，弹窗会自动分页，并提供上一页 / 下一页切换。
 
 模块会优先直接读取当前辅助功能选区。如果失败，它可以读取那些会自动复制选区的应用当前剪贴板，或者模拟一次复制快捷键，然后再恢复之前的剪贴板内容。默认回退快捷键是 <kbd>⌘</kbd> + <kbd>C</kbd>。当 Clipboard Center 启用时，这段临时的复制/恢复流程也会被从剪贴板历史里抑制掉。
 

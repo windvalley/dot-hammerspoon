@@ -242,7 +242,7 @@ Select any text and press <kbd>⌥</kbd> + <kbd>R</kbd> to translate it through 
 
 The module first tries to read the current accessibility selection directly. If that fails, it can either read the current clipboard directly for apps that auto-copy selections, or simulate a copy shortcut and then restore the previous clipboard contents. The default fallback shortcut is <kbd>⌘</kbd> + <kbd>C</kbd>. When Clipboard Center is enabled, the temporary copy/restore sequence is also suppressed from clipboard history.
 
-It also adds a menubar entry, so you can adjust the main settings at runtime and persist them through `hs.settings`, including the hotkey, translation direction, target languages, popup theme, popup timing, and provider-grouped model service settings (`api_url`, `model`, and a locally saved API key). A `恢复默认` action clears these menu overrides and goes back to `keybindings_config.lua`.
+It also adds a menubar entry, so you can adjust the main settings at runtime and persist them through `hs.settings`, including the hotkey, translation direction, target languages, popup theme, popup timing, and provider-grouped model service settings (`api_url`, `model`, and a locally saved API key). Long translation results are automatically split into pages inside the popup, with previous/next controls. A `恢复默认` action clears these menu overrides and goes back to `keybindings_config.lua`.
 
 You can customize it in `~/.hammerspoon/keybindings_config.lua`:
 

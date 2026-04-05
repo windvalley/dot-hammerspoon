@@ -73,8 +73,13 @@ local popup_body_line_height = 22
 local popup_anchor_gap = 12
 local popup_body_top = 56
 local popup_divider_y = 46
-local popup_chrome_height = 74
 local popup_geometry = {
+	body_min_height = 44,
+	body_bottom_padding = 18,
+	pager_height = 34,
+	pager_button_width = 56,
+	pager_button_height = 22,
+	pager_button_inset = 14,
 	corner_radius = 16,
 	arrow_height = 8,
 	arrow_outer_half_width = 15,
@@ -284,6 +289,10 @@ local state = {
 	popup_hover_watcher = nil,
 	popup_key_watcher = nil,
 	popup_hovered = false,
+	popup_result = nil,
+	popup_anchor_bounds = nil,
+	popup_page_index = 1,
+	popup_page_count = 0,
 	menubar = nil,
 	menubar_forced = false,
 	hotkey_error = nil,
@@ -675,6 +684,10 @@ local function destroy_popup()
 	state.popup_key_watcher = nil
 	state.popup_frame = nil
 	state.popup_hovered = false
+	state.popup_result = nil
+	state.popup_anchor_bounds = nil
+	state.popup_page_index = 1
+	state.popup_page_count = 0
 
 	if state.popup_canvas == nil then
 		return
@@ -1638,6 +1651,113 @@ local function split_lines(text)
 	return lines
 end
 
+function config_utils.split_text_characters(text)
+	local characters = {}
+	local normalized = tostring(text or "")
+
+	if normalized == "" then
+		return characters
+	end
+
+	if type(utf8_lib) == "table" and type(utf8_lib.codes) == "function" then
+		local positions = {}
+		local ok = pcall(function()
+			for position in utf8_lib.codes(normalized) do
+				table.insert(positions, position)
+			end
+		end)
+
+		if ok == true and #positions > 0 then
+			for index, position in ipairs(positions) do
+				local next_position = positions[index + 1] or (#normalized + 1)
+				table.insert(characters, normalized:sub(position, next_position - 1))
+			end
+
+			return characters
+		end
+	end
+
+	for index = 1, #normalized do
+		table.insert(characters, normalized:sub(index, index))
+	end
+
+	return characters
+end
+
+function config_utils.wrap_text_line(line, units_per_line)
+	local wrapped = {}
+	local current_line = ""
+	local current_units = 0
+	local safe_units_per_line = math.max(1, tonumber(units_per_line) or 1)
+
+	if line == "" then
+		return { "" }
+	end
+
+	for _, character in ipairs(config_utils.split_text_characters(line)) do
+		local character_units = math.max(0.25, estimate_text_units(character))
+
+		if current_line ~= "" and (current_units + character_units) > safe_units_per_line then
+			table.insert(wrapped, current_line)
+			current_line = character
+			current_units = character_units
+		else
+			current_line = current_line .. character
+			current_units = current_units + character_units
+		end
+	end
+
+	if current_line ~= "" then
+		table.insert(wrapped, current_line)
+	end
+
+	if #wrapped == 0 then
+		return { "" }
+	end
+
+	return wrapped
+end
+
+function config_utils.wrap_text_lines(text, units_per_line)
+	local wrapped = {}
+
+	for _, line in ipairs(split_lines(text)) do
+		for _, wrapped_line in ipairs(config_utils.wrap_text_line(line, units_per_line)) do
+			table.insert(wrapped, wrapped_line)
+		end
+	end
+
+	if #wrapped == 0 then
+		return { "" }
+	end
+
+	return wrapped
+end
+
+function config_utils.build_popup_pages(wrapped_lines, visible_line_count)
+	local pages = {}
+	local page_size = math.max(1, math.floor(visible_line_count or 1))
+	local start_index = 1
+
+	while start_index <= #wrapped_lines do
+		local page_lines = {}
+		local end_index = math.min(#wrapped_lines, start_index + page_size - 1)
+
+		for line_index = start_index, end_index do
+			table.insert(page_lines, wrapped_lines[line_index])
+		end
+
+		table.insert(pages, table.concat(page_lines, "\n"))
+		start_index = end_index + 1
+	end
+
+	if #pages == 0 then
+		return { "" }
+	end
+
+	return pages
+end
+
 local function clamp_number(value, minimum, maximum)
 	if minimum ~= nil and maximum ~= nil and minimum > maximum then
 		maximum = minimum
@@ -1652,6 +1772,27 @@ local function clamp_number(value, minimum, maximum)
 	end
 
 	return value
+end
+
+function config_utils.popup_chrome_height(has_pager)
+	return popup_body_top + (has_pager == true and popup_geometry.pager_height or popup_geometry.body_bottom_padding)
+end
+
+function config_utils.popup_page_indicator_text(page_index, page_count)
+	return string.format("第 %d / %d 页", page_index, page_count)
+end
+
+function config_utils.popup_control_color(color, is_enabled)
+	local resolved = copy_table(color or {})
+	local base_alpha = tonumber(resolved.alpha)
+
+	if base_alpha == nil then
+		base_alpha = 1
+	end
+
+	resolved.alpha = clamp_number(base_alpha * (is_enabled == true and 1 or 0.38), 0, 1)
+
+	return resolved
 end
 
 local function point_in_rect(point, rect)
@@ -1880,12 +2021,11 @@ local function resolve_popup_origin(screen_frame, width, height, anchor_bounds)
 	}
 end
 
-local function resolve_popup_layout(result, anchor_bounds)
+local function resolve_popup_layout(result, anchor_bounds, page_index)
 	local screen_frame = resolve_target_screen_frame()
 	local max_width = math.max(260, math.min(popup_max_width, screen_frame.w - (popup_margin * 2)))
 	local min_width = math.min(popup_min_width, max_width)
 	local natural_units = 0
-	local wrapped_lines = 0
 
 	for _, line in ipairs(split_lines(result)) do
 		natural_units = math.max(natural_units, estimate_text_units(line))
@@ -1893,21 +2033,29 @@ local function resolve_popup_layout(result, anchor_bounds)
 
 	local width = math.min(max_width, math.max(min_width, math.floor((natural_units * 10.5) + 64)))
 	local body_width = width - 40
-
 	local units_per_line = math.max(12, math.floor(body_width / 10.5))
-
-	for _, line in ipairs(split_lines(result)) do
-		wrapped_lines = wrapped_lines + math.max(1, math.ceil(estimate_text_units(line) / units_per_line))
-	end
-
-	local body_height = math.max(44, wrapped_lines * popup_body_line_height)
-	local height = body_height + popup_chrome_height
+	local wrapped_lines = config_utils.wrap_text_lines(result, units_per_line)
+	local natural_body_height = math.max(popup_geometry.body_min_height, #wrapped_lines * popup_body_line_height)
 
 	local max_height = math.max(150, math.min(popup_max_height, screen_frame.h - (popup_margin * 2)))
-	local min_height = math.min(popup_min_height, max_height)
+	local base_min_height = math.min(popup_min_height, max_height)
+	local base_chrome_height = config_utils.popup_chrome_height(false)
+	local base_height = math.min(max_height, math.max(base_min_height, natural_body_height + base_chrome_height))
+	local base_body_height = math.max(popup_geometry.body_min_height, base_height - base_chrome_height)
+	local visible_lines = math.max(1, math.floor(base_body_height / popup_body_line_height))
+	local pages = config_utils.build_popup_pages(wrapped_lines, visible_lines)
+	local show_pager = #pages > 1
+	local chrome_height = config_utils.popup_chrome_height(show_pager)
+	local min_height = math.max(base_min_height, math.min(max_height, chrome_height + popup_geometry.body_min_height))
+	local height = math.min(max_height, math.max(min_height, natural_body_height + chrome_height))
+	local body_height = math.max(popup_geometry.body_min_height, height - chrome_height)
+	local footer_height = show_pager == true and popup_geometry.pager_height or 0
 
-	height = math.min(max_height, math.max(min_height, height))
-	body_height = math.max(44, height - popup_chrome_height)
+	visible_lines = math.max(1, math.floor(body_height / popup_body_line_height))
+	pages = config_utils.build_popup_pages(wrapped_lines, visible_lines)
+
+	local page_count = math.max(1, #pages)
+	local safe_page_index = clamp_number(math.floor(tonumber(page_index) or 1), 1, page_count)
 	local popup_origin = resolve_popup_origin(screen_frame, width, height, anchor_bounds)
 	local surface_y = 0
 	local canvas_y = popup_origin.y
@@ -1937,8 +2085,12 @@ local function resolve_popup_layout(result, anchor_bounds)
 		surface_h = height,
 		body_width = body_width,
 		body_height = body_height,
+		footer_height = footer_height,
 		placement = popup_origin.placement,
 		arrow_tip_x = arrow_tip_x,
+		page_index = safe_page_index,
+		page_count = page_count,
+		page_text = pages[safe_page_index],
 	}
 end
 
@@ -1964,6 +2116,22 @@ local function resolve_popup_level()
 	end
 
 	return nil
+end
+
+function config_utils.change_popup_page(delta)
+	local current_result = state.popup_result
+
+	if current_result == nil or state.popup_page_count <= 1 then
+		return false
+	end
+
+	local next_page_index = clamp_number((state.popup_page_index or 1) + delta, 1, state.popup_page_count)
+
+	if next_page_index == state.popup_page_index then
+		return false
+	end
+
+	return config_utils.show_translation_popup(current_result, state.popup_anchor_bounds, next_page_index)
 end
 
 function config_utils.build_popup_arrow_elements(layout, theme)
@@ -2134,12 +2302,12 @@ function config_utils.build_popup_border_coordinates(layout)
 	return points
 end
 
-local function show_translation_popup(result, anchor_bounds)
+function config_utils.show_translation_popup(result, anchor_bounds, page_index)
 	if type(hs.canvas) ~= "table" or type(hs.canvas.new) ~= "function" then
 		return false
 	end
 
-	local layout = resolve_popup_layout(result, anchor_bounds)
+	local layout = resolve_popup_layout(result, anchor_bounds, page_index)
 
 	destroy_popup()
 
@@ -2161,6 +2329,10 @@ local function show_translation_popup(result, anchor_bounds)
 		w = layout.w,
 		h = layout.h,
 	}
+	state.popup_result = result
+	state.popup_anchor_bounds = anchor_bounds == nil and nil or copy_table(anchor_bounds)
+	state.popup_page_index = layout.page_index
+	state.popup_page_count = layout.page_count
 
 	if type(canvas.behaviorAsLabels) == "function" then
 		canvas:behaviorAsLabels({
@@ -2208,6 +2380,21 @@ local function show_translation_popup(result, anchor_bounds)
 		y = copy_button_y + 9,
 		w = 10,
 		h = 11,
+	}
+	local pager_top = layout.surface_y + layout.surface_h - layout.footer_height
+	local prev_page_enabled = layout.page_index > 1
+	local next_page_enabled = layout.page_index < layout.page_count
+	local prev_page_button_frame = {
+		x = popup_geometry.pager_button_inset,
+		y = pager_top + 6,
+		w = popup_geometry.pager_button_width,
+		h = popup_geometry.pager_button_height,
+	}
+	local next_page_button_frame = {
+		x = layout.w - popup_geometry.pager_button_width - popup_geometry.pager_button_inset,
+		y = pager_top + 6,
+		w = popup_geometry.pager_button_width,
+		h = popup_geometry.pager_button_height,
 	}
 
 	local elements = {}
@@ -2320,7 +2507,7 @@ local function show_translation_popup(result, anchor_bounds)
 	table.insert(elements, {
 		id = "body",
 		type = "text",
-		text = result,
+		text = layout.page_text,
 		textSize = 15,
 		textColor = theme.body,
 		frame = {
@@ -2330,6 +2517,78 @@ local function show_translation_popup(result, anchor_bounds)
 			h = layout.body_height,
 		},
 	})
+
+	if layout.page_count > 1 then
+		table.insert(elements, {
+			id = "pager_divider",
+			type = "rectangle",
+			action = "fill",
+			fillColor = theme.divider,
+			frame = {
+				x = 18,
+				y = pager_top,
+				w = layout.w - 36,
+				h = 1,
+			},
+		})
+		table.insert(elements, {
+			id = "prev_page_button",
+			type = "rectangle",
+			action = "fill",
+			fillColor = {
+				white = 0,
+				alpha = 0,
+			},
+			frame = prev_page_button_frame,
+			trackMouseDown = true,
+			trackMouseByBounds = true,
+		})
+		table.insert(elements, {
+			id = "prev_page_label",
+			type = "text",
+			text = "上一页",
+			textSize = 12,
+			textColor = config_utils.popup_control_color(theme.copy_button, prev_page_enabled),
+			frame = prev_page_button_frame,
+			trackMouseDown = true,
+			trackMouseByBounds = true,
+		})
+		table.insert(elements, {
+			id = "page_indicator",
+			type = "text",
+			text = config_utils.popup_page_indicator_text(layout.page_index, layout.page_count),
+			textSize = 12,
+			textColor = theme.title,
+			frame = {
+				x = 84,
+				y = pager_top + 7,
+				w = layout.w - 168,
+				h = 18,
+			},
+		})
+		table.insert(elements, {
+			id = "next_page_button",
+			type = "rectangle",
+			action = "fill",
+			fillColor = {
+				white = 0,
+				alpha = 0,
+			},
+			frame = next_page_button_frame,
+			trackMouseDown = true,
+			trackMouseByBounds = true,
+		})
+		table.insert(elements, {
+			id = "next_page_label",
+			type = "text",
+			text = "下一页",
+			textSize = 12,
+			textColor = config_utils.popup_control_color(theme.copy_button, next_page_enabled),
+			frame = next_page_button_frame,
+			trackMouseDown = true,
+			trackMouseByBounds = true,
+		})
+	end
 
 	canvas:appendElements(table.unpack(elements))
 
@@ -2345,6 +2604,10 @@ local function show_translation_popup(result, anchor_bounds)
 				or element_id == "copy_icon_front"
 			then
 				copy_translation_to_clipboard(result, true)
+			elseif element_id == "prev_page_button" or element_id == "prev_page_label" then
+				config_utils.change_popup_page(-1)
+			elseif element_id == "next_page_button" or element_id == "next_page_label" then
+				config_utils.change_popup_page(1)
 			end
 		end)
 	end
@@ -2382,12 +2645,30 @@ local function show_translation_popup(result, anchor_bounds)
 				key_name = "escape"
 			end
 
-			if key_name ~= "escape" and key_name ~= "esc" then
-				return false
+			if key_name == "escape" or key_name == "esc" then
+				destroy_popup()
+				return true
 			end
 
-			destroy_popup()
-			return true
+			if
+				key_name == "left"
+				or key_name == "up"
+				or key_name == "pageup"
+			then
+				config_utils.change_popup_page(-1)
+				return state.popup_page_count > 1
+			end
+
+			if
+				key_name == "right"
+				or key_name == "down"
+				or key_name == "pagedown"
+			then
+				config_utils.change_popup_page(1)
+				return state.popup_page_count > 1
+			end
+
+			return false
 		end)
 
 		if ok == true and watcher ~= nil then
@@ -2406,7 +2687,7 @@ local function show_translation_popup(result, anchor_bounds)
 end
 
 local function show_translation_dialog(result, anchor_bounds)
-	if show_translation_popup(result, anchor_bounds) == true then
+	if config_utils.show_translation_popup(result, anchor_bounds) == true then
 		return
 	end
 
@@ -4129,6 +4410,8 @@ _M.get_state = function()
 		popup_theme = popup_theme_name(),
 		popup_background_alpha = popup_background_fill_color().alpha,
 		popup_duration_seconds = popup_duration_seconds(),
+		popup_page_index = state.popup_page_index,
+		popup_page_count = state.popup_page_count,
 		provider = provider(),
 		model_service = copy_table(config_utils.model_service_config()),
 		api_mode = resolved_api_mode(),

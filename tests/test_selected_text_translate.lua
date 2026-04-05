@@ -748,6 +748,7 @@ function _M.run()
 	assert_close(find_element(direct_recorded.canvas_states[1].elements, "arrow_fill").coordinates[3].y, 139.5, 0.0001, "translator should place the arrow tip on the lower edge when the popup is above the selection")
 	assert_close(direct_recorded.canvas_states[1].frame.y + find_element(direct_recorded.canvas_states[1].elements, "arrow_fill").coordinates[3].y, 287.5, 0.0001, "translator should keep the arrow tip a visible distance away from the selected text")
 	assert_true(find_element(direct_recorded.canvas_states[1].elements, "close_button") == nil, "translator should not render a close button")
+	assert_true(find_element(direct_recorded.canvas_states[1].elements, "page_indicator") == nil, "short translations should not render pager controls")
 	assert_true(type(direct_recorded.canvas_states[1].mouse_callback) == "function", "translator should register popup mouse handlers")
 	assert_equal(direct_recorded.timers[2].seconds, 8, "translator should use the configured popup auto-hide duration")
 
@@ -810,6 +811,221 @@ function _M.run()
 	assert_true(translator.stop(), "translator stop should succeed")
 	assert_equal(direct_recorded.deleted_bindings, 3, "translator stop should delete the active hotkey after menu rebinds")
 	assert_equal(direct_recorded.deleted_canvases, 2, "translator stop should not delete an already closed popup twice")
+
+	reset_modules()
+
+	local paged_recorded = {
+		alerts = {},
+		block_alerts = {},
+		async_posts = {},
+		deleted_bindings = 0,
+		menubar_created = 0,
+		menubar_deleted = 0,
+		settings_store = {},
+		timers = {},
+		stopped_timers = 0,
+		canvas_states = {},
+		canvas_levels = {},
+		shown_canvases = 0,
+		hidden_canvases = 0,
+		deleted_canvases = 0,
+		popup_watchers = {},
+		started_watchers = 0,
+		stopped_watchers = 0,
+		mouse_position = {
+			x = 0,
+			y = 0,
+		},
+	}
+	local paged_translation_lines = {}
+
+	for line_index = 1, 24 do
+		table.insert(paged_translation_lines, string.format("第%02d行译文", line_index))
+	end
+
+	local paged_translation = table.concat(paged_translation_lines, "\n")
+
+	rawset(os, "getenv", function(name)
+		if name == "OPENAI_API_KEY" then
+			return "sk-paged"
+		end
+
+		return original_getenv(name)
+	end)
+
+	hs = {
+		logger = {
+			new = function()
+				return {
+					i = function() end,
+					w = function() end,
+					e = function() end,
+				}
+			end,
+		},
+		settings = {
+			get = function(key)
+				return paged_recorded.settings_store[key]
+			end,
+			set = function(key, value)
+				paged_recorded.settings_store[key] = value
+			end,
+			clear = function(key)
+				paged_recorded.settings_store[key] = nil
+			end,
+		},
+		menubar = create_menu_stub(paged_recorded),
+		alert = {
+			show = function(message)
+				table.insert(paged_recorded.alerts, message)
+			end,
+		},
+		dialog = {
+			blockAlert = function(message, informative_text)
+				table.insert(paged_recorded.block_alerts, {
+					message = message,
+					informative_text = informative_text,
+				})
+
+				return "关闭"
+			end,
+		},
+		timer = create_timer_stub(paged_recorded),
+		canvas = create_canvas_stub(paged_recorded),
+		eventtap = create_eventtap_stub(paged_recorded),
+		uielement = {
+			focusedElement = function()
+				return {
+					selectedText = function()
+						return "long text"
+					end,
+				}
+			end,
+		},
+		mouse = {
+			absolutePosition = function()
+				return paged_recorded.mouse_position
+			end,
+		},
+		axuielement = create_axuielement_stub({
+			x = 400,
+			y = 300,
+			w = 100,
+			h = 24,
+		}),
+		screen = {
+			mainScreen = function()
+				return {
+					frame = function()
+						return { x = 100, y = 60, w = 1440, h = 900 }
+					end,
+				}
+			end,
+		},
+		json = {
+			encode = function(value)
+				paged_recorded.encoded_payload = value
+				return "encoded-payload"
+			end,
+			decode = function(_)
+				return {
+					choices = {
+						{
+							message = {
+								content = paged_translation,
+							},
+						},
+					},
+				}
+			end,
+		},
+		http = {
+			asyncPost = function(url, data, headers, callback)
+				table.insert(paged_recorded.async_posts, {
+					url = url,
+					data = data,
+					headers = headers,
+				})
+				callback(200, "{\"ok\":true}", {})
+			end,
+		},
+	}
+
+	loaded_modules["keybindings_config"] = {
+		selected_text_translate = {
+			enabled = true,
+			show_menubar = true,
+			prefix = { "Option" },
+			key = "R",
+			message = "Translate Selection",
+			translation_direction = "auto",
+			target_language = "简体中文",
+			chinese_target_language = "英文",
+			popup_duration_seconds = 8,
+			popup_theme = "ocean",
+			popup_background_alpha = 0.84,
+			model_service = build_model_service({
+				provider = "openai_compatible",
+				request_timeout_seconds = 15,
+				openai_compatible = {
+					api_url = "https://example.com/v1/chat/completions",
+					model = "gpt-test",
+					api_key_env = "OPENAI_API_KEY",
+				},
+			}),
+		},
+	}
+	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(paged_recorded)
+	loaded_modules["utils_lib"] = {
+		trim = function(value)
+			return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		end,
+		copy_list = function(items)
+			local copied = {}
+
+			for _, item in ipairs(items or {}) do
+				table.insert(copied, item)
+			end
+
+			return copied
+		end,
+		prompt_text = function(_, _, default_value)
+			return default_value
+		end,
+	}
+
+	translator = require("selected_text_translate")
+
+	assert_true(translator.start(), "translator should start successfully for paged popup coverage")
+	translator.translate_current_selection()
+
+	assert_equal(paged_recorded.shown_canvases, 1, "long translations should still show a popup")
+	assert_equal(translator.get_state().popup_page_index, 1, "long translations should open on the first page")
+	assert_equal(translator.get_state().popup_page_count, 3, "long translations should split the popup into multiple pages")
+	assert_equal(find_element(paged_recorded.canvas_states[1].elements, "page_indicator").text, "第 1 / 3 页", "paged popup should render a page indicator")
+	assert_contains(find_element(paged_recorded.canvas_states[1].elements, "body").text, "第01行译文", "first popup page should include the first translated line")
+	assert_true(
+		find_element(paged_recorded.canvas_states[1].elements, "body").text:find("第12行译文", 1, true) == nil,
+		"first popup page should not include later lines"
+	)
+
+	paged_recorded.canvas_states[1].mouse_callback(nil, "mouseDown", "next_page_button")
+
+	assert_equal(paged_recorded.shown_canvases, 2, "clicking next page should rerender the popup")
+	assert_equal(paged_recorded.deleted_canvases, 1, "switching pages should replace the existing popup canvas")
+	assert_equal(translator.get_state().popup_page_index, 2, "next page should advance the page index")
+	assert_equal(find_element(paged_recorded.canvas_states[2].elements, "page_indicator").text, "第 2 / 3 页", "second popup page should refresh the indicator")
+	assert_contains(find_element(paged_recorded.canvas_states[2].elements, "body").text, "第12行译文", "second popup page should include middle lines")
+	assert_true(
+		find_element(paged_recorded.canvas_states[2].elements, "body").text:find("第01行译文", 1, true) == nil,
+		"second popup page should no longer show the first page content"
+	)
+
+	paged_recorded.canvas_states[2].mouse_callback(nil, "mouseDown", "prev_page_button")
+
+	assert_equal(translator.get_state().popup_page_index, 1, "previous page should move the popup back")
+	assert_equal(find_element(paged_recorded.canvas_states[3].elements, "page_indicator").text, "第 1 / 3 页", "previous page should restore the first indicator")
+	assert_true(translator.stop(), "translator stop should succeed after paged popup coverage")
 
 	reset_modules()
 
