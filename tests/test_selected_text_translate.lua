@@ -1447,12 +1447,14 @@ function _M.run()
 		},
 	}
 	local wrapped_english_translation = table.concat({
-		"As long as you do not keep track of anyone's activities, do not speculate about anyone's thoughts, and do not imagine things that have not happened.",
+		"Fixed the translation pop-up issue. The root causes are twofold: First, the screenshot translation prompt overly encourages preserving original line breaks, causing the model to generate hard line breaks that are difficult to read.",
+		"Second, the pop-up manually paginates and re-breaks lines before requesting hs.canvas to perform secondary auto-breaking, which leads to English words being split and long content being incorrectly judged as a single page and truncated directly.",
 		"Live a simpler life, be a bit more foolish, even a bit slower, and you will find that you will live very comfortably.",
 		"The ability to block out distractions is a crucial skill for an individual.",
 		"Do not snoop into others' lives, do not speculate about their thoughts, and do not let other people's noise take over your attention.",
 		"Return your time and energy to yourself, and focus on what you truly need to do.",
-		"As long as you do not keep track of anyone's activities, do not speculate about anyone's thoughts, and do not imagine things that have not happened.",
+		"Fixed the translation pop-up issue. The root causes are twofold: First, the screenshot translation prompt overly encourages preserving original line breaks, causing the model to generate hard line breaks that are difficult to read.",
+		"Second, the pop-up manually paginates and re-breaks lines before requesting hs.canvas to perform secondary auto-breaking, which leads to English words being split and long content being incorrectly judged as a single page and truncated directly.",
 		"Live a simpler life, be a bit more foolish, even a bit slower, and you will find that you will live very comfortably.",
 		"The ability to block out distractions is a crucial skill for an individual.",
 		"Do not snoop into others' lives, do not speculate about their thoughts, and do not let other people's noise take over your attention.",
@@ -1616,7 +1618,8 @@ function _M.run()
 	assert_equal(wrapped_english_recorded.shown_canvases, 1, "English paragraph translations should still show a popup")
 	assert_true(translator.get_state().popup_page_count > 1, "English paragraph translations should paginate instead of clipping")
 	assert_equal(find_element(wrapped_english_recorded.canvas_states[1].elements, "body").textLineBreak, "clip", "English paragraph popup should disable secondary auto-wrap")
-	assert_contains(find_element(wrapped_english_recorded.canvas_states[1].elements, "body").text, "Live a simpler life", "English wrapping should keep whole words together")
+	assert_contains(find_element(wrapped_english_recorded.canvas_states[1].elements, "body").text, "The root causes are twofold:", "English wrapping should not break the first sentence too early")
+	assert_contains(find_element(wrapped_english_recorded.canvas_states[1].elements, "body").text, "Live a simpler", "English wrapping should keep longer English spans on the same line")
 	assert_true(
 		find_element(wrapped_english_recorded.canvas_states[1].elements, "body").text:find("si\nmpler", 1, true) == nil,
 		"English wrapping should not split words across manual line breaks"

@@ -1861,7 +1861,7 @@ local function estimate_text_units(text)
 			elseif codepoint == 32 then
 				units = units + 0.4
 			elseif codepoint <= 127 then
-				units = units + 0.72
+				units = units + 0.68
 			else
 				units = units + 1
 			end
@@ -2372,7 +2372,7 @@ local function resolve_popup_layout(result, anchor_bounds, page_index)
 
 	local width = math.min(max_width, math.max(min_width, math.floor((natural_units * 10.5) + 64)))
 	local body_width = width - 40
-	local units_per_line = math.max(10, math.floor((body_width - 18) / 12.2))
+	local units_per_line = math.max(10, math.floor((body_width - 10) / 11.6))
 	local wrapped_lines = config_utils.wrap_text_lines(result, units_per_line)
 	local natural_body_height = math.max(popup_geometry.body_min_height, #wrapped_lines * popup_body_line_height)
 
