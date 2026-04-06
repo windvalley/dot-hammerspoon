@@ -14,6 +14,7 @@ There is no build step in the usual sense. Common commands:
 
 ## Coding Style & Naming Conventions
 Follow the existing module pattern: define `local _M = {}` and export module metadata such as `_M.name` and `_M.description` when appropriate. Prefer `snake_case` for filenames, config keys, and local functions. Logger variables are typically named `log`; state tables are typically named `state`. Match the surrounding file’s indentation and spacing instead of reformatting unrelated code. New hotkeys, bundle IDs, and URLs should be added to `keybindings_config.lua`, not hardcoded across modules.
+When you add or change a user-facing hotkeyed feature, update `keybindings_config.lua`, the relevant README section in both `README.md` and `README.zh.md`, and any affected cheatsheet/test coverage in the same change.
 
 ## Testing Guidelines
 The repository includes a lightweight `tests/` directory with Lua-based regression tests. Before submitting changes, run `luacheck .`, then `lua tests/run.lua`, reload Hammerspoon, and check the Console for module load failures. After that, exercise the affected hotkeys, menubar items, chooser flows, or fullscreen overlays directly. For modules that persist values through `hs.settings`, including `keep_awake`, `clipboard_center`, and `break_reminder`, verify behavior both before and after `hs.reload()`.

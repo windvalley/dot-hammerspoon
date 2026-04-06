@@ -50,6 +50,12 @@ function _M.run()
 	)
 	assert_equal(selected_text_translate.enabled, true, "selected_text_translate should stay enabled by default")
 	assert_equal(selected_text_translate.key, "R", "selected_text_translate should expose a default hotkey")
+	assert_true(type(selected_text_translate.screenshot_hotkey) == "table", "selected_text_translate should expose a screenshot_hotkey table")
+	assert_equal(
+		selected_text_translate.screenshot_hotkey.key,
+		"R",
+		"selected_text_translate screenshot hotkey should expose a default key"
+	)
 	assert_equal(
 		selected_text_translate.target_language,
 		"简体中文",
@@ -64,6 +70,11 @@ function _M.run()
 		selected_text_translate.model_service.ollama.disable_thinking,
 		true,
 		"selected_text_translate should disable thinking by default for Ollama"
+	)
+	assert_equal(
+		selected_text_translate.model_service.ollama.supports_image_input,
+		true,
+		"selected_text_translate should mark Ollama image input as enabled by default"
 	)
 	assert_equal(
 		selected_text_translate.model_service.openai_compatible.api_key_env,

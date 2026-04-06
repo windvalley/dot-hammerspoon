@@ -368,7 +368,7 @@ _M.snippets = {
 	},
 }
 
--- 翻译当前选中的文本
+-- 翻译当前选中的文本，或截图后翻译图片中的文字
 _M.selected_text_translate = {
 	enabled = true,
 	-- 显示菜单栏入口，可直接在菜单中调整常用配置并持久化
@@ -377,6 +377,11 @@ _M.selected_text_translate = {
 	prefix = { "Option" },
 	key = "R",
 	message = "Translate Selection",
+	screenshot_hotkey = {
+		prefix = { "Option", "Shift" },
+		key = "R",
+		message = "Translate Screenshot",
+	},
 	-- 自动双向翻译:
 	-- auto: 包含中文时翻译成 chinese_target_language，否则翻译成 target_language
 	-- to_target: 始终翻译成 target_language
@@ -418,6 +423,8 @@ _M.selected_text_translate = {
 		ollama = {
 			api_url = "http://localhost:11434/api/chat",
 			model = "qwen3.5:35b",
+			-- 仅表示当前接口链路允许发送图片；具体模型是否支持视觉仍取决于所选模型
+			supports_image_input = true,
 			-- 启动后静默预热一次本地模型，减少首次翻译冷启动延迟
 			enable_warmup = true,
 			-- 表示模型在最后一次请求后尽量保活 30 分钟
@@ -428,6 +435,7 @@ _M.selected_text_translate = {
 		openai_compatible = {
 			api_url = "https://api.openai.com/v1/chat/completions",
 			model = "gpt-4o-mini",
+			supports_image_input = true,
 			-- 优先从这个环境变量读取 API Key；也可以留空后在菜单栏里直接填写并持久化
 			api_key_env = "OPENAI_API_KEY",
 			api_key = "",
@@ -436,12 +444,14 @@ _M.selected_text_translate = {
 			-- 支持写成基础 models 路径，模块会自动拼上 /{model}:generateContent
 			api_url = "https://generativelanguage.googleapis.com/v1beta/models",
 			model = "gemini-3-flash-preview",
+			supports_image_input = true,
 			api_key_env = "GEMINI_API_KEY",
 			api_key = "",
 		},
 		anthropic = {
 			api_url = "https://api.anthropic.com/v1/messages",
 			model = "claude-3-5-haiku-latest",
+			supports_image_input = true,
 			api_key_env = "ANTHROPIC_API_KEY",
 			api_key = "",
 		},

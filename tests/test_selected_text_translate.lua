@@ -114,6 +114,7 @@ local function build_model_service(overrides)
 		ollama = {
 			api_url = "http://localhost:11434/api/chat",
 			model = "qwen3.5:35b",
+			supports_image_input = true,
 			enable_warmup = false,
 			keep_alive = "",
 			disable_thinking = true,
@@ -123,18 +124,21 @@ local function build_model_service(overrides)
 			model = "gpt-test",
 			api_key_env = "OPENAI_API_KEY",
 			api_key = "",
+			supports_image_input = true,
 		},
 		gemini = {
 			api_url = "https://generativelanguage.googleapis.com/v1beta/models",
 			model = "gemini-2.0-flash",
 			api_key_env = "GEMINI_API_KEY",
 			api_key = "",
+			supports_image_input = true,
 		},
 		anthropic = {
 			api_url = "https://api.anthropic.com/v1/messages",
 			model = "claude-3-5-haiku-latest",
 			api_key_env = "ANTHROPIC_API_KEY",
 			api_key = "",
+			supports_image_input = true,
 		},
 	}, overrides)
 end
@@ -225,14 +229,22 @@ local function create_hotkey_helper_stub(recorded)
 			fn = "fn",
 		},
 		bind = function(modifiers, key, message, pressedfn)
-			recorded.binding = {
+			local binding = {
 				modifiers = modifiers,
 				key = key,
 				message = message,
 			}
+			recorded.last_binding = binding
 			recorded.bindings = recorded.bindings or {}
-			table.insert(recorded.bindings, recorded.binding)
-			recorded.bound_handler = pressedfn
+			table.insert(recorded.bindings, binding)
+
+			if message == "Translate Screenshot" then
+				recorded.screenshot_binding = binding
+				recorded.screenshot_bound_handler = pressedfn
+			else
+				recorded.binding = binding
+				recorded.bound_handler = pressedfn
+			end
 
 			return {
 				delete = function()
@@ -408,6 +420,27 @@ local function create_axuielement_stub(bounds)
 			}
 		end,
 	}
+end
+
+local function write_fake_file(path, content)
+	local file = io.open(path, "wb")
+
+	if file == nil then
+		error("failed to create fake file: " .. tostring(path))
+	end
+
+	file:write(content or "fake")
+	file:close()
+end
+
+local function extract_screencapture_path(command)
+	local path = tostring(command or ""):match("'(.-)'%s*$")
+
+	if path == nil then
+		return nil
+	end
+
+	return path:gsub("'\\''", "'")
 end
 
 function _M.run()
@@ -621,10 +654,13 @@ function _M.run()
 	)
 	assert_equal(direct_recorded.binding.key, "r", "translator should normalize its hotkey key")
 	assert_true(type(direct_recorded.bound_handler) == "function", "translator should register a hotkey handler")
+	assert_equal(direct_recorded.screenshot_binding.key, "r", "translator should register the screenshot hotkey")
+	assert_true(type(direct_recorded.screenshot_bound_handler) == "function", "translator should register a screenshot hotkey handler")
 	assert_true(type(direct_recorded.menu_builder) == "function", "translator should expose a menubar menu builder")
 
 	local menu = direct_recorded.menu_builder()
 	assert_true(find_menu_item(menu, "快捷键") ~= nil, "menubar should expose a hotkey submenu")
+	assert_true(find_menu_item(menu, "截图快捷键") ~= nil, "menubar should expose a screenshot hotkey submenu")
 	assert_true(find_menu_item(menu, "翻译方向") ~= nil, "menubar should expose a direction submenu")
 	assert_true(find_menu_item(menu, "非中文目标语言") ~= nil, "menubar should expose a target language submenu")
 	assert_true(find_menu_item(menu, "中文目标语言") ~= nil, "menubar should expose a reverse target language submenu")
@@ -642,6 +678,7 @@ function _M.run()
 		find_menu_item(find_menu_item(menu, "中文目标语言").menu, "简体中文") == nil,
 		"Chinese target language presets should not offer Simplified Chinese"
 	)
+	assert_true(find_menu_item(menu, "翻译截图") ~= nil, "menubar should expose a screenshot translation action")
 
 	find_menu_item(find_menu_item(menu, "快捷键").menu, "设置快捷键...").fn()
 	assert_equal(translator.get_state().hotkey_key, "t", "menu hotkey prompt should update the runtime hotkey")
@@ -809,8 +846,358 @@ function _M.run()
 		"restore defaults should clear persisted menu overrides"
 	)
 	assert_true(translator.stop(), "translator stop should succeed")
-	assert_equal(direct_recorded.deleted_bindings, 3, "translator stop should delete the active hotkey after menu rebinds")
+	assert_equal(direct_recorded.deleted_bindings, 6, "translator stop should delete both active hotkeys after menu rebinds")
 	assert_equal(direct_recorded.deleted_canvases, 2, "translator stop should not delete an already closed popup twice")
+
+	reset_modules()
+
+	local screenshot_recorded = {
+		alerts = {},
+		async_posts = {},
+		deleted_bindings = 0,
+		timers = {},
+		stopped_timers = 0,
+		canvas_states = {},
+		canvas_levels = {},
+		shown_canvases = 0,
+		hidden_canvases = 0,
+		deleted_canvases = 0,
+		popup_watchers = {},
+		started_watchers = 0,
+		stopped_watchers = 0,
+		mouse_position = {
+			x = 720,
+			y = 220,
+		},
+		execute_commands = {},
+		image_load_paths = {},
+	}
+
+	rawset(os, "getenv", function(name)
+		if name == "OPENAI_API_KEY" then
+			return "sk-image"
+		end
+
+		return original_getenv(name)
+	end)
+
+	hs = {
+		logger = {
+			new = function()
+				return {
+					i = function() end,
+					w = function() end,
+					e = function() end,
+				}
+			end,
+		},
+		alert = {
+			show = function(message)
+				table.insert(screenshot_recorded.alerts, message)
+			end,
+		},
+		timer = create_timer_stub(screenshot_recorded),
+		canvas = create_canvas_stub(screenshot_recorded),
+		eventtap = create_eventtap_stub(screenshot_recorded),
+		mouse = {
+			absolutePosition = function()
+				return screenshot_recorded.mouse_position
+			end,
+		},
+		screen = {
+			mainScreen = function()
+				return {
+					frame = function()
+						return { x = 0, y = 0, w = 1440, h = 900 }
+					end,
+				}
+			end,
+		},
+		execute = function(command)
+			table.insert(screenshot_recorded.execute_commands, command)
+			local path = extract_screencapture_path(command)
+			write_fake_file(path, "fake screenshot")
+			return "", true, "exit", 0
+		end,
+		image = {
+			imageFromPath = function(path)
+				table.insert(screenshot_recorded.image_load_paths, path)
+
+				return {
+					encodeAsURLString = function()
+						return "data:image/png;base64,SCREENSHOTDATA"
+					end,
+				}
+			end,
+		},
+		json = {
+			encode = function(value)
+				screenshot_recorded.encoded_payload = value
+				return "encoded-payload"
+			end,
+			decode = function(_)
+				return {
+					choices = {
+						{
+							message = {
+								content = "截图译文",
+							},
+						},
+					},
+				}
+			end,
+		},
+		http = {
+			asyncPost = function(url, data, headers, callback)
+				table.insert(screenshot_recorded.async_posts, {
+					url = url,
+					data = data,
+					headers = headers,
+				})
+				callback(200, "{\"ok\":true}", {})
+			end,
+		},
+	}
+
+	loaded_modules["keybindings_config"] = {
+		selected_text_translate = {
+			enabled = true,
+			show_menubar = true,
+			prefix = { "Option" },
+			key = "R",
+			message = "Translate Selection",
+			screenshot_hotkey = {
+				prefix = { "Option", "Shift" },
+				key = "R",
+				message = "Translate Screenshot",
+			},
+			translation_direction = "auto",
+			target_language = "简体中文",
+			chinese_target_language = "英文",
+			popup_duration_seconds = 8,
+			model_service = build_model_service({
+				provider = "openai_compatible",
+				openai_compatible = {
+					api_url = "https://example.com/v1/chat/completions",
+					model = "gpt-vision-test",
+					api_key_env = "OPENAI_API_KEY",
+				},
+			}),
+		},
+	}
+	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(screenshot_recorded)
+	loaded_modules["utils_lib"] = {
+		trim = function(value)
+			return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		end,
+		copy_list = function(items)
+			local copied = {}
+
+			for _, item in ipairs(items or {}) do
+				table.insert(copied, item)
+			end
+
+			return copied
+		end,
+	}
+
+	translator = require("selected_text_translate")
+
+	assert_true(translator.start(), "translator should start successfully for screenshot translation")
+	screenshot_recorded.screenshot_bound_handler()
+
+	assert_true(
+		screenshot_recorded.execute_commands[1]:find("screencapture %-i %-x", 1) ~= nil,
+		"screenshot hotkey should invoke macOS screencapture"
+	)
+	assert_equal(
+		screenshot_recorded.async_posts[1].url,
+		"https://example.com/v1/chat/completions",
+		"screenshot translation should use the configured API URL"
+	)
+	assert_equal(
+		screenshot_recorded.encoded_payload.messages[2].content[1].text,
+		"请先识别并翻译这张截图中的文字。英文标题、标签、按钮、菜单和终端说明文字不要原样抄回；如果它们是人类可读文本，请翻译。",
+		"screenshot translation should send the stronger OCR+translation prompt"
+	)
+	assert_equal(
+		screenshot_recorded.encoded_payload.messages[2].content[2].image_url.url,
+		"data:image/png;base64,SCREENSHOTDATA",
+		"screenshot translation should include the screenshot as a data URL"
+	)
+	assert_contains(
+		screenshot_recorded.encoded_payload.messages[1].content,
+		"如果截图中的主要文字包含中文字符",
+		"screenshot translation should keep auto-direction rules in the system prompt"
+	)
+	assert_contains(
+		screenshot_recorded.encoded_payload.messages[1].content,
+		"不要只是转写原文",
+		"screenshot translation prompt should force translation of human-readable labels"
+	)
+	assert_contains(
+		screenshot_recorded.encoded_payload.messages[1].content,
+		"终端输出中的说明文字",
+		"screenshot translation prompt should explicitly cover terminal labels"
+	)
+	assert_equal(screenshot_recorded.shown_canvases, 1, "successful screenshot translation should show the floating popup")
+	assert_equal(
+		find_element(screenshot_recorded.canvas_states[1].elements, "body").text,
+		"截图译文",
+		"screenshot translation should render the translated OCR result"
+	)
+	assert_equal(translator.get_state().screenshot_hotkey_key, "r", "translator state should expose the screenshot hotkey")
+	assert_true(translator.stop(), "translator stop should succeed after screenshot translation")
+	assert_equal(screenshot_recorded.deleted_bindings, 2, "translator stop should delete both hotkeys after screenshot translation")
+
+	reset_modules()
+
+	local image_unsupported_recorded = {
+		alerts = {},
+		async_posts = {},
+		deleted_bindings = 0,
+		timers = {},
+		stopped_timers = 0,
+		mouse_position = {
+			x = 640,
+			y = 180,
+		},
+		execute_commands = {},
+	}
+
+	rawset(os, "getenv", function(name)
+		if name == "OPENAI_API_KEY" then
+			return "sk-image-unsupported"
+		end
+
+		return original_getenv(name)
+	end)
+
+	hs = {
+		logger = {
+			new = function()
+				return {
+					i = function() end,
+					w = function() end,
+					e = function() end,
+				}
+			end,
+		},
+		alert = {
+			show = function(message)
+				table.insert(image_unsupported_recorded.alerts, message)
+			end,
+		},
+		timer = create_timer_stub(image_unsupported_recorded),
+		mouse = {
+			absolutePosition = function()
+				return image_unsupported_recorded.mouse_position
+			end,
+		},
+		screen = {
+			mainScreen = function()
+				return {
+					frame = function()
+						return { x = 0, y = 0, w = 1440, h = 900 }
+					end,
+				}
+			end,
+		},
+		execute = function(command)
+			table.insert(image_unsupported_recorded.execute_commands, command)
+			local path = extract_screencapture_path(command)
+			write_fake_file(path, "fake screenshot")
+			return "", true, "exit", 0
+		end,
+		image = {
+			imageFromPath = function(_)
+				return {
+					encodeAsURLString = function()
+						return "data:image/png;base64,SCREENSHOTDATA"
+					end,
+				}
+			end,
+		},
+		json = {
+			encode = function(value)
+				image_unsupported_recorded.encoded_payload = value
+				return "encoded-payload"
+			end,
+			decode = function(body)
+				if body == "{\"error\":true}" then
+					return {
+						error = {
+							message = "This model does not support image input",
+						},
+					}
+				end
+
+				return nil
+			end,
+		},
+		http = {
+			asyncPost = function(url, data, headers, callback)
+				table.insert(image_unsupported_recorded.async_posts, {
+					url = url,
+					data = data,
+					headers = headers,
+				})
+				callback(400, "{\"error\":true}", {})
+			end,
+		},
+	}
+
+	loaded_modules["keybindings_config"] = {
+		selected_text_translate = {
+			enabled = true,
+			prefix = { "Option" },
+			key = "R",
+			message = "Translate Selection",
+			screenshot_hotkey = {
+				prefix = { "Option", "Shift" },
+				key = "R",
+				message = "Translate Screenshot",
+			},
+			target_language = "简体中文",
+			model_service = build_model_service({
+				provider = "openai_compatible",
+				openai_compatible = {
+					api_url = "https://example.com/v1/chat/completions",
+					model = "gpt-text-only",
+					api_key_env = "OPENAI_API_KEY",
+					supports_image_input = true,
+				},
+			}),
+		},
+	}
+	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(image_unsupported_recorded)
+	loaded_modules["utils_lib"] = {
+		trim = function(value)
+			return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		end,
+		copy_list = function(items)
+			local copied = {}
+
+			for _, item in ipairs(items or {}) do
+				table.insert(copied, item)
+			end
+
+			return copied
+		end,
+	}
+
+	translator = require("selected_text_translate")
+
+	assert_true(translator.start(), "translator should start successfully for unsupported-image coverage")
+	image_unsupported_recorded.screenshot_bound_handler()
+	assert_equal(#image_unsupported_recorded.async_posts, 1, "unsupported-image path should still issue the screenshot request once")
+	assert_contains(
+		image_unsupported_recorded.alerts[#image_unsupported_recorded.alerts],
+		"当前模型不支持图片输入",
+		"unsupported-image responses should surface a direct warning"
+	)
+	assert_true(translator.stop(), "translator stop should succeed after unsupported-image coverage")
+	assert_equal(image_unsupported_recorded.deleted_bindings, 2, "translator stop should delete both hotkeys after unsupported-image coverage")
 
 	reset_modules()
 
@@ -1168,8 +1555,8 @@ function _M.run()
 	assert_true(translator.stop(), "translator stop should succeed after Chinese-to-English auto mode")
 	assert_equal(
 		chinese_to_english_recorded.deleted_bindings,
-		1,
-		"translator stop should delete its hotkey binding after Chinese-to-English auto mode"
+		2,
+		"translator stop should delete both hotkeys after Chinese-to-English auto mode"
 	)
 
 	reset_modules()
@@ -1364,7 +1751,7 @@ function _M.run()
 	)
 	assert_equal(#fallback_recorded.alerts, 0, "closing the popup should not emit extra alerts")
 	assert_true(translator.stop(), "translator stop should succeed after clipboard fallback")
-	assert_equal(fallback_recorded.deleted_bindings, 1, "translator stop should delete its hotkey binding in fallback path")
+	assert_equal(fallback_recorded.deleted_bindings, 2, "translator stop should delete both hotkeys in fallback path")
 
 	reset_modules()
 
@@ -1569,8 +1956,8 @@ function _M.run()
 	assert_true(translator.stop(), "translator stop should succeed after rich clipboard restoration")
 	assert_equal(
 		rich_clipboard_recorded.deleted_bindings,
-		1,
-		"translator stop should delete its hotkey binding after rich clipboard restoration"
+		2,
+		"translator stop should delete both hotkeys after rich clipboard restoration"
 	)
 
 	reset_modules()
@@ -1768,7 +2155,7 @@ function _M.run()
 		"Ghostty auto-copy fallback should still show the translated result"
 	)
 	assert_true(translator.stop(), "translator stop should succeed after Ghostty auto-copy fallback")
-	assert_equal(ghostty_recorded.deleted_bindings, 1, "translator stop should delete its hotkey binding after Ghostty auto-copy fallback")
+	assert_equal(ghostty_recorded.deleted_bindings, 2, "translator stop should delete both hotkeys after Ghostty auto-copy fallback")
 
 	reset_modules()
 
@@ -1969,8 +2356,8 @@ function _M.run()
 	assert_true(translator.stop(), "translator stop should succeed after Ghostty stale clipboard protection")
 	assert_equal(
 		ghostty_stale_recorded.deleted_bindings,
-		1,
-		"translator stop should delete its hotkey binding after Ghostty stale clipboard protection"
+		2,
+		"translator stop should delete both hotkeys after Ghostty stale clipboard protection"
 	)
 
 	reset_modules()
@@ -2127,7 +2514,7 @@ function _M.run()
 		"Gemini mode should parse and display the returned translation"
 	)
 	assert_true(translator.stop(), "translator stop should succeed after Gemini mode")
-	assert_equal(gemini_recorded.deleted_bindings, 1, "translator stop should delete its hotkey binding after Gemini mode")
+	assert_equal(gemini_recorded.deleted_bindings, 2, "translator stop should delete both hotkeys after Gemini mode")
 
 	reset_modules()
 
@@ -2292,8 +2679,8 @@ function _M.run()
 	assert_true(translator.stop(), "translator stop should succeed after Anthropic mode")
 	assert_equal(
 		anthropic_recorded.deleted_bindings,
-		1,
-		"translator stop should delete its hotkey binding after Anthropic mode"
+		2,
+		"translator stop should delete both hotkeys after Anthropic mode"
 	)
 
 	reset_modules()
@@ -2488,7 +2875,7 @@ function _M.run()
 	assert_equal(ollama_recorded.hidden_canvases, 1, "translator stop should hide any active popup")
 	assert_equal(ollama_recorded.deleted_canvases, 1, "translator stop should clean up the active popup canvas")
 	assert_equal(ollama_recorded.stopped_watchers, 3, "translator stop should stop all popup watchers")
-	assert_equal(ollama_recorded.deleted_bindings, 1, "translator stop should delete its hotkey binding in local Ollama mode")
+	assert_equal(ollama_recorded.deleted_bindings, 2, "translator stop should delete both hotkeys in local Ollama mode")
 
 	reset_modules()
 

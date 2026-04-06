@@ -240,9 +240,11 @@ You can also toggle the menubar entry from the Hammerspoon console with `package
 
 Select any text and press <kbd>⌥</kbd> + <kbd>R</kbd> to translate it through an OpenAI-compatible `chat/completions` API. By default, non-Chinese text is translated into Simplified Chinese, while text containing Chinese characters is translated into English. The translated text is shown in a popup, and the popup also lets you copy the result back to the clipboard.
 
+The same module can also translate text from screenshots. Press a separate hotkey such as <kbd>⌥</kbd> + <kbd>⇧</kbd> + <kbd>R</kbd>, draw a screenshot region, and the captured image will be sent to the configured multimodal model. If the current model rejects image input, the module shows a direct unsupported-image warning.
+
 The module first tries to read the current accessibility selection directly. If that fails, it can either read the current clipboard directly for apps that auto-copy selections, or simulate a copy shortcut and then restore the previous clipboard contents. The default fallback shortcut is <kbd>⌘</kbd> + <kbd>C</kbd>. When Clipboard Center is enabled, the temporary copy/restore sequence is also suppressed from clipboard history.
 
-It also adds a menubar entry, so you can adjust the main settings at runtime and persist them through `hs.settings`, including the hotkey, translation direction, target languages, popup theme, popup timing, and provider-grouped model service settings (`api_url`, `model`, and a locally saved API key). Long translation results are automatically split into pages inside the popup, with previous/next controls. A `恢复默认` action clears these menu overrides and goes back to `keybindings_config.lua`.
+It also adds a menubar entry, so you can adjust the main settings at runtime and persist them through `hs.settings`, including the selection hotkey, screenshot hotkey, translation direction, target languages, popup theme, popup timing, and provider-grouped model service settings (`api_url`, `model`, and a locally saved API key). Long translation results are automatically split into pages inside the popup, with previous/next controls. A `恢复默认` action clears these menu overrides and goes back to `keybindings_config.lua`.
 
 You can customize it in `~/.hammerspoon/keybindings_config.lua`:
 
@@ -253,6 +255,11 @@ _M.selected_text_translate = {
 	prefix = { "Option" },
 	key = "R",
 	message = "Translate Selection",
+	screenshot_hotkey = {
+		prefix = { "Option", "Shift" },
+		key = "R",
+		message = "Translate Screenshot",
+	},
 	translation_direction = "auto",
 	target_language = "简体中文",
 	chinese_target_language = "英文",
@@ -270,6 +277,7 @@ _M.selected_text_translate = {
 		ollama = {
 			api_url = "http://localhost:11434/api/chat",
 			model = "qwen3.5:35b",
+			supports_image_input = true,
 			enable_warmup = true,
 			keep_alive = "30m",
 			disable_thinking = true,
@@ -277,18 +285,21 @@ _M.selected_text_translate = {
 		openai_compatible = {
 			api_url = "https://api.openai.com/v1/chat/completions",
 			model = "gpt-4o-mini",
+			supports_image_input = true,
 			api_key_env = "OPENAI_API_KEY",
 			api_key = "",
 		},
 		gemini = {
 			api_url = "https://generativelanguage.googleapis.com/v1beta/models",
 			model = "gemini-2.0-flash",
+			supports_image_input = true,
 			api_key_env = "GEMINI_API_KEY",
 			api_key = "",
 		},
 		anthropic = {
 			api_url = "https://api.anthropic.com/v1/messages",
 			model = "claude-3-5-haiku-latest",
+			supports_image_input = true,
 			api_key_env = "ANTHROPIC_API_KEY",
 			api_key = "",
 		},
@@ -311,6 +322,8 @@ The older `popup_background = "#RRGGBB"` / `"#RRGGBBAA"` and `popup_background_c
 In the menubar presets, `中文目标语言` intentionally excludes `简体中文` to avoid a no-op same-language translation. If you still need a special case, you can enter it manually via the custom option.
 
 `model_service.provider` supports `ollama`, `openai_compatible`, `gemini`, and `anthropic`. The currently selected provider decides which sub-config block supplies the active `api_url`, `model`, and API credential fields. In the menubar, these settings are grouped under each provider so you can inspect or edit another provider’s configuration without switching away from the current one first.
+
+`supports_image_input` controls whether the screenshot flow should attempt to send image input through that provider. It defaults to `true` for the built-in providers because their APIs can carry images, but the actual model still needs vision capability. If the current model is text-only and rejects screenshots, the module will show a specific unsupported-image warning.
 
 For local Ollama models, `model_service.ollama.enable_warmup = true` will silently send one lightweight warmup request a few seconds after startup, which helps reduce the first translation latency. `model_service.ollama.keep_alive = "30m"` attaches Ollama’s `keep_alive` option to both the warmup request and normal translation requests so the model stays loaded longer after use. `model_service.ollama.disable_thinking = true` also sends `think = false` by default for faster responses.
 

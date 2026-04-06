@@ -289,6 +289,14 @@ local function formatText()
 			selected_text_translate.key,
 			selected_text_translate.message or "Translate Selection"
 		)
+
+		local screenshot_hotkey = selected_text_translate.screenshot_hotkey or {}
+		append_section_line(
+			selectedTextTranslate,
+			screenshot_hotkey.prefix,
+			screenshot_hotkey.key,
+			screenshot_hotkey.message or "Translate Screenshot"
+		)
 	end
 
 	if #selectedTextTranslate > 0 then

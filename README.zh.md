@@ -240,9 +240,11 @@ _M.snippets = {
 
 选中任意文本后按 <kbd>⌥</kbd> + <kbd>R</kbd>，即可通过兼容 OpenAI 的 `chat/completions` API 进行翻译。默认情况下，非中文文本会被翻译为简体中文；包含中文字符的文本会被翻译成英文。翻译结果会显示在弹窗中，弹窗里也可以把结果复制回剪贴板；当译文过长时，弹窗会自动分页，并提供上一页 / 下一页切换。
 
+同一个模块也支持截图翻译。按一套独立快捷键，例如 <kbd>⌥</kbd> + <kbd>⇧</kbd> + <kbd>R</kbd>，框选截图区域后，图片会被发送给当前配置的多模态模型；如果当前模型拒绝图片输入，模块会直接提示该模型不支持图片。
+
 模块会优先直接读取当前辅助功能选区。如果失败，它可以读取那些会自动复制选区的应用当前剪贴板，或者模拟一次复制快捷键，然后再恢复之前的剪贴板内容。默认回退快捷键是 <kbd>⌘</kbd> + <kbd>C</kbd>。当 Clipboard Center 启用时，这段临时的复制/恢复流程也会被从剪贴板历史里抑制掉。
 
-模块还会增加一个菜单栏入口，你可以在运行时调整主要设置，并通过 `hs.settings` 保存下来，包括快捷键、翻译方向、目标语言、弹窗主题、弹窗时长，以及按 provider 分组的模型服务设置（`api_url`、`model` 和本地保存的 API key）。菜单里的 `恢复默认` 会清除这些覆盖项，并回退到 `keybindings_config.lua`。
+模块还会增加一个菜单栏入口，你可以在运行时调整主要设置，并通过 `hs.settings` 保存下来，包括划词快捷键、截图快捷键、翻译方向、目标语言、弹窗主题、弹窗时长，以及按 provider 分组的模型服务设置（`api_url`、`model` 和本地保存的 API key）。菜单里的 `恢复默认` 会清除这些覆盖项，并回退到 `keybindings_config.lua`。
 
 可以在 `~/.hammerspoon/keybindings_config.lua` 中这样配置：
 
@@ -253,6 +255,11 @@ _M.selected_text_translate = {
 	prefix = { "Option" },
 	key = "R",
 	message = "Translate Selection",
+	screenshot_hotkey = {
+		prefix = { "Option", "Shift" },
+		key = "R",
+		message = "Translate Screenshot",
+	},
 	translation_direction = "auto",
 	target_language = "简体中文",
 	chinese_target_language = "英文",
@@ -270,6 +277,7 @@ _M.selected_text_translate = {
 		ollama = {
 			api_url = "http://localhost:11434/api/chat",
 			model = "qwen3.5:35b",
+			supports_image_input = true,
 			enable_warmup = true,
 			keep_alive = "30m",
 			disable_thinking = true,
@@ -277,18 +285,21 @@ _M.selected_text_translate = {
 		openai_compatible = {
 			api_url = "https://api.openai.com/v1/chat/completions",
 			model = "gpt-4o-mini",
+			supports_image_input = true,
 			api_key_env = "OPENAI_API_KEY",
 			api_key = "",
 		},
 		gemini = {
 			api_url = "https://generativelanguage.googleapis.com/v1beta/models",
 			model = "gemini-2.0-flash",
+			supports_image_input = true,
 			api_key_env = "GEMINI_API_KEY",
 			api_key = "",
 		},
 		anthropic = {
 			api_url = "https://api.anthropic.com/v1/messages",
 			model = "claude-3-5-haiku-latest",
+			supports_image_input = true,
 			api_key_env = "ANTHROPIC_API_KEY",
 			api_key = "",
 		},
@@ -311,6 +322,8 @@ _M.selected_text_translate = {
 菜单预设里的 `中文目标语言` 故意不包含 `简体中文`，以避免同语言翻译没有实际效果。如果你确实需要特殊场景，可以通过自定义选项手动输入。
 
 `model_service.provider` 支持 `ollama`、`openai_compatible`、`gemini` 和 `anthropic`。当前选中的 provider 决定实际使用哪个子配置块中的 `api_url`、`model` 和 API 凭据。在菜单栏里，这些设置会按 provider 分组，因此你可以查看或修改其他 provider 的配置，而不必先切换当前 provider。
+
+`supports_image_input` 用来控制该 provider 是否允许截图翻译流程发送图片。内置 provider 默认都是 `true`，因为它们的 API 具备传图能力；但实际所选模型仍然需要支持视觉输入。如果当前模型是纯文本模型并拒绝截图，模块会给出明确的“不支持图片”提示。
 
 对于本地 Ollama 模型，`model_service.ollama.enable_warmup = true` 会在启动几秒后悄悄发送一次轻量预热请求，减少第一次翻译的等待时间。`model_service.ollama.keep_alive = "30m"` 会把 Ollama 的 `keep_alive` 选项同时附加到预热请求和正常翻译请求上，让模型在使用后更久地保持加载。`model_service.ollama.disable_thinking = true` 还会默认发送 `think = false`，以加快响应。
 

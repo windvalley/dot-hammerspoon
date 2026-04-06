@@ -20,7 +20,7 @@ local module_specs = {
 	{ name = "website_open", description = "网站快捷访问" },
 	{ name = "clipboard_center", description = "剪贴板历史" },
 	{ name = "snippet_center", description = "文本片段管理" },
-	{ name = "selected_text_translate", description = "翻译当前选中的文本" },
+	{ name = "selected_text_translate", description = "翻译当前选中的文本或截图中的文字" },
 	{ name = "manual_input_method", description = "切换到指定输入法" },
 	{ name = "auto_input_method", description = "根据应用不同自动切换输入法" },
 	{ name = "bing_daily_wallpaper", description = "同步 Bing Daily Picture 壁纸" },

@@ -1,7 +1,7 @@
 local _M = {}
 
 _M.name = "selected_text_translate"
-_M.description = "翻译当前选中的文本"
+_M.description = "翻译当前选中的文本或截图中的文字"
 
 local selected_text_translate = require("keybindings_config").selected_text_translate or {}
 local hotkey_helper = require("hotkey_helper")
@@ -25,27 +25,32 @@ local default_model_service = {
 	ollama = {
 		api_url = "http://localhost:11434/api/chat",
 		model = "qwen3.5:35b",
+		supports_image_input = true,
 	},
 	openai_compatible = {
 		api_url = "https://api.openai.com/v1/chat/completions",
 		model = "gpt-4o-mini",
 		api_key_env = "OPENAI_API_KEY",
+		supports_image_input = true,
 	},
 	gemini = {
 		api_url = "https://generativelanguage.googleapis.com/v1beta/models",
 		model = "gemini-2.0-flash",
 		api_key_env = "GEMINI_API_KEY",
+		supports_image_input = true,
 	},
 	anthropic = {
 		api_url = "https://api.anthropic.com/v1/messages",
 		model = "claude-3-5-haiku-latest",
 		api_key_env = "ANTHROPIC_API_KEY",
+		supports_image_input = true,
 	},
 }
 local default_target_language = "简体中文"
 local default_chinese_target_language = "英文"
 local default_translation_direction = "auto"
 local default_request_message = "Translate Selection"
+local default_screenshot_request_message = "Translate Screenshot"
 local default_popup_title = "翻译结果"
 local default_model_warmup_delay_seconds = 3
 local default_request_timeout_seconds = 20
@@ -64,6 +69,12 @@ local menubar_autosave_name = "dot-hammerspoon.selected_text_translate"
 local dialog_copy_button = "复制译文"
 local dialog_close_button = "关闭"
 local menubar_title_fallback = "译"
+local default_image_translation_not_supported_message = "当前模型不支持图片输入，请切换到支持视觉的模型"
+local default_screenshot_hotkey = {
+	prefix = { "Option", "Shift" },
+	key = "R",
+	message = default_screenshot_request_message,
+}
 local popup_margin = 24
 local popup_min_width = 320
 local popup_max_width = 540
@@ -277,6 +288,7 @@ local state = {
 	started = false,
 	start_ok = true,
 	hotkey = nil,
+	screenshot_hotkey = nil,
 	request_inflight = false,
 	request_id = 0,
 	request_timeout_timer = nil,
@@ -296,6 +308,7 @@ local state = {
 	menubar = nil,
 	menubar_forced = false,
 	hotkey_error = nil,
+	screenshot_hotkey_error = nil,
 }
 
 local runtime_overrides = {}
@@ -472,9 +485,13 @@ function config_utils.sanitize_model_service_overrides(overrides)
 			ollama.enable_warmup = overrides.ollama.enable_warmup
 		end
 
-		if type(overrides.ollama.disable_thinking) == "boolean" then
-			ollama.disable_thinking = overrides.ollama.disable_thinking
-		end
+	if type(overrides.ollama.disable_thinking) == "boolean" then
+		ollama.disable_thinking = overrides.ollama.disable_thinking
+	end
+
+	if type(overrides.ollama.supports_image_input) == "boolean" then
+		ollama.supports_image_input = overrides.ollama.supports_image_input
+	end
 
 		if table_is_empty(ollama) ~= true then
 			sanitized.ollama = ollama
@@ -485,11 +502,15 @@ function config_utils.sanitize_model_service_overrides(overrides)
 		if type(overrides[provider_key]) == "table" then
 			local provider_settings = {}
 
-			for _, field in ipairs({ "api_url", "model", "api_key_env", "api_key" }) do
-				if type(overrides[provider_key][field]) == "string" then
-					provider_settings[field] = tostring(overrides[provider_key][field])
-				end
+		for _, field in ipairs({ "api_url", "model", "api_key_env", "api_key" }) do
+			if type(overrides[provider_key][field]) == "string" then
+				provider_settings[field] = tostring(overrides[provider_key][field])
 			end
+		end
+
+		if type(overrides[provider_key].supports_image_input) == "boolean" then
+			provider_settings.supports_image_input = overrides[provider_key].supports_image_input
+		end
 
 			if table_is_empty(provider_settings) ~= true then
 				sanitized[provider_key] = provider_settings
@@ -506,6 +527,37 @@ end
 
 local function sanitize_runtime_overrides(overrides)
 	local sanitized = {}
+
+	local function sanitize_hotkey_override_group(source)
+		local normalized = {}
+
+		if type(source) ~= "table" then
+			return nil
+		end
+
+		if source.prefix ~= nil then
+			local normalized_modifiers = normalize_hotkey_modifiers(source.prefix)
+
+			if normalized_modifiers ~= nil then
+				normalized.prefix = normalized_modifiers
+			end
+		end
+
+		if source.key ~= nil then
+			local normalized_key = normalize_hotkey_key(source.key)
+			normalized.key = normalized_key == nil and "disabled" or normalized_key
+		end
+
+		if type(source.message) == "string" then
+			normalized.message = tostring(source.message)
+		end
+
+		if table_is_empty(normalized) == true then
+			return nil
+		end
+
+		return normalized
+	end
 
 	if type(overrides) ~= "table" then
 		return sanitized
@@ -530,6 +582,12 @@ local function sanitize_runtime_overrides(overrides)
 	if overrides.key ~= nil then
 		local normalized_key = normalize_hotkey_key(overrides.key)
 		sanitized.key = normalized_key == nil and "disabled" or normalized_key
+	end
+
+	local screenshot_hotkey = sanitize_hotkey_override_group(overrides.screenshot_hotkey)
+
+	if screenshot_hotkey ~= nil then
+		sanitized.screenshot_hotkey = screenshot_hotkey
 	end
 
 	for _, field in ipairs({
@@ -1003,6 +1061,27 @@ local function request_message()
 	return message
 end
 
+function config_utils.screenshot_hotkey_config()
+	local config = current_config()
+	local hotkey = type(config.screenshot_hotkey) == "table" and config.screenshot_hotkey or {}
+
+	return {
+		prefix = copy_list(hotkey.prefix or default_screenshot_hotkey.prefix),
+		key = hotkey.key ~= nil and hotkey.key or default_screenshot_hotkey.key,
+		message = trim(tostring(hotkey.message or default_screenshot_hotkey.message)),
+	}
+end
+
+function config_utils.screenshot_request_message()
+	local hotkey = config_utils.screenshot_hotkey_config()
+
+	if hotkey.message == "" then
+		return default_screenshot_request_message
+	end
+
+	return hotkey.message
+end
+
 function config_utils.model_service_config()
 	local config = current_config()
 
@@ -1043,6 +1122,24 @@ function config_utils.provider_config(provider_name)
 	end
 
 	return {}
+end
+
+function config_utils.provider_supports_image_input(provider_name)
+	provider_name = normalized_provider_name(provider_name)
+
+	local config = config_utils.provider_config(provider_name)
+
+	if type(config.supports_image_input) == "boolean" then
+		return config.supports_image_input
+	end
+
+	local defaults = type(default_model_service[provider_name]) == "table" and default_model_service[provider_name] or {}
+
+	if type(defaults.supports_image_input) == "boolean" then
+		return defaults.supports_image_input
+	end
+
+	return true
 end
 
 local function api_url(provider_name)
@@ -1368,6 +1465,133 @@ local function current_popup_anchor_bounds()
 	return current_selection_bounds() or current_mouse_bounds()
 end
 
+function config_utils.shell_quote(value)
+	local normalized = tostring(value or "")
+	return "'" .. normalized:gsub("'", "'\\''") .. "'"
+end
+
+function config_utils.url_decode(value)
+	return tostring(value or ""):gsub("%%(%x%x)", function(hex)
+		return string.char(tonumber(hex, 16))
+	end)
+end
+
+function config_utils.remove_file(path)
+	if type(path) ~= "string" or path == "" then
+		return
+	end
+
+	pcall(os.remove, path)
+end
+
+function config_utils.file_exists(path)
+	if type(path) ~= "string" or path == "" then
+		return false
+	end
+
+	local file = io.open(path, "rb")
+
+	if file == nil then
+		return false
+	end
+
+	file:close()
+	return true
+end
+
+function config_utils.parse_data_url(data_url)
+	local mime_type, encoded_data = tostring(data_url or ""):match("^data:([^;]+);base64,(.+)$")
+
+	if mime_type == nil or encoded_data == nil then
+		return nil
+	end
+
+	local base64_data = config_utils.url_decode(encoded_data)
+
+	return {
+		mime_type = mime_type,
+		base64_data = base64_data,
+		data_url = string.format("data:%s;base64,%s", mime_type, base64_data),
+	}
+end
+
+function config_utils.image_payload_from_path(path)
+	if type(hs.image) ~= "table" or type(hs.image.imageFromPath) ~= "function" then
+		return nil, "当前 Hammerspoon 不支持图片读取"
+	end
+
+	local image = hs.image.imageFromPath(path)
+
+	if image == nil then
+		return nil, "读取截图失败"
+	end
+
+	if type(image.encodeAsURLString) ~= "function" then
+		return nil, "当前 Hammerspoon 不支持图片编码"
+	end
+
+	local encoded_ok, encoded = pcall(function()
+		return image:encodeAsURLString(true, "PNG")
+	end)
+
+	if encoded_ok ~= true or type(encoded) ~= "string" or encoded == "" then
+		return nil, "截图编码失败"
+	end
+
+	local payload = config_utils.parse_data_url(encoded)
+
+	if payload == nil then
+		return nil, "截图编码失败"
+	end
+
+	return payload, nil
+end
+
+function config_utils.capture_screenshot_image_payload()
+	if type(hs.execute) ~= "function" then
+		return nil, "当前 Hammerspoon 不支持截图命令", false
+	end
+
+	local temp_path = os.tmpname()
+
+	if type(temp_path) ~= "string" or temp_path == "" then
+		return nil, "无法创建截图临时文件", false
+	end
+
+	if temp_path:sub(-4):lower() ~= ".png" then
+		temp_path = temp_path .. ".png"
+	end
+
+	config_utils.remove_file(temp_path)
+
+	local ok = pcall(function()
+		hs.execute("/usr/sbin/screencapture -i -x " .. config_utils.shell_quote(temp_path), true)
+	end)
+
+	local payload = nil
+	local error_message = nil
+
+	if config_utils.file_exists(temp_path) == true then
+		payload, error_message = config_utils.image_payload_from_path(temp_path)
+	end
+
+	config_utils.remove_file(temp_path)
+
+	if payload ~= nil then
+		return payload, nil, false
+	end
+
+	if ok ~= true then
+		return nil, "发起截图失败", false
+	end
+
+	if error_message ~= nil then
+		return nil, error_message, false
+	end
+
+	return nil, "已取消截图翻译", true
+end
+
 local function clipboard_change_count()
 	if type(hs.pasteboard) ~= "table" or type(hs.pasteboard.changeCount) ~= "function" then
 		return nil
@@ -1511,11 +1735,30 @@ local function resolved_target_language(text)
 	return target_language()
 end
 
-local function system_prompt(text)
+local function text_system_prompt(text)
 	return string.format(
 		"你是翻译助手。请将用户提供的文本翻译成%s。只返回译文，不要解释，不要添加引号；尽量保留原文换行、列表和代码格式。",
 		resolved_target_language(text)
 	)
+end
+
+local function image_system_prompt()
+	if translation_direction() == "to_target" then
+		return string.format(
+			"你是翻译助手。请先识别截图中的文字，再将其翻译成%s。必须翻译所有人类可读的自然语言内容，包括标题、状态标签、终端输出中的说明文字、表头、菜单项、按钮文字、提示语和普通句子；不要只是转写原文。只有命令、文件路径、URL、代码标识符、参数名、文件名、数字和符号等技术片段可以按需保留。只返回最终译文，不要解释，不要描述画面，不要添加引号；尽量保留原文换行、列表和代码格式。如果截图中没有可识别文字，只返回“未识别到可翻译文字”。",
+			target_language()
+		)
+	end
+
+	return string.format(
+		"你是翻译助手。请先识别截图中的文字，再执行翻译：如果截图中的主要文字包含中文字符，则翻译成%s；否则翻译成%s。必须翻译所有人类可读的自然语言内容，包括标题、状态标签、终端输出中的说明文字、表头、菜单项、按钮文字、提示语和普通句子；不要只是转写原文。只有命令、文件路径、URL、代码标识符、参数名、文件名、数字和符号等技术片段可以按需保留。只返回最终译文，不要解释，不要描述画面，不要添加引号；尽量保留原文换行、列表和代码格式。如果截图中没有可识别文字，只返回“未识别到可翻译文字”。",
+		chinese_target_language(),
+		target_language()
+	)
+end
+
+local function image_user_prompt()
+	return "请先识别并翻译这张截图中的文字。英文标题、标签、按钮、菜单和终端说明文字不要原样抄回；如果它们是人类可读文本，请翻译。"
 end
 
 local function copy_translation_to_clipboard(result, show_alert)
@@ -2742,6 +2985,51 @@ local function summarize_error_message(body)
 	return text
 end
 
+function config_utils.error_indicates_image_not_supported(message)
+	local normalized = string.lower(trim(tostring(message or "")))
+
+	if normalized == "" then
+		return false
+	end
+
+	for _, phrase in ipairs({
+		"不支持图片",
+		"不支持图像",
+		"不支持视觉",
+		"not support image",
+		"does not support image",
+		"doesn't support image",
+		"unsupported image",
+		"unsupported vision",
+		"text-only",
+		"only supports text",
+		"multimodal",
+		"vision",
+		"image_url",
+	}) do
+		if normalized:find(phrase, 1, true) ~= nil then
+			if
+				phrase == "multimodal"
+				or phrase == "vision"
+				or phrase == "image_url"
+			then
+				if
+					normalized:find("unsupported", 1, true) ~= nil
+					or normalized:find("not support", 1, true) ~= nil
+					or normalized:find("does not support", 1, true) ~= nil
+					or normalized:find("doesn't support", 1, true) ~= nil
+				then
+					return true
+				end
+			else
+				return true
+			end
+		end
+	end
+
+	return false
+end
+
 local function extract_translation(response)
 	if type(response) ~= "table" then
 		return nil
@@ -2906,14 +3194,14 @@ local function apply_ollama_request_options(payload)
 	return payload
 end
 
-local function build_translation_payload(text)
+local function build_text_translation_payload(text)
 	local provider_name = provider()
 	local payload = {
 		model = api_model(),
 		messages = {
 			{
 				role = "system",
-				content = system_prompt(text),
+				content = text_system_prompt(text),
 			},
 			{
 				role = "user",
@@ -2930,7 +3218,7 @@ local function build_translation_payload(text)
 		return {
 			systemInstruction = {
 				parts = {
-					{ text = system_prompt(text) },
+					{ text = text_system_prompt(text) },
 				},
 			},
 			contents = {
@@ -2950,11 +3238,112 @@ local function build_translation_payload(text)
 	if provider_name == "anthropic" then
 		return {
 			model = api_model(),
-			system = system_prompt(text),
+			system = text_system_prompt(text),
 			messages = {
 				{
 					role = "user",
 					content = text,
+				},
+			},
+			max_tokens = 1024,
+			temperature = 0.2,
+		}
+	end
+
+	payload.temperature = 0.2
+
+	return payload
+end
+
+local function build_image_translation_payload(image_payload)
+	local provider_name = provider()
+	local prompt = image_user_prompt()
+	local system_prompt = image_system_prompt()
+	local payload = {
+		model = api_model(),
+		messages = {
+			{
+				role = "system",
+				content = system_prompt,
+			},
+			{
+				role = "user",
+				content = {
+					{
+						type = "text",
+						text = prompt,
+					},
+					{
+						type = "image_url",
+						image_url = {
+							url = image_payload.data_url,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if provider_name == "ollama" then
+		payload.messages[2] = {
+			role = "user",
+			content = prompt,
+			images = {
+				image_payload.base64_data,
+			},
+		}
+
+		return apply_ollama_request_options(payload)
+	end
+
+	if provider_name == "gemini" then
+		return {
+			systemInstruction = {
+				parts = {
+					{ text = system_prompt },
+				},
+			},
+			contents = {
+				{
+					role = "user",
+					parts = {
+						{ text = prompt },
+						{
+							inline_data = {
+								mime_type = image_payload.mime_type,
+								data = image_payload.base64_data,
+							},
+						},
+					},
+				},
+			},
+			generationConfig = {
+				temperature = 0.2,
+			},
+		}
+	end
+
+	if provider_name == "anthropic" then
+		return {
+			model = api_model(),
+			system = system_prompt,
+			messages = {
+				{
+					role = "user",
+					content = {
+						{
+							type = "text",
+							text = prompt,
+						},
+						{
+							type = "image",
+							source = {
+								type = "base64",
+								media_type = image_payload.mime_type,
+								data = image_payload.base64_data,
+							},
+						},
+					},
 				},
 			},
 			max_tokens = 1024,
@@ -3027,7 +3416,7 @@ local function schedule_model_warmup()
 	end)
 end
 
-local function request_translation(text, anchor_bounds)
+local function request_translation(payload, anchor_bounds, request_kind)
 	if type(hs.http) ~= "table" or type(hs.http.asyncPost) ~= "function" then
 		show_request_error("当前 Hammerspoon 不支持 HTTP 请求")
 		return
@@ -3045,7 +3434,10 @@ local function request_translation(text, anchor_bounds)
 		return
 	end
 
-	local payload = build_translation_payload(text)
+	if request_kind == "image" and config_utils.provider_supports_image_input() ~= true then
+		show_request_error(default_image_translation_not_supported_message)
+		return
+	end
 
 	local encoded_ok, encoded_payload = pcall(hs.json.encode, payload)
 
@@ -3080,7 +3472,14 @@ local function request_translation(text, anchor_bounds)
 			finish_request()
 
 			if tonumber(status) == nil or tonumber(status) < 200 or tonumber(status) >= 300 then
-				hs.alert.show("翻译失败: " .. summarize_error_message(body))
+				local error_message = summarize_error_message(body)
+
+				if request_kind == "image" and config_utils.error_indicates_image_not_supported(error_message) == true then
+					hs.alert.show(default_image_translation_not_supported_message)
+					return
+				end
+
+				hs.alert.show("翻译失败: " .. error_message)
 				return
 			end
 
@@ -3270,6 +3669,14 @@ local function capture_selection_from_clipboard(callback)
 	try_copy_shortcut(1)
 end
 
+function config_utils.request_text_translation(text, anchor_bounds)
+	request_translation(build_text_translation_payload(text), anchor_bounds, "text")
+end
+
+function config_utils.request_image_translation(image_payload, anchor_bounds)
+	request_translation(build_image_translation_payload(image_payload), anchor_bounds, "image")
+end
+
 local function translate_current_selection()
 	if state.request_inflight == true then
 		hs.alert.show("翻译请求进行中")
@@ -3282,7 +3689,7 @@ local function translate_current_selection()
 	local text = current_selected_text()
 
 	if text ~= nil then
-		request_translation(text, selection_bounds)
+		config_utils.request_text_translation(text, selection_bounds)
 		return
 	end
 
@@ -3292,27 +3699,110 @@ local function translate_current_selection()
 			return
 		end
 
-		request_translation(copied_text, selection_bounds)
+		config_utils.request_text_translation(copied_text, selection_bounds)
 	end)
 end
 
-local function create_hotkey_binding()
+local function translate_current_screenshot()
+	if state.request_inflight == true then
+		hs.alert.show("翻译请求进行中")
+		return
+	end
+
+	state.request_inflight = true
+	local anchor_bounds = current_mouse_bounds()
+	local image_payload, error_message = config_utils.capture_screenshot_image_payload()
+
+	if image_payload == nil then
+		show_request_error(error_message or "截图失败")
+		return
+	end
+
+	config_utils.request_image_translation(image_payload, anchor_bounds)
+end
+
+function config_utils.hotkey_kind_label(kind)
+	if kind == "screenshot" then
+		return "截图翻译"
+	end
+
+	return "划词翻译"
+end
+
+function config_utils.hotkey_override_field(kind, field)
+	if kind == "screenshot" then
+		return { "screenshot_hotkey", field }
+	end
+
+	return field
+end
+
+local function current_hotkey_components(kind)
+	if kind == "screenshot" then
+		local hotkey = config_utils.screenshot_hotkey_config()
+		local modifiers = normalize_hotkey_modifiers(hotkey.prefix or {}) or {}
+		local key = normalize_hotkey_key(hotkey.key)
+
+		return modifiers, key
+	end
+
 	local config = current_config()
-	local modifiers, invalid_modifier = normalize_hotkey_modifiers(config.prefix or {})
+	local modifiers = normalize_hotkey_modifiers(config.prefix or {}) or {}
+	local key = normalize_hotkey_key(config.key)
+
+	return modifiers, key
+end
+
+local function display_hotkey_label(kind)
+	local modifiers, key = current_hotkey_components(kind)
+
+	if key == nil then
+		return "未设置"
+	end
+
+	if type(format_hotkey) == "function" then
+		return format_hotkey(modifiers, key)
+	end
+
+	return key
+end
+
+local function create_hotkey_binding(kind)
+	local config = current_config()
+	local raw_modifiers = config.prefix or {}
+	local key = config.key
+	local message = request_message()
+	local handler = translate_current_selection
+
+	if kind == "screenshot" then
+		local screenshot_hotkey = config_utils.screenshot_hotkey_config()
+		raw_modifiers = screenshot_hotkey.prefix or {}
+		key = screenshot_hotkey.key
+		message = config_utils.screenshot_request_message()
+		handler = translate_current_screenshot
+	end
+
+	local modifiers, invalid_modifier = normalize_hotkey_modifiers(raw_modifiers)
 
 	if modifiers == nil then
-		log.e("invalid selected text translate hotkey modifier in config: " .. tostring(invalid_modifier))
+		log.e(
+			string.format(
+				"invalid %s hotkey modifier in config: %s",
+				kind == "screenshot" and "screenshot translate" or "selected text translate",
+				tostring(invalid_modifier)
+			)
+		)
 		return false, nil, "快捷键修饰键无效"
 	end
 
-	local key = normalize_hotkey_key(config.key)
+	key = normalize_hotkey_key(key)
 
 	if key == nil then
 		return true, nil, nil
 	end
 
-	local binding, binding_error = hotkey_helper.bind(copy_list(modifiers), key, request_message(), function()
-		translate_current_selection()
+	local binding, binding_error = hotkey_helper.bind(copy_list(modifiers), key, message, function()
+		handler()
 	end, nil, nil, { logger = log })
 
 	if binding == nil then
@@ -3337,29 +3827,7 @@ local function menubar_enabled()
 	return config.show_menubar ~= false
 end
 
-local function current_hotkey_components()
-	local config = current_config()
-	local modifiers = normalize_hotkey_modifiers(config.prefix or {}) or {}
-	local key = normalize_hotkey_key(config.key)
-
-	return modifiers, key
-end
-
-local function display_hotkey_label()
-	local modifiers, key = current_hotkey_components()
-
-	if key == nil then
-		return "未设置"
-	end
-
-	if type(format_hotkey) == "function" then
-		return format_hotkey(modifiers, key)
-	end
-
-	return key
-end
-
-local function format_duration_label(seconds)
+function config_utils.format_duration_label(seconds)
 	seconds = tonumber(seconds) or 0
 
 	if math.abs(seconds) < 0.000001 then
@@ -3373,26 +3841,26 @@ local function format_duration_label(seconds)
 	return string.format("%.1f 秒", seconds)
 end
 
-local function format_alpha_label(alpha)
+function config_utils.format_alpha_label(alpha)
 	return string.format("%d%%", math.floor((tonumber(alpha) or 0) * 100 + 0.5))
 end
 
-local function translation_direction_label(direction)
+function config_utils.translation_direction_label(direction)
 	return menu_options.translation_direction_labels[direction or translation_direction()]
 		or menu_options.translation_direction_labels.auto
 end
 
-local function popup_theme_label(theme_name)
+function config_utils.popup_theme_label(theme_name)
 	theme_name = theme_name or popup_theme_name()
 
 	return menu_options.popup_theme_labels[theme_name] or theme_name
 end
 
-local function provider_label(provider_name)
+function config_utils.provider_label(provider_name)
 	return menu_options.provider_labels[normalized_provider_name(provider_name)] or menu_options.provider_labels[default_model_service.provider]
 end
 
-local function api_key_source_label(provider_name)
+function config_utils.api_key_source_label(provider_name)
 	provider_name = normalized_provider_name(provider_name)
 
 	if provider_name == "ollama" then
@@ -3419,7 +3887,7 @@ local function api_key_source_label(provider_name)
 	return "未配置"
 end
 
-local function menu_config_source_label()
+function config_utils.menu_config_source_label()
 	if table_is_empty(runtime_overrides) == true then
 		return "配置: 文件"
 	end
@@ -3427,23 +3895,24 @@ local function menu_config_source_label()
 	return "配置: 文件+菜单"
 end
 
-local function tooltip_text()
+function config_utils.tooltip_text()
 	return string.format(
-		"划词翻译\n状态: %s\n热键: %s\n方向: %s\n非中文: %s\n中文: %s\n模型: %s\n模型服务: %s\n主题: %s | 透明度: %s | 停留: %s",
+		"划词翻译\n状态: %s\n划词热键: %s\n截图热键: %s\n方向: %s\n非中文: %s\n中文: %s\n模型: %s\n模型服务: %s\n主题: %s | 透明度: %s | 停留: %s",
 		hotkey_enabled() == true and "已启用" or "已停用",
-		display_hotkey_label(),
-		translation_direction_label(),
+		display_hotkey_label("selection"),
+		display_hotkey_label("screenshot"),
+		config_utils.translation_direction_label(),
 		target_language(),
 		chinese_target_language(),
 		api_model(),
-		provider_label(),
-		popup_theme_label(),
-		format_alpha_label(resolved_popup_background_alpha({ alpha = popup_background_fill_color().alpha })),
-		format_duration_label(popup_duration_seconds())
+		config_utils.provider_label(),
+		config_utils.popup_theme_label(),
+		config_utils.format_alpha_label(resolved_popup_background_alpha({ alpha = popup_background_fill_color().alpha })),
+		config_utils.format_duration_label(popup_duration_seconds())
 	)
 end
 
-local function prompt_number(message, informative_text, default_value, minimum, maximum, options)
+function config_utils.prompt_number(message, informative_text, default_value, minimum, maximum, options)
 	options = options or {}
 
 	if type(prompt_text) ~= "function" then
@@ -3479,7 +3948,7 @@ local function prompt_number(message, informative_text, default_value, minimum, 
 	return number
 end
 
-local function format_hotkey_for_prompt(modifiers, key)
+function config_utils.format_hotkey_for_prompt(modifiers, key)
 	local modifier_names = {}
 
 	for _, modifier in ipairs(modifiers or {}) do
@@ -3491,7 +3960,7 @@ end
 
 local refresh_menubar
 
-local function destroy_menubar()
+function config_utils.destroy_menubar()
 	if state.menubar == nil then
 		return
 	end
@@ -3500,12 +3969,12 @@ local function destroy_menubar()
 	state.menubar = nil
 end
 
-local function replace_runtime_overrides(snapshot)
+function config_utils.replace_runtime_overrides(snapshot)
 	runtime_overrides = sanitize_runtime_overrides(snapshot)
 	persist_runtime_overrides()
 end
 
-local function rebind_hotkey(_, options)
+local function rebind_hotkeys(_, options)
 	options = options or {}
 
 	if state.hotkey ~= nil then
@@ -3513,7 +3982,13 @@ local function rebind_hotkey(_, options)
 		state.hotkey = nil
 	end
 
+	if state.screenshot_hotkey ~= nil then
+		state.screenshot_hotkey:delete()
+		state.screenshot_hotkey = nil
+	end
+
 	state.hotkey_error = nil
+	state.screenshot_hotkey_error = nil
 
 	if hotkey_enabled() ~= true then
 		if options.refresh_menubar ~= false and refresh_menubar ~= nil then
@@ -3523,19 +3998,33 @@ local function rebind_hotkey(_, options)
 		return true
 	end
 
-	local ok, binding, error_message = create_hotkey_binding()
+	local hotkey_ok, binding, error_message = create_hotkey_binding("selection")
 	state.hotkey = binding
 
-	if ok ~= true then
+	if hotkey_ok ~= true then
 		state.hotkey = nil
 		state.hotkey_error = error_message or "快捷键绑定失败"
+	end
+
+	local screenshot_ok, screenshot_binding, screenshot_error_message = create_hotkey_binding("screenshot")
+	state.screenshot_hotkey = screenshot_binding
+
+	if screenshot_ok ~= true then
+		state.screenshot_hotkey = nil
+		state.screenshot_hotkey_error = screenshot_error_message or "快捷键绑定失败"
+	end
+
+	local ok = hotkey_ok == true and screenshot_ok == true
+
+	if ok ~= true then
 		state.menubar_forced = true
 
 		if options.show_alert ~= false then
-			hs.alert.show("划词翻译快捷键绑定失败，已保留菜单栏入口")
+			hs.alert.show("翻译快捷键绑定失败，已保留菜单栏入口")
 		end
 	else
 		state.hotkey_error = nil
+		state.screenshot_hotkey_error = nil
 
 		if current_config().show_menubar ~= false then
 			state.menubar_forced = false
@@ -3562,53 +4051,57 @@ local function set_enabled(enabled, reason)
 		destroy_popup()
 	end
 
-	rebind_hotkey(reason or "menu update enabled", { show_alert = enabled ~= true })
+	rebind_hotkeys(reason or "menu update enabled", { show_alert = enabled ~= true })
 	hs.alert.show(enabled == true and "划词翻译已开启" or "划词翻译已关闭")
 end
 
-local function set_hotkey_configuration(modifiers, key, reason)
+local function set_hotkey_configuration(kind, modifiers, key, reason)
 	local snapshot = copy_table(runtime_overrides)
+	local hotkey_label = config_utils.hotkey_kind_label(kind)
 
-	set_runtime_override("prefix", copy_list(modifiers or {}))
-	set_runtime_override("key", key == nil and "disabled" or key)
+	set_runtime_override(config_utils.hotkey_override_field(kind, "prefix"), copy_list(modifiers or {}))
+	set_runtime_override(config_utils.hotkey_override_field(kind, "key"), key == nil and "disabled" or key)
 
-	local ok = rebind_hotkey(reason or "menu update hotkey", { show_alert = false })
+	local ok = rebind_hotkeys(reason or "menu update hotkey", { show_alert = false })
 
 	if ok ~= true and hotkey_enabled() == true then
-		replace_runtime_overrides(snapshot)
-		rebind_hotkey("restore previous selection translate hotkey", { show_alert = false })
-		hs.alert.show("划词翻译快捷键设置失败")
+		config_utils.replace_runtime_overrides(snapshot)
+		rebind_hotkeys("restore previous selection translate hotkey", { show_alert = false })
+		hs.alert.show(hotkey_label .. "快捷键设置失败")
 		return false
 	end
 
-	hs.alert.show(key == nil and "已禁用划词翻译快捷键" or ("划词翻译快捷键已更新: " .. display_hotkey_label()))
+	hs.alert.show(key == nil and ("已禁用" .. hotkey_label .. "快捷键") or (hotkey_label .. "快捷键已更新: " .. display_hotkey_label(kind)))
 	return true
 end
 
-local function restore_default_hotkey()
+local function restore_default_hotkey(kind)
 	local snapshot = copy_table(runtime_overrides)
+	local hotkey_label = config_utils.hotkey_kind_label(kind)
 
-	clear_runtime_override("prefix")
-	clear_runtime_override("key")
+	clear_runtime_override(config_utils.hotkey_override_field(kind, "prefix"))
+	clear_runtime_override(config_utils.hotkey_override_field(kind, "key"))
+	clear_runtime_override(config_utils.hotkey_override_field(kind, "message"))
 
-	local ok = rebind_hotkey("restore default selection translate hotkey", { show_alert = false })
+	local ok = rebind_hotkeys("restore default selection translate hotkey", { show_alert = false })
 
 	if ok ~= true and hotkey_enabled() == true then
-		replace_runtime_overrides(snapshot)
-		rebind_hotkey("restore previous selection translate hotkey", { show_alert = false })
+		config_utils.replace_runtime_overrides(snapshot)
+		rebind_hotkeys("restore previous selection translate hotkey", { show_alert = false })
 		hs.alert.show("恢复默认快捷键失败")
 		return false
 	end
 
-	hs.alert.show("已恢复默认快捷键: " .. display_hotkey_label())
+	hs.alert.show("已恢复" .. hotkey_label .. "默认快捷键: " .. display_hotkey_label(kind))
 	return true
 end
 
-local function prompt_hotkey_configuration()
-	local modifiers, key = current_hotkey_components()
-	local current_modifiers, current_key = format_hotkey_for_prompt(modifiers, key)
+local function prompt_hotkey_configuration(kind)
+	local modifiers, key = current_hotkey_components(kind)
+	local current_modifiers, current_key = config_utils.format_hotkey_for_prompt(modifiers, key)
+	local hotkey_label = config_utils.hotkey_kind_label(kind)
 	local modifier_text = prompt_text(
-		"设置划词翻译快捷键",
+		"设置" .. hotkey_label .. "快捷键",
 		"请输入修饰键，多个值用 + 分隔。\n可用: ctrl option command shift fn\n留空表示无修饰键。",
 		current_modifiers
 	)
@@ -3618,7 +4111,7 @@ local function prompt_hotkey_configuration()
 	end
 
 	local key_text = prompt_text(
-		"设置划词翻译快捷键",
+		"设置" .. hotkey_label .. "快捷键",
 		"请输入主键，例如 r、t、space、return、f18。",
 		current_key
 	)
@@ -3640,13 +4133,13 @@ local function prompt_hotkey_configuration()
 		return
 	end
 
-	set_hotkey_configuration(normalized_modifiers, normalized_key, "menu prompt hotkey")
+	set_hotkey_configuration(kind, normalized_modifiers, normalized_key, "menu prompt hotkey")
 end
 
 local function set_translation_direction(direction)
 	set_runtime_override("translation_direction", direction)
 	refresh_menubar()
-	hs.alert.show("翻译方向已切换为" .. translation_direction_label(direction))
+	hs.alert.show("翻译方向已切换为" .. config_utils.translation_direction_label(direction))
 end
 
 local function set_language_field(field, value, success_message)
@@ -3675,21 +4168,21 @@ end
 local function set_popup_theme(theme_name)
 	set_runtime_override("popup_theme", theme_name)
 	refresh_menubar()
-	hs.alert.show("悬浮窗主题已切换为" .. popup_theme_label(theme_name))
+	hs.alert.show("悬浮窗主题已切换为" .. config_utils.popup_theme_label(theme_name))
 end
 
 local function set_popup_alpha(alpha)
 	alpha = normalize_unit_interval(alpha, default_popup_background_alpha)
 	set_runtime_override("popup_background_alpha", alpha)
 	refresh_menubar()
-	hs.alert.show("悬浮窗透明度已更新为 " .. format_alpha_label(alpha))
+	hs.alert.show("悬浮窗透明度已更新为 " .. config_utils.format_alpha_label(alpha))
 end
 
 local function set_popup_duration(seconds)
 	seconds = normalize_number(seconds, default_popup_duration_seconds, 0, 60)
 	set_runtime_override("popup_duration_seconds", seconds)
 	refresh_menubar()
-	hs.alert.show("悬浮窗停留时间已更新为 " .. format_duration_label(seconds))
+	hs.alert.show("悬浮窗停留时间已更新为 " .. config_utils.format_duration_label(seconds))
 end
 
 local function set_provider(provider_name)
@@ -3701,14 +4194,14 @@ local function set_provider(provider_name)
 	end
 
 	refresh_menubar()
-	hs.alert.show("模型服务已切换为" .. provider_label(provider_name))
+	hs.alert.show("模型服务已切换为" .. config_utils.provider_label(provider_name))
 end
 
 local function set_request_timeout(seconds)
 	seconds = normalize_number(seconds, default_request_timeout_seconds, 3, 120)
 	set_runtime_override({ "model_service", "request_timeout_seconds" }, seconds)
 	refresh_menubar()
-	hs.alert.show("请求超时已更新为 " .. format_duration_label(seconds))
+	hs.alert.show("请求超时已更新为 " .. config_utils.format_duration_label(seconds))
 end
 
 local function maybe_refresh_provider_warmup(provider_name)
@@ -3726,7 +4219,7 @@ end
 local function prompt_api_url_configuration(provider_name)
 	provider_name = normalized_provider_name(provider_name)
 
-	local provider_label_text = provider_label(provider_name)
+	local provider_label_text = config_utils.provider_label(provider_name)
 	local value = prompt_text(
 		"设置模型服务地址",
 		"请输入当前模型服务的接口地址。\n当前提供方: " .. provider_label_text,
@@ -3755,7 +4248,7 @@ local function prompt_model_configuration(provider_name)
 
 	local value = prompt_text(
 		"设置翻译模型",
-		"请输入当前模型服务要调用的模型名称。\n当前提供方: " .. provider_label(provider_name),
+		"请输入当前模型服务要调用的模型名称。\n当前提供方: " .. config_utils.provider_label(provider_name),
 		api_model(provider_name)
 	)
 
@@ -3773,7 +4266,7 @@ local function prompt_model_configuration(provider_name)
 	set_runtime_override({ "model_service", provider_name, "model" }, model)
 	maybe_refresh_provider_warmup(provider_name)
 	refresh_menubar()
-	hs.alert.show(provider_label(provider_name) .. " 模型已更新为 " .. model)
+	hs.alert.show(config_utils.provider_label(provider_name) .. " 模型已更新为 " .. model)
 end
 
 local function prompt_api_key_configuration(provider_name)
@@ -3785,7 +4278,7 @@ local function prompt_api_key_configuration(provider_name)
 	end
 
 	local value = prompt_text(
-		"设置 " .. provider_label(provider_name) .. " API Key",
+		"设置 " .. config_utils.provider_label(provider_name) .. " API Key",
 		"将保存到 hs.settings，重启 Hammerspoon 或电脑后仍可继续使用。\n留空表示清除菜单中保存的 API Key，并回退到配置文件或环境变量。",
 		tostring(config_utils.get_path_value(current_config(), { "model_service", provider_name, "api_key" }) or "")
 	)
@@ -3799,13 +4292,13 @@ local function prompt_api_key_configuration(provider_name)
 	if key == "" then
 		clear_runtime_override({ "model_service", provider_name, "api_key" })
 		refresh_menubar()
-		hs.alert.show("已清除 " .. provider_label(provider_name) .. " 的菜单 API Key")
+		hs.alert.show("已清除 " .. config_utils.provider_label(provider_name) .. " 的菜单 API Key")
 		return
 	end
 
 	set_runtime_override({ "model_service", provider_name, "api_key" }, key)
 	refresh_menubar()
-	hs.alert.show(provider_label(provider_name) .. " API Key 已保存")
+	hs.alert.show(config_utils.provider_label(provider_name) .. " API Key 已保存")
 end
 
 local function restore_default_field(field, success_message)
@@ -3830,8 +4323,8 @@ local function restore_default_field(field, success_message)
 end
 
 local function restore_persisted_menu_configuration()
-	replace_runtime_overrides({})
-	rebind_hotkey("restore selection translate defaults", { show_alert = false })
+	config_utils.replace_runtime_overrides({})
+	rebind_hotkeys("restore selection translate defaults", { show_alert = false })
 	refresh_menubar()
 end
 
@@ -3922,12 +4415,12 @@ end
 
 local function build_popup_theme_menu()
 	local menu = {
-		{ title = "当前: " .. popup_theme_label(), disabled = true },
+		{ title = "当前: " .. config_utils.popup_theme_label(), disabled = true },
 	}
 
 	for _, theme_name in ipairs(menu_options.popup_theme_order) do
 		table.insert(menu, {
-			title = popup_theme_label(theme_name),
+			title = config_utils.popup_theme_label(theme_name),
 			checked = popup_theme_name() == theme_name,
 			fn = function()
 				set_popup_theme(theme_name)
@@ -3949,12 +4442,12 @@ end
 
 local function build_popup_alpha_menu()
 	local menu = {
-		{ title = "当前: " .. format_alpha_label(popup_background_fill_color().alpha), disabled = true },
+		{ title = "当前: " .. config_utils.format_alpha_label(popup_background_fill_color().alpha), disabled = true },
 	}
 
 	for _, alpha in ipairs(menu_options.popup_alpha_presets) do
 		table.insert(menu, {
-			title = format_alpha_label(alpha),
+			title = config_utils.format_alpha_label(alpha),
 			checked = math.abs(popup_background_fill_color().alpha - alpha) < 0.001,
 			fn = function()
 				set_popup_alpha(alpha)
@@ -3965,7 +4458,7 @@ local function build_popup_alpha_menu()
 	table.insert(menu, {
 		title = "自定义透明度...",
 		fn = function()
-			local percent = prompt_number(
+			local percent = config_utils.prompt_number(
 				"设置悬浮窗透明度",
 				"请输入 0 到 100 之间的透明度百分比。",
 				math.floor((popup_background_fill_color().alpha or default_popup_background_alpha) * 100 + 0.5),
@@ -3996,12 +4489,12 @@ end
 local function build_popup_duration_menu()
 	local current_seconds = popup_duration_seconds()
 	local menu = {
-		{ title = "当前: " .. format_duration_label(current_seconds), disabled = true },
+		{ title = "当前: " .. config_utils.format_duration_label(current_seconds), disabled = true },
 	}
 
 	for _, seconds in ipairs(menu_options.popup_duration_presets) do
 		table.insert(menu, {
-			title = format_duration_label(seconds),
+			title = config_utils.format_duration_label(seconds),
 			checked = math.abs(current_seconds - seconds) < 0.001,
 			fn = function()
 				set_popup_duration(seconds)
@@ -4012,7 +4505,7 @@ local function build_popup_duration_menu()
 	table.insert(menu, {
 		title = "自定义停留时间...",
 		fn = function()
-			local seconds = prompt_number(
+			local seconds = config_utils.prompt_number(
 				"设置悬浮窗停留时间",
 				"请输入悬浮窗停留秒数，输入 0 表示不自动关闭。",
 				current_seconds,
@@ -4042,12 +4535,12 @@ end
 local function build_request_timeout_menu()
 	local current_seconds = request_timeout_seconds()
 	local menu = {
-		{ title = "当前: " .. format_duration_label(current_seconds), disabled = true },
+		{ title = "当前: " .. config_utils.format_duration_label(current_seconds), disabled = true },
 	}
 
 	for _, seconds in ipairs(menu_options.request_timeout_presets) do
 		table.insert(menu, {
-			title = format_duration_label(seconds),
+			title = config_utils.format_duration_label(seconds),
 			checked = math.abs(current_seconds - seconds) < 0.001,
 			fn = function()
 				set_request_timeout(seconds)
@@ -4058,7 +4551,7 @@ local function build_request_timeout_menu()
 	table.insert(menu, {
 		title = "自定义超时...",
 		fn = function()
-			local seconds = prompt_number(
+			local seconds = config_utils.prompt_number(
 				"设置请求超时",
 				"请输入请求超时秒数，范围 3 到 120。",
 				current_seconds,
@@ -4087,12 +4580,16 @@ end
 
 local function build_provider_configuration_menu(provider_name)
 	local active_provider = provider() == provider_name
-	local provider_title = provider_label(provider_name)
+	local provider_title = config_utils.provider_label(provider_name)
 	local menu = {
 		{ title = active_provider and "状态: 当前使用中" or "状态: 可切换", disabled = true },
 		{ title = "模型: " .. api_model(provider_name), disabled = true },
 		{ title = "地址: " .. api_url(provider_name), disabled = true },
-		{ title = "API Key: " .. api_key_source_label(provider_name), disabled = true },
+		{ title = "API Key: " .. config_utils.api_key_source_label(provider_name), disabled = true },
+		{
+			title = "图片输入: " .. (config_utils.provider_supports_image_input(provider_name) == true and "已启用" or "已禁用"),
+			disabled = true,
+		},
 		{ title = "-" },
 		{
 			title = active_provider and "当前提供方" or "设为当前提供方",
@@ -4158,7 +4655,7 @@ end
 
 local function build_api_settings_menu()
 	local menu = {
-		{ title = "当前提供方: " .. provider_label(), disabled = true },
+		{ title = "当前提供方: " .. config_utils.provider_label(), disabled = true },
 		{ title = "当前模型: " .. api_model(), disabled = true },
 		{
 			title = "请求超时",
@@ -4169,7 +4666,7 @@ local function build_api_settings_menu()
 
 	for _, provider_name in ipairs(menu_options.provider_order) do
 		table.insert(menu, {
-			title = provider_label(provider_name),
+			title = config_utils.provider_label(provider_name),
 			menu = build_provider_configuration_menu(provider_name),
 		})
 	end
@@ -4186,17 +4683,26 @@ local function build_api_settings_menu()
 	return menu
 end
 
-local function build_hotkey_menu()
+local function build_hotkey_menu(kind)
+	local current_label = display_hotkey_label(kind)
+	local has_runtime_override = kind == "screenshot"
+			and (config_utils.path_exists(runtime_overrides, { "screenshot_hotkey" }) == true)
+		or (runtime_overrides.prefix ~= nil or runtime_overrides.key ~= nil)
+
 	return {
-		{ title = "当前: " .. display_hotkey_label(), disabled = true },
+		{ title = "当前: " .. current_label, disabled = true },
 		{
 			title = "设置快捷键...",
-			fn = prompt_hotkey_configuration,
+			fn = function()
+				prompt_hotkey_configuration(kind)
+			end,
 		},
 		{
 			title = "恢复默认快捷键",
-			disabled = runtime_overrides.prefix == nil and runtime_overrides.key == nil,
-			fn = restore_default_hotkey,
+			disabled = has_runtime_override ~= true,
+			fn = function()
+				restore_default_hotkey(kind)
+			end,
 		},
 	}
 end
@@ -4206,16 +4712,17 @@ local function build_menu()
 		{ title = "划词翻译", disabled = true },
 		{
 			title = string.format(
-				"状态: %s | 热键: %s",
+				"状态: %s | 划词: %s | 截图: %s",
 				hotkey_enabled() == true and "已启用" or "已停用",
-				display_hotkey_label()
+				display_hotkey_label("selection"),
+				display_hotkey_label("screenshot")
 			),
 			disabled = true,
 		},
 		{
 			title = string.format(
 				"方向: %s | 非中文: %s | 中文: %s",
-				translation_direction_label(),
+				config_utils.translation_direction_label(),
 				target_language(),
 				chinese_target_language()
 			),
@@ -4224,9 +4731,9 @@ local function build_menu()
 		{
 			title = string.format(
 				"主题: %s | 透明度: %s | 停留: %s",
-				popup_theme_label(),
-				format_alpha_label(popup_background_fill_color().alpha),
-				format_duration_label(popup_duration_seconds())
+				config_utils.popup_theme_label(),
+				config_utils.format_alpha_label(popup_background_fill_color().alpha),
+				config_utils.format_duration_label(popup_duration_seconds())
 			),
 			disabled = true,
 		},
@@ -4234,15 +4741,19 @@ local function build_menu()
 			title = string.format(
 				"模型: %s | 服务: %s",
 				api_model(),
-				provider_label()
+				config_utils.provider_label()
 			),
 			disabled = true,
 		},
-		{ title = menu_config_source_label(), disabled = true },
+		{ title = config_utils.menu_config_source_label(), disabled = true },
 		{ title = "-" },
 		{
 			title = "翻译当前选区",
 			fn = translate_current_selection,
+		},
+		{
+			title = "翻译截图",
+			fn = translate_current_screenshot,
 		},
 		{
 			title = "启用划词翻译",
@@ -4253,7 +4764,11 @@ local function build_menu()
 		},
 		{
 			title = "快捷键",
-			menu = build_hotkey_menu(),
+			menu = build_hotkey_menu("selection"),
+		},
+		{
+			title = "截图快捷键",
+			menu = build_hotkey_menu("screenshot"),
 		},
 		{
 			title = "翻译方向",
@@ -4312,7 +4827,7 @@ refresh_menubar = function()
 	end
 
 	if menubar_enabled() ~= true then
-		destroy_menubar()
+		config_utils.destroy_menubar()
 		return
 	end
 
@@ -4338,7 +4853,7 @@ refresh_menubar = function()
 	end
 
 	if type(state.menubar.setTooltip) == "function" then
-		state.menubar:setTooltip(tooltip_text())
+		state.menubar:setTooltip(config_utils.tooltip_text())
 	end
 
 	if type(state.menubar.setMenu) == "function" then
@@ -4355,10 +4870,10 @@ function _M.start()
 	state.start_ok = true
 	refresh_menubar()
 
-	local ok = rebind_hotkey("startup selected text translate", { show_alert = false })
+	local ok = rebind_hotkeys("startup selected text translate", { show_alert = false })
 
 	if ok ~= true and hotkey_enabled() == true then
-		hs.alert.show("划词翻译快捷键绑定失败，已临时显示菜单栏图标")
+		hs.alert.show("翻译快捷键绑定失败，已临时显示菜单栏图标")
 	end
 
 	schedule_model_warmup()
@@ -4376,9 +4891,15 @@ function _M.stop()
 		state.hotkey = nil
 	end
 
-	destroy_menubar()
+	if state.screenshot_hotkey ~= nil then
+		state.screenshot_hotkey:delete()
+		state.screenshot_hotkey = nil
+	end
+
+	config_utils.destroy_menubar()
 	state.menubar_forced = false
 	state.hotkey_error = nil
+	state.screenshot_hotkey_error = nil
 
 	state.started = false
 	state.start_ok = true
@@ -4387,6 +4908,7 @@ function _M.stop()
 end
 
 _M.translate_current_selection = translate_current_selection
+_M.translate_current_screenshot = translate_current_screenshot
 _M.refresh_menubar = function()
 	refresh_menubar()
 end
@@ -4394,15 +4916,20 @@ _M.restore_defaults = function()
 	return confirm_restore_defaults()
 end
 _M.get_state = function()
-	local modifiers, key = current_hotkey_components()
+	local modifiers, key = current_hotkey_components("selection")
+	local screenshot_modifiers, screenshot_key = current_hotkey_components("screenshot")
 
 	return {
 		started = state.started,
 		enabled = hotkey_enabled(),
 		hotkey_modifiers = copy_list(modifiers),
 		hotkey_key = key,
-		hotkey_label = display_hotkey_label(),
+		hotkey_label = display_hotkey_label("selection"),
 		hotkey_error = state.hotkey_error,
+		screenshot_hotkey_modifiers = copy_list(screenshot_modifiers),
+		screenshot_hotkey_key = screenshot_key,
+		screenshot_hotkey_label = display_hotkey_label("screenshot"),
+		screenshot_hotkey_error = state.screenshot_hotkey_error,
 		menubar_exists = state.menubar ~= nil,
 		translation_direction = translation_direction(),
 		target_language = target_language(),
@@ -4420,7 +4947,8 @@ _M.get_state = function()
 		model = api_model(),
 		enable_model_warmup = enable_model_warmup(),
 		model_keep_alive = model_keep_alive(),
-		api_key_source = api_key_source_label(),
+		supports_image_input = config_utils.provider_supports_image_input(),
+		api_key_source = config_utils.api_key_source_label(),
 		runtime_overrides = copy_table(runtime_overrides),
 	}
 end

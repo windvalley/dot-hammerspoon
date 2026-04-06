@@ -200,6 +200,11 @@ function _M.run()
 			prefix = { "Option" },
 			key = "R",
 			message = "Translate Selection",
+			screenshot_hotkey = {
+				prefix = { "Option", "Shift" },
+				key = "R",
+				message = "Translate Screenshot",
+			},
 		},
 		key_caster = {
 			toggle_hotkey = {
@@ -290,6 +295,7 @@ function _M.run()
 	assert_contains(rendered, "⌥ ⇧ ⌘ S: Quick Save Snippet", "snippet quick save hotkey should be rendered in cheatsheet")
 	assert_contains(rendered, "[Selected Text Translate]", "selected text translate section should be rendered in cheatsheet")
 	assert_contains(rendered, "⌥ R: Translate Selection", "selected text translate hotkey should be rendered in cheatsheet")
+	assert_contains(rendered, "⌥ ⇧ R: Translate Screenshot", "screenshot translate hotkey should be rendered in cheatsheet")
 	assert_contains(rendered, "[Key Caster]", "key caster section should be rendered in cheatsheet")
 	assert_contains(rendered, "⌘ ⌃ K: Toggle Key Cas", "key caster toggle hotkey should be rendered in cheatsheet")
 	assert_contains(rendered, "⌥ /: Cheatsheet", "cheatsheet should render its own configured shortcut")
@@ -434,6 +440,11 @@ function _M.run()
 			prefix = { "Option" },
 			key = "R",
 			message = "Translate Selection",
+			screenshot_hotkey = {
+				prefix = { "Option", "Shift" },
+				key = "R",
+				message = "Translate Screenshot",
+			},
 		},
 		key_caster = {
 			toggle_hotkey = {
