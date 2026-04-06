@@ -240,6 +240,8 @@ You can also toggle the menubar entry from the Hammerspoon console with `package
 
 Select any text and press <kbd>⌥</kbd> + <kbd>R</kbd> to translate it through an OpenAI-compatible `chat/completions` API. By default, non-Chinese text is translated into Simplified Chinese, while text containing Chinese characters is translated into English. The translated text is shown in a popup, and the popup also lets you copy the result back to the clipboard.
 
+If the source itself is a single English word, or if the final translation result is a single English word, the popup switches to a word-card layout and always shows the fields in this order: the English word, American IPA, British IPA, and the Chinese meaning. Phrases and full sentences continue to use the normal translation layout without extra phonetic fields.
+
 The same module can also translate text from screenshots. Press a separate hotkey such as <kbd>⌥</kbd> + <kbd>⇧</kbd> + <kbd>R</kbd>, draw a screenshot region, and the captured image will be sent to the configured multimodal model. If the current model rejects image input, the module shows a direct unsupported-image warning.
 
 The module first tries to read the current accessibility selection directly. If that fails, it can either read the current clipboard directly for apps that auto-copy selections, or simulate a copy shortcut and then restore the previous clipboard contents. The default fallback shortcut is <kbd>⌘</kbd> + <kbd>C</kbd>. When Clipboard Center is enabled, the temporary copy/restore sequence is also suppressed from clipboard history.

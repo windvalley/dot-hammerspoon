@@ -1295,6 +1295,16 @@ local function sanitize_selected_text(text)
 	return normalized
 end
 
+function config_utils.is_single_english_word(text)
+	local normalized = sanitize_selected_text(text)
+
+	if normalized == nil then
+		return false
+	end
+
+	return normalized:match("^[A-Za-z]+$") ~= nil
+end
+
 local function current_selected_text()
 	if type(hs.uielement) ~= "table" or type(hs.uielement.focusedElement) ~= "function" then
 		return nil
@@ -1735,30 +1745,55 @@ local function resolved_target_language(text)
 	return target_language()
 end
 
+function config_utils.translation_response_format_instruction()
+	return table.concat({
+		"你必须只返回一个合法 JSON 对象，不要使用 Markdown 代码块，也不要添加任何额外说明。",
+		"如果原文本身是单个英文单词，或者最终译文会是单个英文单词，则返回 "
+			.. "{\"display_mode\":\"word\",\"word\":\"英文单词\",\"american_phonetic\":\"美式音标\",\"british_phonetic\":\"英式音标\",\"chinese_meaning\":\"中文含义\"}。",
+		"如果原文本身是单个英文单词，word 必须使用原文；如果最终译文会是单个英文单词，word 必须使用那个英文译文。",
+		"word、american_phonetic、british_phonetic、chinese_meaning 都必须是非空字符串，中文含义必须使用中文。",
+		"其他情况返回 {\"display_mode\":\"text\",\"translation\":\"最终译文\"}。",
+		"普通文本场景下 translation 必须是最终译文，并尽量保留段落、列表和代码格式，但不要为了贴合原文逐行硬换行，也不要拆开英文单词。",
+	}, " ")
+end
+
 local function text_system_prompt(text)
 	return string.format(
-		"你是翻译助手。请将用户提供的文本翻译成%s。只返回译文，不要解释，不要添加引号；尽量保留原文的段落、列表和代码格式，但不要为了贴合原文逐行硬换行，也不要拆开英文单词。",
-		resolved_target_language(text)
+		"你是翻译助手。请将用户提供的文本翻译成%s。%s",
+		resolved_target_language(text),
+		config_utils.translation_response_format_instruction()
 	)
 end
 
 local function image_system_prompt()
 	if translation_direction() == "to_target" then
 		return string.format(
-			"你是翻译助手。请先识别截图中的文字，再将其翻译成%s。必须翻译所有人类可读的自然语言内容，包括标题、状态标签、终端输出中的说明文字、表头、菜单项、按钮文字、提示语和普通句子；不要只是转写原文。只有命令、文件路径、URL、代码标识符、参数名、文件名、数字和符号等技术片段可以按需保留。只返回最终译文，不要解释，不要描述画面，不要添加引号；尽量保留原文的段落、列表和代码格式，但不要为了贴合截图逐行硬换行，也不要拆开英文单词。如果截图中没有可识别文字，只返回“未识别到可翻译文字”。",
-			target_language()
+			"你是翻译助手。请先识别截图中的文字，再将其翻译成%s。必须翻译所有人类可读的自然语言内容，包括标题、状态标签、终端输出中的说明文字、表头、菜单项、按钮文字、提示语和普通句子；不要只是转写原文。只有命令、文件路径、URL、代码标识符、参数名、文件名、数字和符号等技术片段可以按需保留。尽量保留原文的段落、列表和代码格式，但不要为了贴合截图逐行硬换行，也不要拆开英文单词。如果截图中没有可识别文字，则返回 {\"display_mode\":\"text\",\"translation\":\"未识别到可翻译文字\"}。%s",
+			target_language(),
+			config_utils.translation_response_format_instruction()
 		)
 	end
 
 	return string.format(
-		"你是翻译助手。请先识别截图中的文字，再执行翻译：如果截图中的主要文字包含中文字符，则翻译成%s；否则翻译成%s。必须翻译所有人类可读的自然语言内容，包括标题、状态标签、终端输出中的说明文字、表头、菜单项、按钮文字、提示语和普通句子；不要只是转写原文。只有命令、文件路径、URL、代码标识符、参数名、文件名、数字和符号等技术片段可以按需保留。只返回最终译文，不要解释，不要描述画面，不要添加引号；尽量保留原文的段落、列表和代码格式，但不要为了贴合截图逐行硬换行，也不要拆开英文单词。如果截图中没有可识别文字，只返回“未识别到可翻译文字”。",
+		"你是翻译助手。请先识别截图中的文字，再执行翻译：如果截图中的主要文字包含中文字符，则翻译成%s；否则翻译成%s。必须翻译所有人类可读的自然语言内容，包括标题、状态标签、终端输出中的说明文字、表头、菜单项、按钮文字、提示语和普通句子；不要只是转写原文。只有命令、文件路径、URL、代码标识符、参数名、文件名、数字和符号等技术片段可以按需保留。尽量保留原文的段落、列表和代码格式，但不要为了贴合截图逐行硬换行，也不要拆开英文单词。如果截图中没有可识别文字，则返回 {\"display_mode\":\"text\",\"translation\":\"未识别到可翻译文字\"}。%s",
 		chinese_target_language(),
-		target_language()
+		target_language(),
+		config_utils.translation_response_format_instruction()
 	)
 end
 
 local function image_user_prompt()
 	return "请先识别并翻译这张截图中的文字。英文标题、标签、按钮、菜单和终端说明文字不要原样抄回；如果它们是人类可读文本，请翻译。请输出适合阅读的最终译文，保留段落或列表结构，不要逐行硬换行。"
+end
+
+function config_utils.word_details_system_prompt()
+	return table.concat({
+		"你是英语词汇助手。用户会提供一个单个英文单词。",
+		"你必须只返回一个合法 JSON 对象，不要使用 Markdown 代码块，也不要添加任何额外说明。",
+		"返回格式必须是 "
+			.. "{\"display_mode\":\"word\",\"word\":\"英文单词\",\"american_phonetic\":\"美式音标\",\"british_phonetic\":\"英式音标\",\"chinese_meaning\":\"中文含义\"}。",
+		"word 必须与用户提供的英文单词完全一致，american_phonetic、british_phonetic 和 chinese_meaning 都必须是非空字符串，中文含义必须使用中文。",
+	}, " ")
 end
 
 local function copy_translation_to_clipboard(result, show_alert)
@@ -3240,6 +3275,109 @@ local function extract_translation(response)
 	return sanitize_selected_text(first_choice.text)
 end
 
+function config_utils.strip_translation_code_fence(text)
+	local normalized = trim(tostring(text or "")):gsub("\r\n", "\n")
+	local fenced = normalized:match("^```[%w_-]*\n([%s%S]-)\n```$")
+
+	if fenced ~= nil then
+		return trim(fenced)
+	end
+
+	return normalized
+end
+
+function config_utils.decode_structured_translation(text)
+	if type(hs.json) ~= "table" or type(hs.json.decode) ~= "function" then
+		return nil
+	end
+
+	local candidate = config_utils.strip_translation_code_fence(text)
+
+	if candidate == "" or candidate:sub(1, 1) ~= "{" then
+		return nil
+	end
+
+	local ok, decoded = pcall(hs.json.decode, candidate)
+
+	if ok ~= true or type(decoded) ~= "table" then
+		return nil
+	end
+
+	return decoded
+end
+
+function config_utils.format_word_translation_card(word, american_phonetic, british_phonetic, chinese_meaning)
+	return table.concat({
+		word,
+		"美式音标：" .. american_phonetic,
+		"英式音标：" .. british_phonetic,
+		"中文含义：" .. chinese_meaning,
+	}, "\n")
+end
+
+function config_utils.format_translation_result(raw_translation)
+	local structured = config_utils.decode_structured_translation(raw_translation)
+
+	if type(structured) ~= "table" then
+		return raw_translation
+	end
+
+	local display_mode = string.lower(trim(tostring(structured.display_mode or structured.mode or "")))
+	local word = sanitize_selected_text(structured.word)
+	local american_phonetic = sanitize_selected_text(structured.american_phonetic or structured.us_phonetic)
+	local british_phonetic = sanitize_selected_text(structured.british_phonetic or structured.uk_phonetic)
+	local chinese_meaning = sanitize_selected_text(structured.chinese_meaning or structured.meaning)
+	local translation = sanitize_selected_text(structured.translation or structured.content)
+
+	if
+		(display_mode == "word" or word ~= nil)
+		and config_utils.is_single_english_word(word)
+		and american_phonetic ~= nil
+		and british_phonetic ~= nil
+		and chinese_meaning ~= nil
+	then
+		return config_utils.format_word_translation_card(word, american_phonetic, british_phonetic, chinese_meaning)
+	end
+
+	if translation ~= nil then
+		return translation
+	end
+
+	return raw_translation
+end
+
+function config_utils.translation_has_complete_word_details(text)
+	local normalized = tostring(text or "")
+
+	return normalized:find("美式音标：", 1, true) ~= nil
+		and normalized:find("英式音标：", 1, true) ~= nil
+		and normalized:find("中文含义：", 1, true) ~= nil
+end
+
+function config_utils.word_details_retry_word(source_text, raw_translation, formatted_translation)
+	if config_utils.is_single_english_word(source_text) then
+		if config_utils.translation_has_complete_word_details(formatted_translation) == true then
+			return nil
+		end
+
+		return sanitize_selected_text(source_text)
+	end
+
+	if config_utils.translation_has_complete_word_details(formatted_translation) == true then
+		return nil
+	end
+
+	if config_utils.is_single_english_word(raw_translation) then
+		return sanitize_selected_text(raw_translation)
+	end
+
+	if config_utils.is_single_english_word(formatted_translation) then
+		return sanitize_selected_text(formatted_translation)
+	end
+
+	return nil
+end
+
 function config_utils.build_request_headers(provider_name, key)
 	local headers = {
 		["Content-Type"] = "application/json",
@@ -3291,18 +3429,18 @@ local function apply_ollama_request_options(payload)
 	return payload
 end
 
-local function build_text_translation_payload(text)
+function config_utils.build_text_request_payload(system_prompt, user_text)
 	local provider_name = provider()
 	local payload = {
 		model = api_model(),
 		messages = {
 			{
 				role = "system",
-				content = text_system_prompt(text),
+				content = system_prompt,
 			},
 			{
 				role = "user",
-				content = text,
+				content = user_text,
 			},
 		},
 	}
@@ -3315,14 +3453,14 @@ local function build_text_translation_payload(text)
 		return {
 			systemInstruction = {
 				parts = {
-					{ text = text_system_prompt(text) },
+					{ text = system_prompt },
 				},
 			},
 			contents = {
 				{
 					role = "user",
 					parts = {
-						{ text = text },
+						{ text = user_text },
 					},
 				},
 			},
@@ -3335,11 +3473,11 @@ local function build_text_translation_payload(text)
 	if provider_name == "anthropic" then
 		return {
 			model = api_model(),
-			system = text_system_prompt(text),
+			system = system_prompt,
 			messages = {
 				{
 					role = "user",
-					content = text,
+					content = user_text,
 				},
 			},
 			max_tokens = 1024,
@@ -3350,6 +3488,14 @@ local function build_text_translation_payload(text)
 	payload.temperature = 0.2
 
 	return payload
+end
+
+local function build_text_translation_payload(text)
+	return config_utils.build_text_request_payload(text_system_prompt(text), text)
+end
+
+local function build_word_details_payload(word)
+	return config_utils.build_text_request_payload(config_utils.word_details_system_prompt(), word)
 end
 
 local function build_image_translation_payload(image_payload)
@@ -3513,7 +3659,7 @@ local function schedule_model_warmup()
 	end)
 end
 
-local function request_translation(payload, anchor_bounds, request_kind)
+local function request_translation(payload, anchor_bounds, request_kind, request_context)
 	if type(hs.http) ~= "table" or type(hs.http.asyncPost) ~= "function" then
 		show_request_error("当前 Hammerspoon 不支持 HTTP 请求")
 		return
@@ -3543,6 +3689,7 @@ local function request_translation(payload, anchor_bounds, request_kind)
 		return
 	end
 
+	state.request_inflight = true
 	state.request_id = state.request_id + 1
 	local current_request_id = state.request_id
 
@@ -3588,7 +3735,26 @@ local function request_translation(payload, anchor_bounds, request_kind)
 				return
 			end
 
-			show_translation_dialog(translation, anchor_bounds)
+			local formatted_translation = config_utils.format_translation_result(translation)
+			local retry_word = nil
+
+			if type(request_context) ~= "table" or request_context.allow_word_details_retry ~= false then
+				retry_word = config_utils.word_details_retry_word(
+					type(request_context) == "table" and request_context.source_text or nil,
+					translation,
+					formatted_translation
+				)
+			end
+
+			if retry_word ~= nil then
+				request_translation(build_word_details_payload(retry_word), anchor_bounds, "text", {
+					source_text = retry_word,
+					allow_word_details_retry = false,
+				})
+				return
+			end
+
+			show_translation_dialog(formatted_translation, anchor_bounds)
 		end)
 	end)
 
@@ -3767,11 +3933,13 @@ local function capture_selection_from_clipboard(callback)
 end
 
 function config_utils.request_text_translation(text, anchor_bounds)
-	request_translation(build_text_translation_payload(text), anchor_bounds, "text")
+	request_translation(build_text_translation_payload(text), anchor_bounds, "text", {
+		source_text = text,
+	})
 end
 
 function config_utils.request_image_translation(image_payload, anchor_bounds)
-	request_translation(build_image_translation_payload(image_payload), anchor_bounds, "image")
+	request_translation(build_image_translation_payload(image_payload), anchor_bounds, "image", {})
 end
 
 local function translate_current_selection()

@@ -386,6 +386,8 @@ _M.selected_text_translate = {
 	-- auto: 包含中文时翻译成 chinese_target_language，否则翻译成 target_language
 	-- to_target: 始终翻译成 target_language
 	translation_direction = "auto",
+	-- 当原文或最终译文是单个英文单词时，结果会固定显示：
+	-- 英文单词 / 美式音标 / 英式音标 / 中文含义
 	-- 非中文文本默认翻译目标语言
 	target_language = "简体中文",
 	-- 中文文本默认翻译目标语言

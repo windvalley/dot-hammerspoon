@@ -758,6 +758,11 @@ function _M.run()
 		"简体中文",
 		"non-Chinese selections should still translate to the configured target language"
 	)
+	assert_contains(
+		direct_recorded.encoded_payload.messages[1].content,
+		"\"display_mode\":\"word\"",
+		"text translation prompt should require structured word-card output for single English words"
+	)
 	assert_equal(direct_recorded.shown_canvases, 1, "translator should show one floating popup")
 	assert_equal(direct_recorded.canvas_levels[1], 17, "translator should use the modal panel window level for the popup")
 	assert_equal(direct_recorded.started_watchers, 3, "translator should start outside-click, hover, and escape watchers while the popup is visible")
@@ -1045,6 +1050,11 @@ function _M.run()
 		screenshot_recorded.encoded_payload.messages[1].content,
 		"不要为了贴合截图逐行硬换行",
 		"screenshot translation prompt should discourage screenshot-shaped hard wraps"
+	)
+	assert_contains(
+		screenshot_recorded.encoded_payload.messages[1].content,
+		"american_phonetic",
+		"screenshot translation prompt should require phonetics when OCR or translation yields a single English word"
 	)
 	assert_equal(screenshot_recorded.shown_canvases, 1, "successful screenshot translation should show the floating popup")
 	assert_equal(
@@ -3088,6 +3098,340 @@ function _M.run()
 	assert_equal(ollama_recorded.deleted_canvases, 1, "translator stop should clean up the active popup canvas")
 	assert_equal(ollama_recorded.stopped_watchers, 3, "translator stop should stop all popup watchers")
 	assert_equal(ollama_recorded.deleted_bindings, 2, "translator stop should delete both hotkeys in local Ollama mode")
+
+	reset_modules()
+
+	local single_word_source_recorded = {
+		alerts = {},
+		block_alerts = {},
+		async_posts = {},
+		encoded_payloads = {},
+		deleted_bindings = 0,
+		timers = {},
+		stopped_timers = 0,
+	}
+	local single_word_source_response =
+		"{\"display_mode\":\"word\",\"word\":\"serendipity\",\"american_phonetic\":\"/ˌserənˈdɪpɪti/\",\"british_phonetic\":\"/ˌserənˈdɪpəti/\",\"chinese_meaning\":\"意外发现珍宝的能力；机缘巧合\"}"
+
+	rawset(os, "getenv", function(name)
+		if name == "OPENAI_API_KEY" then
+			return "sk-word-source"
+		end
+
+		return original_getenv(name)
+	end)
+
+	hs = {
+		logger = {
+			new = function()
+				return {
+					i = function() end,
+					w = function() end,
+					e = function() end,
+				}
+			end,
+		},
+		alert = {
+			show = function(message)
+				table.insert(single_word_source_recorded.alerts, message)
+			end,
+		},
+		dialog = {
+			blockAlert = function(message, informative_text)
+				table.insert(single_word_source_recorded.block_alerts, {
+					message = message,
+					informative_text = informative_text,
+				})
+
+				return "关闭"
+			end,
+		},
+		timer = create_timer_stub(single_word_source_recorded),
+		uielement = {
+			focusedElement = function()
+				return {
+					selectedText = function()
+						return "serendipity"
+					end,
+				}
+			end,
+		},
+		json = {
+			encode = function(value)
+				table.insert(single_word_source_recorded.encoded_payloads, value)
+				return "encoded-payload"
+			end,
+			decode = function(value)
+				if value == "{\"ok\":true}" then
+					return {
+						choices = {
+							{
+								message = {
+									content = single_word_source_response,
+								},
+							},
+						},
+					}
+				end
+
+				if value == single_word_source_response then
+					return {
+						display_mode = "word",
+						word = "serendipity",
+						american_phonetic = "/ˌserənˈdɪpɪti/",
+						british_phonetic = "/ˌserənˈdɪpəti/",
+						chinese_meaning = "意外发现珍宝的能力；机缘巧合",
+					}
+				end
+
+				return nil
+			end,
+		},
+		http = {
+			asyncPost = function(url, data, headers, callback)
+				table.insert(single_word_source_recorded.async_posts, {
+					url = url,
+					data = data,
+					headers = headers,
+				})
+				callback(200, "{\"ok\":true}", {})
+			end,
+		},
+	}
+
+	loaded_modules["keybindings_config"] = {
+		selected_text_translate = {
+			enabled = true,
+			prefix = { "Option" },
+			key = "R",
+			message = "Translate Selection",
+			target_language = "简体中文",
+			chinese_target_language = "英文",
+			model_service = build_model_service({
+				provider = "openai_compatible",
+				openai_compatible = {
+					api_url = "https://example.com/v1/chat/completions",
+					model = "gpt-word-source",
+					api_key_env = "OPENAI_API_KEY",
+				},
+			}),
+		},
+	}
+	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(single_word_source_recorded)
+	loaded_modules["utils_lib"] = {
+		trim = function(value)
+			return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		end,
+		copy_list = function(items)
+			local copied = {}
+
+			for _, item in ipairs(items or {}) do
+				table.insert(copied, item)
+			end
+
+			return copied
+		end,
+	}
+
+	translator = require("selected_text_translate")
+
+	assert_true(translator.start(), "translator should start successfully for single-word source formatting")
+	single_word_source_recorded.bound_handler()
+
+	assert_equal(#single_word_source_recorded.async_posts, 1, "single English word sources should not need a follow-up request when the model returns a structured word card")
+	assert_contains(
+		single_word_source_recorded.encoded_payloads[1].messages[1].content,
+		"\"display_mode\":\"word\"",
+		"single-word source prompt should require structured word-card JSON"
+	)
+	assert_equal(
+		single_word_source_recorded.block_alerts[1].informative_text,
+		table.concat({
+			"serendipity",
+			"美式音标：/ˌserənˈdɪpɪti/",
+			"英式音标：/ˌserənˈdɪpəti/",
+			"中文含义：意外发现珍宝的能力；机缘巧合",
+		}, "\n"),
+		"single English word sources should display word, US phonetic, UK phonetic, and Chinese meaning in order"
+	)
+	assert_true(translator.stop(), "translator stop should succeed after single-word source coverage")
+	assert_equal(single_word_source_recorded.deleted_bindings, 2, "single-word source coverage should still unbind both hotkeys on stop")
+
+	reset_modules()
+
+	local single_word_result_recorded = {
+		alerts = {},
+		block_alerts = {},
+		async_posts = {},
+		encoded_payloads = {},
+		deleted_bindings = 0,
+		timers = {},
+		stopped_timers = 0,
+	}
+	local single_word_result_response =
+		"{\"display_mode\":\"word\",\"word\":\"world\",\"american_phonetic\":\"/wɝld/\",\"british_phonetic\":\"/wɜːld/\",\"chinese_meaning\":\"世界\"}"
+
+	rawset(os, "getenv", function(name)
+		if name == "OPENAI_API_KEY" then
+			return "sk-word-result"
+		end
+
+		return original_getenv(name)
+	end)
+
+	hs = {
+		logger = {
+			new = function()
+				return {
+					i = function() end,
+					w = function() end,
+					e = function() end,
+				}
+			end,
+		},
+		alert = {
+			show = function(message)
+				table.insert(single_word_result_recorded.alerts, message)
+			end,
+		},
+		dialog = {
+			blockAlert = function(message, informative_text)
+				table.insert(single_word_result_recorded.block_alerts, {
+					message = message,
+					informative_text = informative_text,
+				})
+
+				return "关闭"
+			end,
+		},
+		timer = create_timer_stub(single_word_result_recorded),
+		uielement = {
+			focusedElement = function()
+				return {
+					selectedText = function()
+						return "世界"
+					end,
+				}
+			end,
+		},
+		json = {
+			encode = function(value)
+				table.insert(single_word_result_recorded.encoded_payloads, value)
+				return "encoded-payload"
+			end,
+			decode = function(value)
+				if value == "{\"first\":true}" then
+					return {
+						choices = {
+							{
+								message = {
+									content = "world",
+								},
+							},
+						},
+					}
+				end
+
+				if value == "{\"second\":true}" then
+					return {
+						choices = {
+							{
+								message = {
+									content = single_word_result_response,
+								},
+							},
+						},
+					}
+				end
+
+				if value == single_word_result_response then
+					return {
+						display_mode = "word",
+						word = "world",
+						american_phonetic = "/wɝld/",
+						british_phonetic = "/wɜːld/",
+						chinese_meaning = "世界",
+					}
+				end
+
+				return nil
+			end,
+		},
+		http = {
+			asyncPost = function(url, data, headers, callback)
+				table.insert(single_word_result_recorded.async_posts, {
+					url = url,
+					data = data,
+					headers = headers,
+				})
+
+				if #single_word_result_recorded.async_posts == 1 then
+					callback(200, "{\"first\":true}", {})
+					return
+				end
+
+				callback(200, "{\"second\":true}", {})
+			end,
+		},
+	}
+
+	loaded_modules["keybindings_config"] = {
+		selected_text_translate = {
+			enabled = true,
+			prefix = { "Option" },
+			key = "R",
+			message = "Translate Selection",
+			target_language = "英文",
+			chinese_target_language = "英文",
+			model_service = build_model_service({
+				provider = "openai_compatible",
+				openai_compatible = {
+					api_url = "https://example.com/v1/chat/completions",
+					model = "gpt-word-result",
+					api_key_env = "OPENAI_API_KEY",
+				},
+			}),
+		},
+	}
+	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(single_word_result_recorded)
+	loaded_modules["utils_lib"] = {
+		trim = function(value)
+			return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		end,
+		copy_list = function(items)
+			local copied = {}
+
+			for _, item in ipairs(items or {}) do
+				table.insert(copied, item)
+			end
+
+			return copied
+		end,
+	}
+
+	translator = require("selected_text_translate")
+
+	assert_true(translator.start(), "translator should start successfully for single-word translated result formatting")
+	single_word_result_recorded.bound_handler()
+
+	assert_equal(#single_word_result_recorded.async_posts, 2, "single English word translated results should trigger a follow-up word-details request when the first response lacks phonetics")
+	assert_contains(
+		single_word_result_recorded.encoded_payloads[2].messages[1].content,
+		"英语词汇助手",
+		"follow-up word-details requests should use the dedicated vocabulary prompt"
+	)
+	assert_equal(
+		single_word_result_recorded.block_alerts[1].informative_text,
+		table.concat({
+			"world",
+			"美式音标：/wɝld/",
+			"英式音标：/wɜːld/",
+			"中文含义：世界",
+		}, "\n"),
+		"single English word translated results should also render both phonetics before the Chinese meaning"
+	)
+	assert_true(translator.stop(), "translator stop should succeed after single-word translated result coverage")
+	assert_equal(single_word_result_recorded.deleted_bindings, 2, "single-word translated result coverage should still unbind both hotkeys on stop")
 
 	reset_modules()
 
