@@ -1737,7 +1737,7 @@ end
 
 local function text_system_prompt(text)
 	return string.format(
-		"你是翻译助手。请将用户提供的文本翻译成%s。只返回译文，不要解释，不要添加引号；尽量保留原文换行、列表和代码格式。",
+		"你是翻译助手。请将用户提供的文本翻译成%s。只返回译文，不要解释，不要添加引号；尽量保留原文的段落、列表和代码格式，但不要为了贴合原文逐行硬换行，也不要拆开英文单词。",
 		resolved_target_language(text)
 	)
 end
@@ -1745,20 +1745,20 @@ end
 local function image_system_prompt()
 	if translation_direction() == "to_target" then
 		return string.format(
-			"你是翻译助手。请先识别截图中的文字，再将其翻译成%s。必须翻译所有人类可读的自然语言内容，包括标题、状态标签、终端输出中的说明文字、表头、菜单项、按钮文字、提示语和普通句子；不要只是转写原文。只有命令、文件路径、URL、代码标识符、参数名、文件名、数字和符号等技术片段可以按需保留。只返回最终译文，不要解释，不要描述画面，不要添加引号；尽量保留原文换行、列表和代码格式。如果截图中没有可识别文字，只返回“未识别到可翻译文字”。",
+			"你是翻译助手。请先识别截图中的文字，再将其翻译成%s。必须翻译所有人类可读的自然语言内容，包括标题、状态标签、终端输出中的说明文字、表头、菜单项、按钮文字、提示语和普通句子；不要只是转写原文。只有命令、文件路径、URL、代码标识符、参数名、文件名、数字和符号等技术片段可以按需保留。只返回最终译文，不要解释，不要描述画面，不要添加引号；尽量保留原文的段落、列表和代码格式，但不要为了贴合截图逐行硬换行，也不要拆开英文单词。如果截图中没有可识别文字，只返回“未识别到可翻译文字”。",
 			target_language()
 		)
 	end
 
 	return string.format(
-		"你是翻译助手。请先识别截图中的文字，再执行翻译：如果截图中的主要文字包含中文字符，则翻译成%s；否则翻译成%s。必须翻译所有人类可读的自然语言内容，包括标题、状态标签、终端输出中的说明文字、表头、菜单项、按钮文字、提示语和普通句子；不要只是转写原文。只有命令、文件路径、URL、代码标识符、参数名、文件名、数字和符号等技术片段可以按需保留。只返回最终译文，不要解释，不要描述画面，不要添加引号；尽量保留原文换行、列表和代码格式。如果截图中没有可识别文字，只返回“未识别到可翻译文字”。",
+		"你是翻译助手。请先识别截图中的文字，再执行翻译：如果截图中的主要文字包含中文字符，则翻译成%s；否则翻译成%s。必须翻译所有人类可读的自然语言内容，包括标题、状态标签、终端输出中的说明文字、表头、菜单项、按钮文字、提示语和普通句子；不要只是转写原文。只有命令、文件路径、URL、代码标识符、参数名、文件名、数字和符号等技术片段可以按需保留。只返回最终译文，不要解释，不要描述画面，不要添加引号；尽量保留原文的段落、列表和代码格式，但不要为了贴合截图逐行硬换行，也不要拆开英文单词。如果截图中没有可识别文字，只返回“未识别到可翻译文字”。",
 		chinese_target_language(),
 		target_language()
 	)
 end
 
 local function image_user_prompt()
-	return "请先识别并翻译这张截图中的文字。英文标题、标签、按钮、菜单和终端说明文字不要原样抄回；如果它们是人类可读文本，请翻译。"
+	return "请先识别并翻译这张截图中的文字。英文标题、标签、按钮、菜单和终端说明文字不要原样抄回；如果它们是人类可读文本，请翻译。请输出适合阅读的最终译文，保留段落或列表结构，不要逐行硬换行。"
 end
 
 local function copy_translation_to_clipboard(result, show_alert)
@@ -1857,11 +1857,11 @@ local function estimate_text_units(text)
 	local ok = pcall(function()
 		for _, codepoint in utf8_lib.codes(normalized) do
 			if codepoint == 9 then
-				units = units + 2.5
+				units = units + 3.2
 			elseif codepoint == 32 then
-				units = units + 0.45
+				units = units + 0.4
 			elseif codepoint <= 127 then
-				units = units + 0.62
+				units = units + 0.72
 			else
 				units = units + 1
 			end
@@ -1927,6 +1927,70 @@ function config_utils.split_text_characters(text)
 	return characters
 end
 
+local function append_wrapped_line(wrapped, line)
+	local normalized = tostring(line or "")
+	local trimmed = normalized:gsub("%s+$", "")
+
+	if trimmed == "" and normalized ~= "" and normalized:match("^%s+$") ~= nil then
+		trimmed = normalized
+	end
+
+	table.insert(wrapped, trimmed)
+end
+
+local function is_ascii_non_space_character(character)
+	local byte = type(character) == "string" and string.byte(character) or nil
+
+	return byte ~= nil and byte <= 127 and character:match("%s") == nil
+end
+
+function config_utils.wrap_text_tokens(line)
+	local tokens = {}
+	local buffer = ""
+	local buffer_mode = nil
+
+	for _, character in ipairs(config_utils.split_text_characters(line)) do
+		local current_mode
+
+		if character:match("%s") ~= nil then
+			current_mode = "space"
+		elseif is_ascii_non_space_character(character) == true then
+			current_mode = "ascii"
+		else
+			current_mode = "other"
+		end
+
+		if current_mode == "other" then
+			if buffer ~= "" then
+				table.insert(tokens, buffer)
+				buffer = ""
+				buffer_mode = nil
+			end
+
+			table.insert(tokens, character)
+		elseif buffer_mode == current_mode then
+			buffer = buffer .. character
+		else
+			if buffer ~= "" then
+				table.insert(tokens, buffer)
+			end
+
+			buffer = character
+			buffer_mode = current_mode
+		end
+	end
+
+	if buffer ~= "" then
+		table.insert(tokens, buffer)
+	end
+
+	if #tokens == 0 then
+		return { "" }
+	end
+
+	return tokens
+end
+
 function config_utils.wrap_text_line(line, units_per_line)
 	local wrapped = {}
 	local current_line = ""
@@ -1937,21 +2001,53 @@ function config_utils.wrap_text_line(line, units_per_line)
 		return { "" }
 	end
 
-	for _, character in ipairs(config_utils.split_text_characters(line)) do
+	local function push_current_line()
+		if current_line == "" then
+			return
+		end
+
+		append_wrapped_line(wrapped, current_line)
+		current_line = ""
+		current_units = 0
+	end
+
+	local function append_character(character)
 		local character_units = math.max(0.25, estimate_text_units(character))
 
 		if current_line ~= "" and (current_units + character_units) > safe_units_per_line then
-			table.insert(wrapped, current_line)
-			current_line = character
-			current_units = character_units
-		else
-			current_line = current_line .. character
-			current_units = current_units + character_units
+			push_current_line()
 		end
+
+		current_line = current_line .. character
+		current_units = current_units + character_units
+	end
+
+	for _, token in ipairs(config_utils.wrap_text_tokens(line)) do
+		local token_units = math.max(0.25, estimate_text_units(token))
+		local token_is_space = token:match("^%s+$") ~= nil
+
+		if token_units > safe_units_per_line and token_is_space ~= true then
+			for _, character in ipairs(config_utils.split_text_characters(token)) do
+				append_character(character)
+			end
+		else
+			if current_line ~= "" and (current_units + token_units) > safe_units_per_line then
+				push_current_line()
+
+				if token_is_space == true then
+					goto continue
+				end
+			end
+
+			current_line = current_line .. token
+			current_units = current_units + token_units
+		end
+
+		::continue::
 	end
 
 	if current_line ~= "" then
-		table.insert(wrapped, current_line)
+		append_wrapped_line(wrapped, current_line)
 	end
 
 	if #wrapped == 0 then
@@ -2276,7 +2372,7 @@ local function resolve_popup_layout(result, anchor_bounds, page_index)
 
 	local width = math.min(max_width, math.max(min_width, math.floor((natural_units * 10.5) + 64)))
 	local body_width = width - 40
-	local units_per_line = math.max(12, math.floor(body_width / 10.5))
+	local units_per_line = math.max(10, math.floor((body_width - 18) / 12.2))
 	local wrapped_lines = config_utils.wrap_text_lines(result, units_per_line)
 	local natural_body_height = math.max(popup_geometry.body_min_height, #wrapped_lines * popup_body_line_height)
 
@@ -2752,6 +2848,7 @@ function config_utils.show_translation_popup(result, anchor_bounds, page_index)
 		type = "text",
 		text = layout.page_text,
 		textSize = 15,
+		textLineBreak = "clip",
 		textColor = theme.body,
 		frame = {
 			x = 18,

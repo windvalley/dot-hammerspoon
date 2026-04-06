@@ -18,6 +18,7 @@ When you add or change a user-facing hotkeyed feature, update `keybindings_confi
 
 ## Testing Guidelines
 The repository includes a lightweight `tests/` directory with Lua-based regression tests. Before submitting changes, run `luacheck .`, then `lua tests/run.lua`, reload Hammerspoon, and check the Console for module load failures. After that, exercise the affected hotkeys, menubar items, chooser flows, or fullscreen overlays directly. For modules that persist values through `hs.settings`, including `keep_awake`, `clipboard_center`, and `break_reminder`, verify behavior both before and after `hs.reload()`.
+When touching `selected_text_translate.lua`, keep popup wrapping/pagination single-sourced instead of relying on `hs.canvas` to auto-wrap already-split text, and add or update regression coverage for long English OCR translations so words are not split and content is not clipped.
 
 ## Commit & Pull Request Guidelines
 Recent history follows scoped Conventional Commits, for example `feat(core): ...`, `fix(utils): ...`, and `refactor(cheatsheet): ...`. Keep each commit focused on one module or one behavior change. Do not manually edit `CHANGELOG.md`; it is updated by automation. Pull requests should include a short summary, manual verification steps, and notes about changed hotkeys or menubar behavior. Add screenshots or GIFs when changing chooser panels, reminders, or overlays.

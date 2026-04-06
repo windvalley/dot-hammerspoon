@@ -771,6 +771,7 @@ function _M.run()
 	assert_equal(find_element(direct_recorded.canvas_states[1].elements, "background").frame.h, 132, "translator should keep the rounded bubble body separate from the arrow area")
 	assert_equal(find_element(direct_recorded.canvas_states[1].elements, "title").text, "翻译结果", "translator should render the popup title")
 	assert_equal(find_element(direct_recorded.canvas_states[1].elements, "body").text, "你好，世界", "translator should render the translated text")
+	assert_equal(find_element(direct_recorded.canvas_states[1].elements, "body").textLineBreak, "clip", "translator should avoid a second wrapping pass inside the popup body")
 	assert_close(find_element(direct_recorded.canvas_states[1].elements, "copy_button").fillColor.alpha, 0, 0.0001, "translator should keep the copy hit area invisible")
 	assert_close(find_element(direct_recorded.canvas_states[1].elements, "copy_icon_front").strokeColor.red, 0.24, 0.0001, "translator should use the selected theme accent color for the copy icon")
 	assert_true(find_element(direct_recorded.canvas_states[1].elements, "copy_icon_front") ~= nil, "translator should render the copy icon")
@@ -1017,7 +1018,7 @@ function _M.run()
 	)
 	assert_equal(
 		screenshot_recorded.encoded_payload.messages[2].content[1].text,
-		"请先识别并翻译这张截图中的文字。英文标题、标签、按钮、菜单和终端说明文字不要原样抄回；如果它们是人类可读文本，请翻译。",
+		"请先识别并翻译这张截图中的文字。英文标题、标签、按钮、菜单和终端说明文字不要原样抄回；如果它们是人类可读文本，请翻译。请输出适合阅读的最终译文，保留段落或列表结构，不要逐行硬换行。",
 		"screenshot translation should send the stronger OCR+translation prompt"
 	)
 	assert_equal(
@@ -1040,12 +1041,18 @@ function _M.run()
 		"终端输出中的说明文字",
 		"screenshot translation prompt should explicitly cover terminal labels"
 	)
+	assert_contains(
+		screenshot_recorded.encoded_payload.messages[1].content,
+		"不要为了贴合截图逐行硬换行",
+		"screenshot translation prompt should discourage screenshot-shaped hard wraps"
+	)
 	assert_equal(screenshot_recorded.shown_canvases, 1, "successful screenshot translation should show the floating popup")
 	assert_equal(
 		find_element(screenshot_recorded.canvas_states[1].elements, "body").text,
 		"截图译文",
 		"screenshot translation should render the translated OCR result"
 	)
+	assert_equal(find_element(screenshot_recorded.canvas_states[1].elements, "body").textLineBreak, "clip", "screenshot translation popup should rely on manual wrapping only once")
 	assert_equal(translator.get_state().screenshot_hotkey_key, "r", "translator state should expose the screenshot hotkey")
 	assert_true(translator.stop(), "translator stop should succeed after screenshot translation")
 	assert_equal(screenshot_recorded.deleted_bindings, 2, "translator stop should delete both hotkeys after screenshot translation")
@@ -1413,6 +1420,208 @@ function _M.run()
 	assert_equal(translator.get_state().popup_page_index, 1, "previous page should move the popup back")
 	assert_equal(find_element(paged_recorded.canvas_states[3].elements, "page_indicator").text, "第 1 / 3 页", "previous page should restore the first indicator")
 	assert_true(translator.stop(), "translator stop should succeed after paged popup coverage")
+
+	reset_modules()
+
+	local wrapped_english_recorded = {
+		alerts = {},
+		block_alerts = {},
+		async_posts = {},
+		deleted_bindings = 0,
+		menubar_created = 0,
+		menubar_deleted = 0,
+		settings_store = {},
+		timers = {},
+		stopped_timers = 0,
+		canvas_states = {},
+		canvas_levels = {},
+		shown_canvases = 0,
+		hidden_canvases = 0,
+		deleted_canvases = 0,
+		popup_watchers = {},
+		started_watchers = 0,
+		stopped_watchers = 0,
+		mouse_position = {
+			x = 0,
+			y = 0,
+		},
+	}
+	local wrapped_english_translation = table.concat({
+		"As long as you do not keep track of anyone's activities, do not speculate about anyone's thoughts, and do not imagine things that have not happened.",
+		"Live a simpler life, be a bit more foolish, even a bit slower, and you will find that you will live very comfortably.",
+		"The ability to block out distractions is a crucial skill for an individual.",
+		"Do not snoop into others' lives, do not speculate about their thoughts, and do not let other people's noise take over your attention.",
+		"Return your time and energy to yourself, and focus on what you truly need to do.",
+		"As long as you do not keep track of anyone's activities, do not speculate about anyone's thoughts, and do not imagine things that have not happened.",
+		"Live a simpler life, be a bit more foolish, even a bit slower, and you will find that you will live very comfortably.",
+		"The ability to block out distractions is a crucial skill for an individual.",
+		"Do not snoop into others' lives, do not speculate about their thoughts, and do not let other people's noise take over your attention.",
+		"Return your time and energy to yourself, and focus on what you truly need to do.",
+	}, " ")
+
+	rawset(os, "getenv", function(name)
+		if name == "OPENAI_API_KEY" then
+			return "sk-wrap"
+		end
+
+		return original_getenv(name)
+	end)
+
+	hs = {
+		logger = {
+			new = function()
+				return {
+					i = function() end,
+					w = function() end,
+					e = function() end,
+				}
+			end,
+		},
+		settings = {
+			get = function(key)
+				return wrapped_english_recorded.settings_store[key]
+			end,
+			set = function(key, value)
+				wrapped_english_recorded.settings_store[key] = value
+			end,
+			clear = function(key)
+				wrapped_english_recorded.settings_store[key] = nil
+			end,
+		},
+		menubar = create_menu_stub(wrapped_english_recorded),
+		alert = {
+			show = function(message)
+				table.insert(wrapped_english_recorded.alerts, message)
+			end,
+		},
+		dialog = {
+			blockAlert = function(message, informative_text)
+				table.insert(wrapped_english_recorded.block_alerts, {
+					message = message,
+					informative_text = informative_text,
+				})
+
+				return "关闭"
+			end,
+		},
+		timer = create_timer_stub(wrapped_english_recorded),
+		canvas = create_canvas_stub(wrapped_english_recorded),
+		eventtap = create_eventtap_stub(wrapped_english_recorded),
+		uielement = {
+			focusedElement = function()
+				return {
+					selectedText = function()
+						return "long english text"
+					end,
+				}
+			end,
+		},
+		mouse = {
+			absolutePosition = function()
+				return wrapped_english_recorded.mouse_position
+			end,
+		},
+		axuielement = create_axuielement_stub({
+			x = 400,
+			y = 300,
+			w = 100,
+			h = 24,
+		}),
+		screen = {
+			mainScreen = function()
+				return {
+					frame = function()
+						return { x = 100, y = 60, w = 1440, h = 900 }
+					end,
+				}
+			end,
+		},
+		json = {
+			encode = function(value)
+				wrapped_english_recorded.encoded_payload = value
+				return "encoded-payload"
+			end,
+			decode = function(_)
+				return {
+					choices = {
+						{
+							message = {
+								content = wrapped_english_translation,
+							},
+						},
+					},
+				}
+			end,
+		},
+		http = {
+			asyncPost = function(url, data, headers, callback)
+				table.insert(wrapped_english_recorded.async_posts, {
+					url = url,
+					data = data,
+					headers = headers,
+				})
+				callback(200, "{\"ok\":true}", {})
+			end,
+		},
+	}
+
+	loaded_modules["keybindings_config"] = {
+		selected_text_translate = {
+			enabled = true,
+			show_menubar = true,
+			prefix = { "Option" },
+			key = "R",
+			message = "Translate Selection",
+			translation_direction = "auto",
+			target_language = "英文",
+			chinese_target_language = "英文",
+			popup_duration_seconds = 8,
+			popup_theme = "ocean",
+			popup_background_alpha = 0.84,
+			model_service = build_model_service({
+				provider = "openai_compatible",
+				request_timeout_seconds = 15,
+				openai_compatible = {
+					api_url = "https://example.com/v1/chat/completions",
+					model = "gpt-wrap-test",
+					api_key_env = "OPENAI_API_KEY",
+				},
+			}),
+		},
+	}
+	loaded_modules["hotkey_helper"] = create_hotkey_helper_stub(wrapped_english_recorded)
+	loaded_modules["utils_lib"] = {
+		trim = function(value)
+			return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		end,
+		copy_list = function(items)
+			local copied = {}
+
+			for _, item in ipairs(items or {}) do
+				table.insert(copied, item)
+			end
+
+			return copied
+		end,
+		prompt_text = function(_, _, default_value)
+			return default_value
+		end,
+	}
+
+	translator = require("selected_text_translate")
+
+	assert_true(translator.start(), "translator should start successfully for English wrapping coverage")
+	translator.translate_current_selection()
+
+	assert_equal(wrapped_english_recorded.shown_canvases, 1, "English paragraph translations should still show a popup")
+	assert_true(translator.get_state().popup_page_count > 1, "English paragraph translations should paginate instead of clipping")
+	assert_equal(find_element(wrapped_english_recorded.canvas_states[1].elements, "body").textLineBreak, "clip", "English paragraph popup should disable secondary auto-wrap")
+	assert_contains(find_element(wrapped_english_recorded.canvas_states[1].elements, "body").text, "Live a simpler life", "English wrapping should keep whole words together")
+	assert_true(
+		find_element(wrapped_english_recorded.canvas_states[1].elements, "body").text:find("si\nmpler", 1, true) == nil,
+		"English wrapping should not split words across manual line breaks"
+	)
+	assert_true(translator.stop(), "translator stop should succeed after English wrapping coverage")
 
 	reset_modules()
 
