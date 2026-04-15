@@ -174,7 +174,7 @@ function _M.run()
 		system = {
 			lock_screen = { prefix = { "Option" }, key = "Q", message = "Lock Screen" },
 			screen_saver = { prefix = { "Option" }, key = "S", message = "Start Screensaver" },
-			keep_awake = { prefix = { "Option" }, key = "A", message = "Toggle Prevent Sleep" },
+			keep_awake = { prefix = { "Ctrl", "Option" }, key = "P", message = "Toggle Prevent Sleep" },
 			restart = { prefix = { "Ctrl", "Option" }, key = "R", message = "Restart Computer" },
 			shutdown = { prefix = { "Ctrl", "Option" }, key = "X", message = "Shutdown Computer" },
 		},
@@ -414,7 +414,7 @@ function _M.run()
 		system = {
 			lock_screen = { prefix = { "Option" }, key = "Q", message = "Lock Screen" },
 			screen_saver = { prefix = { "Option" }, key = "S", message = "Start Screensaver" },
-			keep_awake = { prefix = { "Option" }, key = "A", message = "Toggle Prevent Sleep" },
+			keep_awake = { prefix = { "Ctrl", "Option" }, key = "P", message = "Toggle Prevent Sleep" },
 			restart = { prefix = { "Ctrl", "Option" }, key = "R", message = "Restart Computer" },
 			shutdown = { prefix = { "Ctrl", "Option" }, key = "X", message = "Shutdown Computer" },
 		},
@@ -546,7 +546,7 @@ function _M.run()
 		system = {
 			lock_screen = { prefix = { "Option" }, key = "Q", message = "Lock Screen" },
 			screen_saver = { prefix = { "Option" }, key = "S", message = "Start Screensaver" },
-			keep_awake = { prefix = { "Option" }, key = "A", message = "Toggle Prevent Sleep" },
+			keep_awake = { prefix = { "Ctrl", "Option" }, key = "P", message = "Toggle Prevent Sleep" },
 			restart = { prefix = { "Ctrl", "Option" }, key = "R", message = "Restart Computer" },
 			shutdown = { prefix = { "Ctrl", "Option" }, key = "X", message = "Shutdown Computer" },
 		},

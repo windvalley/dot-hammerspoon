@@ -60,7 +60,7 @@ cd ~/.hammerspoon && git pull
 
 ### 系统管理
 
-- <kbd>⌥</kbd> + <kbd>A</kbd>: 切换防止休眠
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>P</kbd>: 切换防止休眠
 - <kbd>⌥</kbd> + <kbd>Q</kbd>: 锁屏
 - <kbd>⌥</kbd> + <kbd>S</kbd>: 启动屏保
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>R</kbd>: 重启电脑
@@ -68,7 +68,7 @@ cd ~/.hammerspoon && git pull
 
 ### 防止休眠
 
-使用菜单栏图标或 <kbd>⌥</kbd> + <kbd>A</kbd>，可以在长时间任务期间阻止空闲休眠。
+使用菜单栏图标或 <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>P</kbd>，可以在长时间任务期间阻止空闲休眠。
 
 - `enabled`：防止休眠模式默认是否开启。
 - `show_menubar`：是否显示菜单栏图标，便于查看状态和快速切换。

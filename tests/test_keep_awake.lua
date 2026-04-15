@@ -116,8 +116,8 @@ function _M.run()
 			keep_awake = {
 				enabled = false,
 				show_menubar = false,
-				prefix = { "Option" },
-				key = "A",
+				prefix = { "Ctrl", "Option" },
+				key = "P",
 				message = "Toggle Prevent Sleep",
 			},
 		},
@@ -149,6 +149,7 @@ function _M.run()
 			return table.concat(modifiers or {}, "+") .. (key and ("+" .. key) or "")
 		end,
 		modifier_prompt_names = {
+			Ctrl = "ctrl",
 			Option = "option",
 		},
 		bind = function()

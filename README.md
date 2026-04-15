@@ -60,7 +60,7 @@ cd ~/.hammerspoon && git pull
 
 ### System Management
 
-- <kbd>⌥</kbd> + <kbd>A</kbd>: Toggle Prevent Sleep
+- <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>P</kbd>: Toggle Prevent Sleep
 - <kbd>⌥</kbd> + <kbd>Q</kbd>: Lock Screen
 - <kbd>⌥</kbd> + <kbd>S</kbd>: Start Screensaver
 - <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>⇧</kbd> + <kbd>R</kbd>: Restart Computer
@@ -68,7 +68,7 @@ cd ~/.hammerspoon && git pull
 
 ### Prevent Sleep
 
-Use the menubar icon or <kbd>⌥</kbd> + <kbd>A</kbd> to prevent idle sleep during long-running tasks.
+Use the menubar icon or <kbd>⌃</kbd><kbd>⌥</kbd> + <kbd>P</kbd> to prevent idle sleep during long-running tasks.
 
 - `enabled`: default on/off state for the prevent-sleep mode.
 - `show_menubar`: show the menubar icon for quick status checks and toggling.

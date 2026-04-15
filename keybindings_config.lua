@@ -26,8 +26,8 @@ _M.system = {
 		message = "Start Screensaver",
 	},
 	keep_awake = {
-		prefix = { "Option" },
-		key = "A",
+		prefix = { "Ctrl", "Option" },
+		key = "P",
 		message = "Toggle Prevent Sleep",
 		-- 是否默认开启防休眠状态
 		enabled = false,
