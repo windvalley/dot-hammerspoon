@@ -113,6 +113,7 @@ _M.apps = {
 	{ prefix = { "Option" }, key = "M", message = "Mail", bundleId = "com.apple.mail" },
 	{ prefix = { "Option" }, key = "P", message = "Postman", bundleId = "com.postmanlabs.mac" },
 	{ prefix = { "Option" }, key = "E", message = "Excel", bundleId = "com.microsoft.Excel" },
+	{ prefix = { "Option" }, key = "A", message = "Claude", bundleId = "com.anthropic.claudefordesktop" },
 	{ prefix = { "Option" }, key = "L", message = "Codex", bundleId = "com.openai.codex" },
 	{ prefix = { "Option" }, key = "N", message = "Antigravity", bundleId = "com.google.antigravity" },
 	{ prefix = { "Option" }, key = "V", message = "VSCode", bundleId = "com.microsoft.VSCode" },
