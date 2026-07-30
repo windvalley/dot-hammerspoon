@@ -6,6 +6,7 @@ _M.description = "lua文件变动自动reload, 使实时生效"
 local log = hs.logger.new("reload")
 local reload_delay_seconds = 0.25
 local reload_notification_settings_key = "auto_reload.pending_notification"
+local last_pid_settings_key = "auto_reload.last_pid"
 local started = false
 
 local reload_timer = nil
@@ -20,11 +21,11 @@ end
 
 local function flush_reload_notification()
 	if type(hs.settings) ~= "table" or type(hs.settings.get) ~= "function" then
-		return
+		return false
 	end
 
 	if hs.settings.get(reload_notification_settings_key) ~= true then
-		return
+		return false
 	end
 
 	if type(hs.settings.clear) == "function" then
@@ -34,6 +35,28 @@ local function flush_reload_notification()
 	end
 
 	hs.alert.show("hammerspoon reloaded")
+
+	return true
+end
+
+-- 手动 reload(菜单 Reload Config / hs.reload())不会经过 watcher,
+-- 通过比较进程 PID 区分手动 reload 与冷启动: reload 后进程不变, PID 相同.
+local function flush_manual_reload_notification()
+	if type(hs.settings) ~= "table" or type(hs.settings.set) ~= "function" then
+		return
+	end
+
+	local pid = hs.processInfo and hs.processInfo.processID
+
+	if pid == nil then
+		return
+	end
+
+	if hs.settings.get(last_pid_settings_key) == pid then
+		hs.alert.show("hammerspoon reloaded")
+	end
+
+	hs.settings.set(last_pid_settings_key, pid)
 end
 
 local function stop_reload_timer()
@@ -117,7 +140,10 @@ function _M.start()
 	end
 
 	started = true
-	flush_reload_notification()
+
+	if flush_reload_notification() ~= true then
+		flush_manual_reload_notification()
+	end
 
 	return true
 end

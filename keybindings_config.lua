@@ -98,7 +98,7 @@ _M.auto_input_methods = {
 	["com.openai.codex"] = pinyin,
 	["com.microsoft.VSCode"] = pinyin,
 	["com.google.antigravity"] = pinyin,
-	["com.todesktop.230313mzl4w4u92"] = pinyin,
+	["com.moonshot.kimichat"] = pinyin,
 }
 
 -- App启动或隐藏
@@ -117,7 +117,7 @@ _M.apps = {
 	{ prefix = { "Option" }, key = "L", message = "Codex", bundleId = "com.openai.codex" },
 	{ prefix = { "Option" }, key = "N", message = "Antigravity", bundleId = "com.google.antigravity" },
 	{ prefix = { "Option" }, key = "V", message = "VSCode", bundleId = "com.microsoft.VSCode" },
-	{ prefix = { "Option" }, key = "K", message = "Cursor", bundleId = "com.todesktop.230313mzl4w4u92" },
+	{ prefix = { "Option" }, key = "K", message = "Kimi", bundleId = "com.moonshot.kimichat" },
 	{ prefix = { "Option" }, key = "J", message = "Tuitui", bundleId = "mac.im.qihoo.net" },
 	{ prefix = { "Option" }, key = "W", message = "WeChat", bundleId = "com.tencent.xinWeChat" },
 }

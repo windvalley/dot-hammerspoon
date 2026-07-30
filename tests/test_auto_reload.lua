@@ -37,6 +37,7 @@ function _M.run()
 			end,
 		},
 			configdir = "/tmp/hammerspoon",
+			processInfo = { processID = 4242 },
 			settings = {
 				get = function(key)
 					return recorded.settings_store[key]
@@ -127,6 +128,23 @@ function _M.run()
 		assert_true(auto_reload.start(), "module should start again after a reload")
 		assert_equal(recorded.last_alert, "hammerspoon reloaded", "reload marker should surface the post-reload alert")
 		assert_equal(recorded.settings_store["auto_reload.pending_notification"], nil, "post-reload alert should clear the notification marker")
+
+		auto_reload.stop()
+		reset_modules()
+
+		recorded.last_alert = nil
+		auto_reload = require("auto_reload")
+		assert_true(auto_reload.start(), "module should start again after a manual reload")
+		assert_equal(recorded.last_alert, "hammerspoon reloaded", "same-process restart should surface the manual reload alert")
+
+		auto_reload.stop()
+		reset_modules()
+
+		recorded.last_alert = nil
+		hs.processInfo.processID = 9999
+		auto_reload = require("auto_reload")
+		assert_true(auto_reload.start(), "module should start after a process restart")
+		assert_equal(recorded.last_alert, nil, "cold startup with a new pid should not show a reload alert")
 
 		auto_reload.stop()
 		reset_modules()
